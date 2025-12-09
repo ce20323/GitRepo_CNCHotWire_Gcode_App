@@ -38,3 +38,38 @@ codegen/
 # SimBiology backup files
 *.sbproj.backup
 *.sbproj.bak
+
+
+########## ADDITIONAL RECOMMENDED IGNORE RULES ##########
+
+# Workspace files (unless intentionally committed)
+*.mat
+
+# Temporary / log / crash files
+*.tmp
+*.temp
+*.log
+
+# Backup / merge-conflict leftovers
+*.bak
+*.backup
+*.orig
+*~
+
+# OS junk files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code / editor settings (if you ever open repo in VS Code)
+.vscode/
+.history/
+
+# Project user-specific files
+*.prj.user
+*.proj.User.mat
+*.autosave
+
+# MATLAB crash logs
+matlab_crash_dump.*
+matlab_exc.*
