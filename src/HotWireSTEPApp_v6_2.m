@@ -93,6 +93,49 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             clc;
             app.buildUI();
+
+            % ===========================================================
+            % DEV AUTO-LOAD TEST MODEL (REMOVE BEFORE RELEASE)
+            % ===========================================================
+            try
+                testFile = "C:\Users\ce20323\OneDrive - University of Bristol\Documents\MATLAB\CNCHotWire_GCode_App\examples\RibTemplate_NewCNCTest1.step";
+
+                if isfile(testFile)
+                    disp("DEV AUTOLOAD: Loading test STEP model...");
+
+                    % --- Use the existing helper to import STEP via FreeCAD ---
+                    [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
+                        testFile, app.FreeCADExe);
+
+                    if isempty(V)
+                        warning("DEV AUTOLOAD: STEP import returned empty data.");
+                    else
+                        % Store original vertices for rotation resets
+                        app.ModelVerticesOriginal = V;
+                        app.CurrentModelName      = "AUTOLOADED: RibTemplate_NewCNCTest1.step";
+
+                        % Reset orientation
+                        app.RotAngles = [0 0 0];
+                        for i = 1:3
+                            app.RotEdit(i).Value = 0;
+                        end
+
+                        % Reset plane offsets
+                        app.NumLeftOffset.Value  = 0;
+                        app.NumRightOffset.Value = 0;
+
+                        % --- Plot mesh and planes ---
+                        app.plotMesh(V,F);
+
+                        disp("DEV AUTOLOAD: Completed.");
+                    end
+                else
+                    warning("DEV AUTOLOAD: File not found:\n%s", testFile);
+                end
+
+            catch ME
+                warning("DEV AUTOLOAD ERROR:\n%s", ME.message);
+            end
         end
 
         % ===========================================================
@@ -804,8 +847,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             safeMaxX = app.ModelXMax + 2*span;
 
             % Colours (aviation-style port/starboard)
-            leftColor  = [0.8 0.1 0.15];   % red-ish
-            rightColor = [0.0 0.6 0.3];    % green-ish
+            leftColor = [0.96 0.06 0.06];   % slightly darker, richer red
+            rightColor = [0.20 1.00 0.35];   % muted green, not pastel
 
             % ----- Left plane -----
             if xLeft >= safeMinX && xLeft <= safeMaxX
@@ -816,7 +859,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.LeftPlanePatch = patch(app.AxModel, ...
                     'XData',XL,'YData',YL,'ZData',ZL, ...
                     'FaceColor',leftColor, ...
-                    'FaceAlpha',0.15, ...
+                    'FaceAlpha',0.4, ...
                     'EdgeColor','none');
 
                 % --- Left plane label at top-left corner ---
@@ -826,7 +869,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xLeft, tY, tZ, 'Left', ...
                     'HorizontalAlignment','left', ...
                     'VerticalAlignment','top', ...
-                    'Color', leftColor * 0.8, ...
+                    'Color', leftColor * 0.6, ...
                     'FontWeight','bold');
 
             else
@@ -843,7 +886,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.RightPlanePatch = patch(app.AxModel, ...
                     'XData',XR,'YData',YR,'ZData',ZR, ...
                     'FaceColor',rightColor, ...
-                    'FaceAlpha',0.15, ...
+                    'FaceAlpha',0.4, ...
                     'EdgeColor','none');
 
                 % --- Right label at top-right corner ---
@@ -854,7 +897,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xRight, tY, tZ, 'Right', ...
                     'HorizontalAlignment','right', ...
                     'VerticalAlignment','top', ...
-                    'Color', rightColor * 0.8, ...
+                    'Color', rightColor * 0.45, ...
                     'FontWeight','bold');
 
             else
