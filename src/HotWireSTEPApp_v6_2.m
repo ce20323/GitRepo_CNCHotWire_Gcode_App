@@ -79,6 +79,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ---------- Internal plane reference ----------
         ModelXMin double = 0   % left face of the model in machine X
         ModelXMax double = 0   % right face of the model in machine X
+
+        % ---------- App state ----------
+        % 0 = pre-profile (model only)
+        % 1 = active cutting (planes + profiles live)
+        AppState (1,1) double = 0
     end
 
     methods
@@ -126,6 +131,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                         % --- Plot mesh and planes ---
                         app.plotMesh(V,F);
+                        app.enterState0();
 
                         disp("DEV AUTOLOAD: Completed.");
                     end
@@ -134,7 +140,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
             catch ME
-                warning("DEV AUTOLOAD ERROR:\n%s", ME.message);
+                warning('DEV_AUTOLOAD:Error','%s', ME.message);
             end
         end
 
@@ -218,7 +224,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.TaperToggle = uiswitch(cutGrid,'slider', ...
                 'Items',{'Straight','Tapered'}, ...
-                'Value','Straight');
+                'Value','Straight', ...
+                'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
             app.TaperToggle.Layout.Column = 2;
 
             spR = uilabel(cutGrid,'Text',"");
@@ -420,6 +427,89 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
+        % STATE & PROFILE HELPERS
+        % ===========================================================
+        function clearPlanes(app)
+            % Deletes any existing plane graphics and resets handles
+            if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
+                delete(app.LeftPlanePatch);
+            end
+            if ~isempty(app.RightPlanePatch) && isgraphics(app.RightPlanePatch)
+                delete(app.RightPlanePatch);
+            end
+            if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText)
+                delete(app.LeftPlaneText);
+            end
+            if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText)
+                delete(app.RightPlaneText);
+            end
+
+            app.LeftPlanePatch  = gobjects(0);
+            app.RightPlanePatch = gobjects(0);
+            app.LeftPlaneText   = gobjects(0);
+            app.RightPlaneText  = gobjects(0);
+        end
+
+        function enterState0(app)
+            % STATE 0: model only, no planes, no profiles
+            app.AppState = 0;
+
+            % Clear planes (profiles will be cleared once implemented)
+            app.clearPlanes();
+
+            % Continue button disabled and visually muted
+            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
+                app.BtnContinue.Enable          = 'off';
+                app.BtnContinue.BackgroundColor = [0.3 0.3 0.3];
+                app.BtnContinue.FontColor       = [0.8 0.8 0.8];
+            end
+        end
+
+        function enterState1(app)
+            % STATE 1: planes + profiles are live
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return; % no model → nothing to do
+            end
+
+            app.AppState = 1;
+
+            % Continue button becomes active
+            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
+                app.BtnContinue.Enable          = 'on';
+                app.BtnContinue.BackgroundColor = [0.1 0.6 0.1];
+                app.BtnContinue.FontColor       = [1 1 1];
+            end
+
+            % Draw planes (and indirectly profiles once computeProfiles is wired)
+            app.updatePlanes();
+        end
+
+        function computeProfiles(app)
+            % PROFILE COMPUTATION STUB
+            %
+            % In STATE 1 this will:
+            %  - slice the rotated mesh against the two X = const planes
+            %  - draw 3D intersection polylines in AxModel
+            %  - update the 2D plots in the Profiles tab
+            %
+            % For now, this is a placeholder so the state machine wiring
+            % can be exercised without profile logic present.
+            if app.AppState == 0
+                return;
+            end
+        end
+
+        function onTaperModeChanged(app)
+
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+
+            % Re-run planes + profiles under the new taper mode
+            app.updatePlanes();  % will call computeProfiles() in STATE 1
+        end
+
+        % ===========================================================
         % IMPORT STEP / STL
         % ===========================================================
         function onImportSTEP(app)
@@ -461,6 +551,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 rethrow(ME);
             end
 
+            app.enterState0();
             close(d);
         end
 
@@ -501,6 +592,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 rethrow(ME);
             end
 
+            app.enterState0();
             close(d);
         end
 
@@ -509,13 +601,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         function plotMesh(app,V,F)
             cla(app.AxModel);
-
-            % Theme-aware label colour
-            if app.UIFigure.Color(1) < 0.5
-                axisLabelColor = [1 1 1];
-            else
-                axisLabelColor = [0 0 0];
-            end
 
             app.ModelPatch = patch(app.AxModel, ...
                 'Vertices',V,'Faces',F, ...
@@ -532,9 +617,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.FileLabel.Text = "Current File: ---";
             end
 
-            xlabel(app.AxModel,'X (mm)','FontWeight','bold','FontWeight','bold');
-            ylabel(app.AxModel,'Y (mm)','FontWeight','bold','FontWeight','bold');
-            zlabel(app.AxModel,'Z (mm)','FontWeight','bold','FontWeight','bold');
+            xlabel(app.AxModel,'X (mm)','FontWeight','bold');
+            ylabel(app.AxModel,'Y (mm)','FontWeight','bold');
+            zlabel(app.AxModel,'Z (mm)','FontWeight','bold');
 
             grid(app.AxModel,'on');
             view(app.AxModel,3);
@@ -549,9 +634,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Update model X bounds and default plane offsets
             app.updateModelBoundsAndDefaultOffsets();
-
-            % Draw planes for current offsets
-            app.updatePlanes();
         end
 
         function autoFitView(app)
@@ -654,10 +736,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
+            % Determine which rotation axis this is
             switch axisChar
                 case 'X', idx = 1;
                 case 'Y', idx = 2;
                 case 'Z', idx = 3;
+                otherwise, return;
             end
 
             oldVal = app.RotAngles(idx);
@@ -666,17 +750,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
+            % Update stored rotation angle
             app.RotAngles(idx) = newVal;
 
+            % Build rotation matrix
             switch axisChar
                 case 'X'
                     R = makehgtform('xrotate',deg2rad(delta));
                 case 'Y'
                     R = makehgtform('yrotate',deg2rad(delta));
                 case 'Z'
-                    R = makehgtform('zrotate',deg2rad(-delta)); % inverted Z
+                    R = makehgtform('zrotate',deg2rad(-delta)); % inverted Z for UI intuition
             end
 
+            % Rotate mesh vertices about their centroid
             V = app.ModelPatch.Vertices;
             C = mean(V,1);
             V = V - C;
@@ -684,10 +771,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             V = V(:,1:3) + C;
             app.ModelPatch.Vertices = V;
 
+            % Refocus view
             app.autoFitView();
 
-            % Update plane positions in machine X after rotation
-            app.updateModelBoundsAndDefaultOffsets(false); % don't overwrite user offsets
+            % OPTION A: After rotation, behave like Reset Planes
+            % Recompute model bounds and reset offsets so:
+            %   LeftOffset  = 0 (left face)
+            %   RightOffset = width (right face)
+            app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
         end
 
@@ -700,6 +791,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             d  = cmd(2);
             theta = 90*(d=='p') - 90*(d=='m');
 
+            % Build rotation matrix for the requested axis
             switch ax
                 case 'X'
                     R   = makehgtform('xrotate',deg2rad(theta));
@@ -710,11 +802,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 case 'Z'
                     R   = makehgtform('zrotate',deg2rad(-theta));
                     idx = 3;
+                otherwise
+                    return;
             end
 
+            % Update stored angle and edit field
             app.RotAngles(idx)     = mod(app.RotAngles(idx) + theta,360);
             app.RotEdit(idx).Value = app.RotAngles(idx);
 
+            % Rotate mesh vertices about their centroid
             V = app.ModelPatch.Vertices;
             C = mean(V,1);
             V = V - C;
@@ -722,11 +818,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             V = V(:,1:3) + C;
             app.ModelPatch.Vertices = V;
 
+            % Update view and store as new "home" orientation
             app.autoFitView();
             app.captureHomeView();
 
-            % Update plane positions after rotation
-            app.updateModelBoundsAndDefaultOffsets(false); % don't overwrite user offsets
+            % OPTION A: After rotation, behave like Reset Planes
+            app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
         end
 
@@ -784,10 +881,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onPlaneOffsetChanged(app, ~, ~)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return
             end
-            app.updatePlanes();
+
+            app.updatePlanes();  % this will also call computeProfiles() in STATE 1
         end
 
         function resetPlanes(app)
@@ -801,22 +899,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updatePlanes(app)
             % Draw/update left/right Y–Z planes in machine X
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
+
+            % Always clear existing plane graphics first
+            app.clearPlanes();
+
+            % No model? nothing to do.
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return
             end
 
-            % Delete any existing plane patches/text
-            if ~isempty(app.LeftPlanePatch) && isvalid(app.LeftPlanePatch)
-                delete(app.LeftPlanePatch);
-            end
-            if ~isempty(app.RightPlanePatch) && isvalid(app.RightPlanePatch)
-                delete(app.RightPlanePatch);
-            end
-            if ~isempty(app.LeftPlaneText) && isvalid(app.LeftPlaneText)
-                delete(app.LeftPlaneText);
-            end
-            if ~isempty(app.RightPlaneText) && isvalid(app.RightPlaneText)
-                delete(app.RightPlaneText);
+            % In STATE 0 (pre-profile) we do *not* draw planes.
+            if app.AppState == 0
+                return;
             end
 
             V = app.ModelPatch.Vertices;
@@ -826,7 +920,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if span <= 0
                 span = 1;
             end
-            pad = 0.1 * span;
+            pad = 0.2 * span;
 
             yMin = mins(2) - pad;
             yMax = maxs(2) + pad;
@@ -847,8 +941,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             safeMaxX = app.ModelXMax + 2*span;
 
             % Colours (aviation-style port/starboard)
-            leftColor = [0.96 0.06 0.06];   % slightly darker, richer red
-            rightColor = [0.20 1.00 0.35];   % muted green, not pastel
+            leftColor  = [0.96 0.06 0.06];  % saturated red
+            rightColor = [0.20 1.00 0.35];  % bright green
 
             % ----- Left plane -----
             if xLeft >= safeMinX && xLeft <= safeMaxX
@@ -862,16 +956,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'FaceAlpha',0.4, ...
                     'EdgeColor','none');
 
-                % --- Left plane label at top-left corner ---
+                % Left label – top-left of plane (in camera-facing projection)
                 tY = yMax - 0.02*(yMax - yMin);   % slightly inside the top
-                tZ = zMax - 0.1*(zMax - zMin);   % slightly inside the top
+                tZ = zMax - 0.1*(zMax - zMin);    % slightly inside the top
                 app.LeftPlaneText = text(app.AxModel, ...
                     xLeft, tY, tZ, 'Left', ...
                     'HorizontalAlignment','left', ...
                     'VerticalAlignment','top', ...
                     'Color', leftColor * 0.6, ...
                     'FontWeight','bold');
-
             else
                 app.LeftPlanePatch = gobjects(0);
                 app.LeftPlaneText  = gobjects(0);
@@ -889,20 +982,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'FaceAlpha',0.4, ...
                     'EdgeColor','none');
 
-                % --- Right label at top-right corner ---
-                % RIGHT label – top-right of plane (in camera-facing projection)
-                tY = yMin;                                 % right in projection
-                tZ = zMax;                                 % top edge
+                % Right label – top-right of plane (in camera-facing projection)
+                tY = yMin;   % right side in the default 3D view
+                tZ = zMax;   % top edge
                 app.RightPlaneText = text(app.AxModel, ...
                     xRight, tY, tZ, 'Right', ...
                     'HorizontalAlignment','right', ...
                     'VerticalAlignment','top', ...
                     'Color', rightColor * 0.45, ...
                     'FontWeight','bold');
-
             else
                 app.RightPlanePatch = gobjects(0);
                 app.RightPlaneText  = gobjects(0);
+            end
+
+            % In STATE 1, ensure profiles track the latest plane positions
+            if app.AppState == 1
+                app.computeProfiles();
             end
 
         end
@@ -911,11 +1007,17 @@ classdef HotWireSTEPApp_v6_2 < handle
         % PROFILE BUTTONS (stubs for now)
         % ===========================================================
         function onGenerateProfiles(app)
-            % For now, just enable Continue button. All heavy profile
-            % logic will be added once this baseline is stable.
-            app.BtnContinue.Enable          = 'on';
-            app.BtnContinue.BackgroundColor = [0.1 0.6 0.1];
-            app.BtnContinue.FontColor       = [1 1 1];
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return; % nothing loaded
+            end
+
+            if app.AppState == 0
+                % Transition from STATE 0 → STATE 1
+                app.enterState1();
+            else
+                % Already in STATE 1: recompute with current rotation / offsets / taper
+                app.updatePlanes();  % will call computeProfiles()
+            end
         end
 
         function onContinue(app)
