@@ -62,6 +62,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         RightPlanePatch
         LeftPlaneText
         RightPlaneText
+        
+        % ---------- Profiles (3D graphics + raw data) ----------
+        LeftProfileLine3D
+        RightProfileLine3D
+        LeftProfilePoints   % Nx3 double (NaNs removed)
+        RightProfilePoints  % Nx3 double (NaNs removed)
 
         % ---------- FreeCAD ----------
         FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"
@@ -424,6 +430,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             grid(app.AxModel,'on');
             view(app.AxModel,3);
+
+            % Ensure additional plots (planes, profiles) don't wipe the model
+            hold(app.AxModel,'on');
+            app.AxModel.NextPlot = 'add';
+
         end
 
         % ===========================================================
@@ -450,12 +461,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightPlaneText  = gobjects(0);
         end
 
+        function clearProfiles(app)
+            % Deletes any existing profile graphics and clears stored data
+            if ~isempty(app.LeftProfileLine3D) && isgraphics(app.LeftProfileLine3D)
+                delete(app.LeftProfileLine3D);
+            end
+            if ~isempty(app.RightProfileLine3D) && isgraphics(app.RightProfileLine3D)
+                delete(app.RightProfileLine3D);
+            end
+
+            app.LeftProfileLine3D  = gobjects(0);
+            app.RightProfileLine3D = gobjects(0);
+            app.LeftProfilePoints  = [];
+            app.RightProfilePoints = [];
+        end
+
         function enterState0(app)
             % STATE 0: model only, no planes, no profiles
             app.AppState = 0;
 
-            % Clear planes (profiles will be cleared once implemented)
+            % Clear planes and profiles
             app.clearPlanes();
+            app.clearProfiles();
 
             % Continue button disabled and visually muted
             if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
@@ -485,18 +512,63 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function computeProfiles(app)
-            % PROFILE COMPUTATION STUB
-            %
-            % In STATE 1 this will:
-            %  - slice the rotated mesh against the two X = const planes
-            %  - draw 3D intersection polylines in AxModel
-            %  - update the 2D plots in the Profiles tab
-            %
-            % For now, this is a placeholder so the state machine wiring
-            % can be exercised without profile logic present.
-            if app.AppState == 0
+            % Compute and plot raw intersection profiles for left/right planes.
+
+            if app.AppState == 0 ...
+                    || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
+
+            % Clear previous profile graphics
+            app.clearProfiles();
+
+            % --- Current rotated mesh ---
+            V = app.ModelPatch.Vertices;
+            F = app.ModelPatch.Faces;
+
+            mins = min(V,[],1);
+            maxs = max(V,[],1);
+            spanVec = maxs - mins;
+            span = max(spanVec);
+            if span <= 0, span = 1; end
+
+            epsX = 1e-6 * span;
+
+            % Plane positions
+            xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
+            xRight = app.ModelXMin + app.NumRightOffset.Value;
+
+            % Colours that match your plane system
+            leftColor  = [0.96 0.06 0.06];
+            rightColor = [0.20 1.00 0.35];
+
+            % ----- LEFT SLICING -----
+            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+
+            if ~isempty(xsL) && any(~isnan(xsL))
+                app.LeftProfileLine3D = plot3(app.AxModel, xsL, ysL, zsL, ...
+                    'Color', leftColor, 'LineWidth',1.3);
+
+                idx = ~isnan(xsL) & ~isnan(ysL) & ~isnan(zsL);
+                app.LeftProfilePoints = [xsL(idx).', ysL(idx).', zsL(idx).'];
+            else
+                app.LeftProfilePoints = [];
+            end
+
+            % ----- RIGHT SLICING -----
+            [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+
+            if ~isempty(xsR) && any(~isnan(xsR))
+                app.RightProfileLine3D = plot3(app.AxModel, xsR, ysR, zsR, ...
+                    'Color', rightColor, 'LineWidth',1.3);
+
+                idx = ~isnan(xsR) & ~isnan(ysR) & ~isnan(zsR);
+                app.RightProfilePoints = [xsR(idx).', ysR(idx).', zsR(idx).'];
+            else
+                app.RightProfilePoints = [];
+            end
+
+            drawnow limitrate nocallbacks;
         end
 
         function onTaperModeChanged(app)
