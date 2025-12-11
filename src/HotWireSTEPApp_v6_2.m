@@ -174,27 +174,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabModel    = uitab(app.TabGroup,'Title','Model');
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % reserved
 
-            % ================================
-            % PROFILES TAB LAYOUT (Left top, Right bottom)
-            % ================================
-            profilesGrid = uigridlayout(app.TabProfiles,[2 1]);
-            profilesGrid.RowHeight = {'1x','1x'};
-            profilesGrid.ColumnWidth = {'1x'};
-
-            app.AxLeftProfile = uiaxes(profilesGrid);
-            app.AxLeftProfile.Layout.Row = 1;
-            title(app.AxLeftProfile,'Left Profile');
-            xlabel(app.AxLeftProfile,'Y (mm)');
-            ylabel(app.AxLeftProfile,'Z (mm)');
-            grid(app.AxLeftProfile,'on');
-
-            app.AxRightProfile = uiaxes(profilesGrid);
-            app.AxRightProfile.Layout.Row = 2;
-            title(app.AxRightProfile,'Right Profile');
-            xlabel(app.AxRightProfile,'Y (mm)');
-            ylabel(app.AxRightProfile,'Z (mm)');
-            grid(app.AxRightProfile,'on');
-
             % -------------------------------------------------------
             % PROFILES TAB LAYOUT (2D LEFT/RIGHT PROFILES)
             % -------------------------------------------------------
