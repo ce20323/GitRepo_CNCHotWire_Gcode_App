@@ -87,6 +87,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultCameraTarget
         DefaultCameraUpVector
 
+        % ---------- Mouse interaction state ----------
+        IsDragging logical = false
+        LastMousePos (1,2) double = [NaN NaN]
+
         % ---------- Internal plane reference ----------
         ModelXMin double = 0   % left face of the model in machine X
         ModelXMax double = 0   % right face of the model in machine X
@@ -98,6 +102,7 @@ classdef HotWireSTEPApp_v6_2 < handle
     end
 
     methods
+
         function app = HotWireSTEPApp_v6_2()
             % Constructor: close any existing instance of this app and
             % build a fresh UI.
@@ -469,6 +474,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Ensure additional plots (planes, profiles) don't wipe the model
             hold(app.AxModel,'on');
             app.AxModel.NextPlot = 'add';
+            
+            grid(app.AxModel,'on');
+            view(app.AxModel,3);
+
+            % Ensure additional plots (planes, profiles) don't wipe the model
+            hold(app.AxModel,'on');
+            app.AxModel.NextPlot = 'add';
+
+            % -------------------------------------------------------
+            % Enable click-drag rotation on the 3D axes
+            % -------------------------------------------------------
+            app.UIFigure.WindowButtonDownFcn   = @(src,evt)app.onMouseDown(src,evt);
+            app.UIFigure.WindowButtonMotionFcn = @(src,evt)app.onMouseMove(src,evt);
+            app.UIFigure.WindowButtonUpFcn     = @(src,evt)app.onMouseUp(src,evt);
 
         end
 
@@ -1248,5 +1267,61 @@ classdef HotWireSTEPApp_v6_2 < handle
             % For now, just jump to Profiles tab (placeholder behaviour).
             app.TabGroup.SelectedTab = app.TabProfiles;
         end
+    
+        % ===========================================================
+        % MOUSE-DRAG ROTATION FOR 3D AXES
+        % ===========================================================
+        function onMouseDown(app,~,~)
+            % Only respond to left-click
+            if ~strcmp(app.UIFigure.SelectionType,'normal')
+                return;
+            end
+
+            % Check if the click is on the 3D axes (or its children)
+            h = hittest(app.UIFigure);
+            if isempty(h)
+                return;
+            end
+            ax = ancestor(h,'axes');
+            if isempty(ax) || ax ~= app.AxModel
+                return;
+            end
+
+            % Start dragging
+            app.IsDragging  = true;
+            app.LastMousePos = app.UIFigure.CurrentPoint;
+        end
+
+        function onMouseMove(app,~,~)
+            if ~app.IsDragging
+                return;
+            end
+            if isempty(app.AxModel) || ~isvalid(app.AxModel)
+                return;
+            end
+
+            cp = app.UIFigure.CurrentPoint;
+            if any(isnan(app.LastMousePos))
+                app.LastMousePos = cp;
+                return;
+            end
+
+            delta = cp - app.LastMousePos;
+            app.LastMousePos = cp;
+
+            % Sensitivity
+            rotSpeed = 0.3;  % tweak if too fast/slow
+
+            dAz = -delta(1) * rotSpeed;  % horizontal mouse → azimuth
+            dEl = -delta(2) * rotSpeed;  % vertical mouse → elevation
+
+            camorbit(app.AxModel, dAz, dEl, 'camera');
+        end
+
+        function onMouseUp(app,~,~)
+            app.IsDragging   = false;
+            app.LastMousePos = [NaN NaN];
+        end
+
     end
 end
