@@ -459,6 +459,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxModel.Layout.Column   = 2;
             app.AxModel.BackgroundColor = [0.11 0.11 0.11];
 
+            % Hide the built-in axes toolbar so our custom mouse
+            % rotation isn't fighting the zoom/pan tools.
+            app.AxModel.Toolbar.Visible = 'off';
+
             % Default labels to reserve space
             xlabel(app.AxModel,'X (mm)','FontWeight','bold');
             ylabel(app.AxModel,'Y (mm)','FontWeight','bold');
