@@ -24,6 +24,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         TabGroup
         TabModel
         TabProfiles      % reserved for future profile plots
+        GLProfiles
+        AxLeftProfile
+        AxRightProfile
 
         GLModel
         GLLeft
@@ -68,6 +71,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         RightProfileLine3D
         LeftProfilePoints   % Nx3 double (NaNs removed)
         RightProfilePoints  % Nx3 double (NaNs removed)
+        LeftProfile2DLine
+        RightProfile2DLine
 
         % ---------- FreeCAD ----------
         FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"
@@ -168,6 +173,57 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.TabModel    = uitab(app.TabGroup,'Title','Model');
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % reserved
+
+            % ================================
+            % PROFILES TAB LAYOUT (Left top, Right bottom)
+            % ================================
+            profilesGrid = uigridlayout(app.TabProfiles,[2 1]);
+            profilesGrid.RowHeight = {'1x','1x'};
+            profilesGrid.ColumnWidth = {'1x'};
+
+            app.AxLeftProfile = uiaxes(profilesGrid);
+            app.AxLeftProfile.Layout.Row = 1;
+            title(app.AxLeftProfile,'Left Profile');
+            xlabel(app.AxLeftProfile,'Y (mm)');
+            ylabel(app.AxLeftProfile,'Z (mm)');
+            grid(app.AxLeftProfile,'on');
+
+            app.AxRightProfile = uiaxes(profilesGrid);
+            app.AxRightProfile.Layout.Row = 2;
+            title(app.AxRightProfile,'Right Profile');
+            xlabel(app.AxRightProfile,'Y (mm)');
+            ylabel(app.AxRightProfile,'Z (mm)');
+            grid(app.AxRightProfile,'on');
+
+            % -------------------------------------------------------
+            % PROFILES TAB LAYOUT (2D LEFT/RIGHT PROFILES)
+            % -------------------------------------------------------
+            % Profiles tab layout: left profile on top, right profile on bottom
+            app.GLProfiles = uigridlayout(app.TabProfiles,[2 1]);
+            app.GLProfiles.RowHeight   = {'1x','1x'};
+            app.GLProfiles.ColumnWidth = {'1x'};
+            app.GLProfiles.Padding     = [15 15 15 15];
+            app.GLProfiles.RowSpacing  = 10;
+
+            % Left profile axes (top)
+            app.AxLeftProfile = uiaxes(app.GLProfiles);
+            app.AxLeftProfile.Layout.Row    = 1;
+            app.AxLeftProfile.Layout.Column = 1;
+            app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxLeftProfile,'Left Profile');
+            xlabel(app.AxLeftProfile,'Y (mm)');
+            ylabel(app.AxLeftProfile,'Z (mm)');
+            grid(app.AxLeftProfile,'on');
+
+            % Right profile axes (bottom)
+            app.AxRightProfile = uiaxes(app.GLProfiles);
+            app.AxRightProfile.Layout.Row    = 2;
+            app.AxRightProfile.Layout.Column = 1;
+            app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxRightProfile,'Right Profile');
+            xlabel(app.AxRightProfile,'Y (mm)');
+            ylabel(app.AxRightProfile,'Z (mm)');
+            grid(app.AxRightProfile,'on');
 
             % --- Main layout: left controls / right plot ---
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
@@ -475,6 +531,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LeftProfilePoints  = [];
             app.RightProfilePoints = [];
         end
+     
+        function clearProfiles2D(app)
+            % Deletes 2D profile lines on the Profiles tab
+            if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
+                delete(app.LeftProfile2DLine);
+            end
+            if ~isempty(app.RightProfile2DLine) && isgraphics(app.RightProfile2DLine)
+                delete(app.RightProfile2DLine);
+            end
+
+            app.LeftProfile2DLine  = gobjects(0);
+            app.RightProfile2DLine = gobjects(0);
+        end
 
         function enterState0(app)
             % STATE 0: model only, no planes, no profiles
@@ -483,6 +552,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Clear planes and profiles
             app.clearPlanes();
             app.clearProfiles();
+            app.clearProfiles2D();
 
             % Continue button disabled and visually muted
             if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
@@ -512,24 +582,27 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function computeProfiles(app)
-            % Compute and plot raw intersection profiles for left/right planes.
+            % Compute and plot intersection profiles for left/right planes.
+            %  - 3D curves in the Model tab (ordered main loop)
+            %  - 2D Y–Z curves in the Profiles tab (shared scaling)
 
             if app.AppState == 0 ...
                     || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
 
-            % Clear previous profile graphics
+            % Clear previous graphics
             app.clearProfiles();
+            app.clearProfiles2D();
 
             % --- Current rotated mesh ---
             V = app.ModelPatch.Vertices;
             F = app.ModelPatch.Faces;
 
-            mins = min(V,[],1);
-            maxs = max(V,[],1);
+            mins    = min(V,[],1);
+            maxs    = max(V,[],1);
             spanVec = maxs - mins;
-            span = max(spanVec);
+            span    = max(spanVec);
             if span <= 0, span = 1; end
 
             epsX = 1e-6 * span;
@@ -538,37 +611,137 @@ classdef HotWireSTEPApp_v6_2 < handle
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
 
-            % Colours that match your plane system
+            % Colours matching planes
             leftColor  = [0.96 0.06 0.06];
             rightColor = [0.20 1.00 0.35];
 
-            % ----- LEFT SLICING -----
-            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            % -------------------------------------------------------
+            % LEFT PROFILE
+            % -------------------------------------------------------
+            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
+                V, F, xLeft + epsX);
 
+            yLoopL = [];
+            zLoopL = [];
             if ~isempty(xsL) && any(~isnan(xsL))
-                app.LeftProfileLine3D = plot3(app.AxModel, xsL, ysL, zsL, ...
-                    'Color', leftColor, 'LineWidth',1.3);
+                [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
+                    xsL, ysL, zsL);
+            end
 
-                idx = ~isnan(xsL) & ~isnan(ysL) & ~isnan(zsL);
-                app.LeftProfilePoints = [xsL(idx).', ysL(idx).', zsL(idx).'];
+            if ~isempty(yLoopL)
+                xVecL = xLeft * ones(numel(yLoopL),1);
+                app.LeftProfileLine3D = plot3(app.AxModel, ...
+                    xVecL, yLoopL, zLoopL, ...
+                    'Color', leftColor, 'LineWidth',1.4);
+
+                app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
             else
                 app.LeftProfilePoints = [];
             end
 
-            % ----- RIGHT SLICING -----
-            [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+            % -------------------------------------------------------
+            % RIGHT PROFILE
+            % -------------------------------------------------------
+            [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
+                V, F, xRight - epsX);
 
+            yLoopR = [];
+            zLoopR = [];
             if ~isempty(xsR) && any(~isnan(xsR))
-                app.RightProfileLine3D = plot3(app.AxModel, xsR, ysR, zsR, ...
-                    'Color', rightColor, 'LineWidth',1.3);
+                [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
+                    xsR, ysR, zsR);
+            end
 
-                idx = ~isnan(xsR) & ~isnan(ysR) & ~isnan(zsR);
-                app.RightProfilePoints = [xsR(idx).', ysR(idx).', zsR(idx).'];
+            if ~isempty(yLoopR)
+                xVecR = xRight * ones(numel(yLoopR),1);
+                app.RightProfileLine3D = plot3(app.AxModel, ...
+                    xVecR, yLoopR, zLoopR, ...
+                    'Color', rightColor, 'LineWidth',1.4);
+
+                app.RightProfilePoints = [xVecR, yLoopR, zLoopR];
             else
                 app.RightProfilePoints = [];
             end
 
+            % -------------------------------------------------------
+            % 2D PROFILES TAB UPDATE (shared Y/Z limits)
+            % -------------------------------------------------------
+            app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
+
             drawnow limitrate nocallbacks;
+        end
+        
+        function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
+            % Draw 2D Y–Z profiles on the Profiles tab with shared scaling.
+
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) ...
+                    || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+                return;
+            end
+
+            % If no profiles, nothing to show
+            if isempty(yL) && isempty(yR)
+                return;
+            end
+
+            % Axis limits: union of left & right, with padding
+            yAll = [yL(:); yR(:)];
+            zAll = [zL(:); zR(:)];
+
+            if isempty(yAll) || isempty(zAll)
+                return;
+            end
+
+            yMin = min(yAll); yMax = max(yAll);
+            zMin = min(zAll); zMax = max(zAll);
+
+            dy = yMax - yMin;
+            dz = zMax - zMin;
+            if dy <= 0, dy = 1; end
+            if dz <= 0, dz = 1; end
+
+            padY = 0.1 * dy;
+            padZ = 0.1 * dz;
+
+            yLim = [yMin - padY, yMax + padY];
+            zLim = [zMin - padZ, zMax + padZ];
+
+            leftColor  = [0.96 0.06 0.06];
+            rightColor = [0.20 1.00 0.35];
+
+            % Clear only profile lines (labels/titles persist)
+            app.clearProfiles2D();
+
+            if ~isempty(yL)
+                app.LeftProfile2DLine = plot(app.AxLeftProfile, ...
+                    yL, zL, 'Color', leftColor, 'LineWidth',1.5);
+            end
+
+            if ~isempty(yR)
+                app.RightProfile2DLine = plot(app.AxRightProfile, ...
+                    yR, zR, 'Color', rightColor, 'LineWidth',1.5);
+            end
+
+            % Shared limits
+            xlim(app.AxLeftProfile,  yLim);
+            ylim(app.AxLeftProfile,  zLim);
+            xlim(app.AxRightProfile, yLim);
+            ylim(app.AxRightProfile, zLim);
+            
+            % True-scale Y–Z aspect ratio on both axes
+            daspect(app.AxLeftProfile,[1 1 1]);
+            daspect(app.AxRightProfile,[1 1 1]);
+
+            % Titles / labels
+            title(app.AxLeftProfile,  sprintf('Left Profile  (X = %.2f mm)',  xLeft));
+            title(app.AxRightProfile, sprintf('Right Profile (X = %.2f mm)', xRight));
+            xlabel(app.AxLeftProfile,'Y (mm)');
+            ylabel(app.AxLeftProfile,'Z (mm)');
+            xlabel(app.AxRightProfile,'Y (mm)');
+            ylabel(app.AxRightProfile,'Z (mm)');
+
+            grid(app.AxLeftProfile,'on');
+            grid(app.AxRightProfile,'on');
         end
 
         function onTaperModeChanged(app)
@@ -1029,13 +1202,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'EdgeColor','none');
 
                 % Left label – top-left of plane (in camera-facing projection)
-                tY = yMax - 0.02*(yMax - yMin);   % slightly inside the top
-                tZ = zMax - 0.1*(zMax - zMin);    % slightly inside the top
+                tY = yMax - 0.05*(yMax - yMin);   % slightly inside the top
+                tZ = zMax - 0.05*(zMax - zMin);    % slightly inside the top
                 app.LeftPlaneText = text(app.AxModel, ...
                     xLeft, tY, tZ, 'Left', ...
                     'HorizontalAlignment','left', ...
                     'VerticalAlignment','top', ...
-                    'Color', leftColor * 0.6, ...
+                    'Color', leftColor * 0.8, ...
                     'FontWeight','bold');
             else
                 app.LeftPlanePatch = gobjects(0);
@@ -1055,13 +1228,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'EdgeColor','none');
 
                 % Right label – top-right of plane (in camera-facing projection)
-                tY = yMin;   % right side in the default 3D view
-                tZ = zMax;   % top edge
+                tY = yMin + 0.05*(yMax - yMin);   % slightly inside the top
+                tZ = zMax - 0.05*(zMax - zMin);    % slightly inside the top
                 app.RightPlaneText = text(app.AxModel, ...
                     xRight, tY, tZ, 'Right', ...
                     'HorizontalAlignment','right', ...
                     'VerticalAlignment','top', ...
-                    'Color', rightColor * 0.45, ...
+                    'Color', rightColor * 0.7, ...
                     'FontWeight','bold');
             else
                 app.RightPlanePatch = gobjects(0);
