@@ -184,6 +184,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabModel    = uitab(app.TabGroup,'Title','Model');
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % reserved
 
+            % React to tab changes so we can enable/disable custom 3D mouse rotation
+            app.TabGroup.SelectionChangedFcn = @(src,evt)app.onTabChanged(src,evt);
+
+            % Initialise mouse handlers for the initially selected tab
+            app.onTabChanged([], struct('NewValue', app.TabGroup.SelectedTab));
+
             % -------------------------------------------------------
             % PROFILES TAB LAYOUT
             % Left: control panel (like model tab)
@@ -552,13 +558,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxModel,'on');
             app.AxModel.NextPlot = 'add';
 
-            % -------------------------------------------------------
-            % Enable click-drag rotation on the 3D axes
-            % -------------------------------------------------------
-            app.UIFigure.WindowButtonDownFcn   = @(src,evt)app.onMouseDown(src,evt);
-            app.UIFigure.WindowButtonMotionFcn = @(src,evt)app.onMouseMove(src,evt);
-            app.UIFigure.WindowButtonUpFcn     = @(src,evt)app.onMouseUp(src,evt);
-
         end
 
         % ===========================================================
@@ -834,6 +833,30 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Re-run planes + profiles under the new taper mode
             app.updatePlanes();  % will call computeProfiles() in STATE 1
+        end
+
+        % ===========================================================
+        % TAB CHANGE HANDLER
+        % ===========================================================
+        function onTabChanged(app, ~, evt)
+            % Enable custom mouse rotation only on the Model tab.
+            % When on other tabs (e.g. Profiles), disable the UIFigure
+            % mouse callbacks so built-in uiaxes interactions work.
+
+            newTab = evt.NewValue;
+
+            if newTab == app.TabModel
+                % Model tab active: enable our custom mouse handlers
+                app.UIFigure.WindowButtonDownFcn   = @(src,ev)app.onMouseDown(src,ev);
+                app.UIFigure.WindowButtonMotionFcn = @(src,ev)app.onMouseMove(src,ev);
+                app.UIFigure.WindowButtonUpFcn     = @(src,ev)app.onMouseUp(src,ev);
+            else
+                % Any other tab: disable our handlers so the axes
+                % use MATLAB's built-in interactions.
+                app.UIFigure.WindowButtonDownFcn   = [];
+                app.UIFigure.WindowButtonMotionFcn = [];
+                app.UIFigure.WindowButtonUpFcn     = [];
+            end
         end
 
         function onProfileToleranceChanged(app, src)
