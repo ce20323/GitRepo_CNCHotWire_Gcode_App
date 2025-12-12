@@ -53,7 +53,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ---------- Profile sampling ----------
         ProfileTolerance (1,1) double = 0.2     % [mm], target segment size
         ProfileTolSpinner                 % UI handle for tolerance control
-
+        BtnResetProfileTol               % "Reset tolerance" button
+        
         % ---------- Profile generation (future) ----------
         BtnGenerateProfiles   % stub – no heavy logic yet
         BtnContinue           % stub – disabled initially
@@ -237,6 +238,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileTolSpinner.Layout.Column = 2;
 
             % (rows 2–6 of profilesLeft left free for future kerf / options)
+            % --- Reset tolerance to default ---
+            app.BtnResetProfileTol = uibutton(profilesLeft, ...
+                'Text','Reset Tolerance', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol.Layout.Row = 2;
 
             % ================================
             % RIGHT COLUMN: 2D PROFILE AXES
@@ -842,6 +849,23 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % If we're already in STATE 1 (planes + profiles live),
             % recompute profiles using the new tolerance.
+            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                app.updatePlanes();  % will call computeProfiles()
+            end
+        end
+
+        function onResetProfileTolerance(app)
+            % Reset profile tolerance to its default and refresh profiles
+            defaultTol = 0.2;  % keep in sync with ProfileTolerance default
+
+            app.ProfileTolerance = defaultTol;
+
+            if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
+                app.ProfileTolSpinner.Value = defaultTol;
+            end
+
+            % If we're already in STATE 1 (planes + profiles live),
+            % recompute profiles using the reset tolerance.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.updatePlanes();  % will call computeProfiles()
             end
