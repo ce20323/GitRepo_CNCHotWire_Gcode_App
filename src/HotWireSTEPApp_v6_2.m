@@ -49,6 +49,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         NumLeftOffset
         NumRightOffset
         BtnResetPlanes
+        
+        % ---------- Profile sampling ----------
+        ProfileTolerance (1,1) double = 0.2     % [mm], target segment size
+        ProfileTolSpinner                 % UI handle for tolerance control
 
         % ---------- Profile generation (future) ----------
         BtnGenerateProfiles   % stub – no heavy logic yet
@@ -180,17 +184,72 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % reserved
 
             % -------------------------------------------------------
-            % PROFILES TAB LAYOUT (2D LEFT/RIGHT PROFILES)
+            % PROFILES TAB LAYOUT
+            % Left: control panel (like model tab)
+            % Right: 2D profiles (left on top, right on bottom)
             % -------------------------------------------------------
-            % Profiles tab layout: left profile on top, right profile on bottom
-            app.GLProfiles = uigridlayout(app.TabProfiles,[2 1]);
-            app.GLProfiles.RowHeight   = {'1x','1x'};
-            app.GLProfiles.ColumnWidth = {'1x'};
-            app.GLProfiles.Padding     = [15 15 15 15];
-            app.GLProfiles.RowSpacing  = 10;
+            app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
+            app.GLProfiles.ColumnWidth   = {320,'1x'};
+            app.GLProfiles.RowHeight     = {'1x'};
+            app.GLProfiles.Padding       = [10 10 10 10];
+            app.GLProfiles.ColumnSpacing = 10;
+
+            % ================================
+            % LEFT CONTROL COLUMN (Profiles tab)
+            % ================================
+            profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
+            profilesLeft.Layout.Column   = 1;
+            profilesLeft.RowHeight       = {'fit','fit','fit','1x','fit','fit'};
+            profilesLeft.Padding         = [10 10 10 10];
+            profilesLeft.BackgroundColor = [0.16 0.16 0.16];
+
+            % --- Profile Sampling Panel (tolerance) ---
+            tolPanel = uipanel(profilesLeft, ...
+                'Title','Profile Sampling', ...
+                'BackgroundColor',[0.12 0.12 0.12], ...
+                'ForegroundColor',[0.9 0.9 0.9], ...
+                'FontWeight','bold', ...
+                'BorderType','line');
+            tolPanel.Layout.Row = 1;
+
+            tolGrid = uigridlayout(tolPanel,[1 2]);
+            tolGrid.ColumnWidth    = {'fit',80};
+            tolGrid.RowHeight      = {'fit'};
+            tolGrid.Padding        = [10 5 10 5];
+            tolGrid.ColumnSpacing  = 8;
+
+            lblTol = uilabel(tolGrid, ...
+                'Text','Profile Tolerance [mm]:', ...
+                'HorizontalAlignment','right', ...
+                'FontWeight','bold', ...
+                'FontColor',[0.9 0.9 0.9]);
+            lblTol.Layout.Row    = 1;
+            lblTol.Layout.Column = 1;
+
+            app.ProfileTolSpinner = uispinner(tolGrid, ...
+                'Limits',[0.01 5], ...
+                'Value',app.ProfileTolerance, ...
+                'Step',0.05, ...
+                'ValueDisplayFormat','%.2f', ...
+                'Tooltip','Maximum segment length along profile (mm)', ...
+                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolSpinner.Layout.Row    = 1;
+            app.ProfileTolSpinner.Layout.Column = 2;
+
+            % (rows 2–6 of profilesLeft left free for future kerf / options)
+
+            % ================================
+            % RIGHT COLUMN: 2D PROFILE AXES
+            % ================================
+            profilesRight = uigridlayout(app.GLProfiles,[2 1]);
+            profilesRight.Layout.Column   = 2;
+            profilesRight.RowHeight       = {'1x','1x'};
+            profilesRight.ColumnWidth     = {'1x'};
+            profilesRight.Padding         = [0 0 0 0];
+            profilesRight.RowSpacing      = 10;
 
             % Left profile axes (top)
-            app.AxLeftProfile = uiaxes(app.GLProfiles);
+            app.AxLeftProfile = uiaxes(profilesRight);
             app.AxLeftProfile.Layout.Row    = 1;
             app.AxLeftProfile.Layout.Column = 1;
             app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
@@ -200,7 +259,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(app.AxLeftProfile,'on');
 
             % Right profile axes (bottom)
-            app.AxRightProfile = uiaxes(app.GLProfiles);
+            app.AxRightProfile = uiaxes(profilesRight);
             app.AxRightProfile.Layout.Row    = 2;
             app.AxRightProfile.Layout.Column = 1;
             app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
@@ -630,7 +689,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xsL, ysL, zsL);
             end
 
+            % Resample left profile by tolerance (if available)
             if ~isempty(yLoopL)
+                tol = app.ProfileTolerance;
+                if isfinite(tol) && tol > 0
+                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
+                        yLoopL, zLoopL, tol);
+                end
+
                 xVecL = xLeft * ones(numel(yLoopL),1);
                 app.LeftProfileLine3D = plot3(app.AxModel, ...
                     xVecL, yLoopL, zLoopL, ...
@@ -654,7 +720,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xsR, ysR, zsR);
             end
 
+            % Resample right profile by tolerance
             if ~isempty(yLoopR)
+                tol = app.ProfileTolerance;
+                if isfinite(tol) && tol > 0
+                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
+                        yLoopR, zLoopR, tol);
+                end
+
                 xVecR = xRight * ones(numel(yLoopR),1);
                 app.RightProfileLine3D = plot3(app.AxModel, ...
                     xVecR, yLoopR, zLoopR, ...
@@ -754,6 +827,24 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Re-run planes + profiles under the new taper mode
             app.updatePlanes();  % will call computeProfiles() in STATE 1
+        end
+
+        function onProfileToleranceChanged(app, src)
+            % Update stored profile tolerance and recompute profiles if active.
+            val = src.Value;
+            if ~isfinite(val) || val <= 0
+                % Revert to previous good value
+                src.Value = app.ProfileTolerance;
+                return;
+            end
+
+            app.ProfileTolerance = val;
+
+            % If we're already in STATE 1 (planes + profiles live),
+            % recompute profiles using the new tolerance.
+            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                app.updatePlanes();  % will call computeProfiles()
+            end
         end
 
         % ===========================================================

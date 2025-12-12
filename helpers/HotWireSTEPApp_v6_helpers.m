@@ -296,5 +296,81 @@ classdef HotWireSTEPApp_v6_helpers
             yLoop = pts(:,1);
             zLoop = pts(:,2);
         end
+        
+        % ---------------------------------------------------------------
+        % RESAMPLEPROFILEBYTOLERANCE
+        % ---------------------------------------------------------------
+        function [yR, zR] = resampleProfileByTolerance(y, z, tol)
+            % RESAMPLEPROFILEBYTOLERANCE Resample a closed profile loop (y,z)
+            % so that successive points are spaced by ~tol [mm] in arc length.
+            %
+            %  INPUTS
+            %    y, z : profile coordinates (vectors, any orientation)
+            %    tol  : positive scalar [mm], target segment length
+            %
+            %  OUTPUTS
+            %    yR, zR : resampled profile loop (column vectors)
+            %
+            %  NOTES
+            %  - Treats the loop as closed (wraps last->first).
+            %  - Collapses any duplicate arc-length samples before interp1,
+            %    to avoid "Sample points must be unique" errors.
+            %  - Applies a safety clamp on the number of output points.
+
+            % --- Basic validation / normalisation ---
+            y = y(:);
+            z = z(:);
+            yR = y;
+            zR = z;
+
+            if numel(y) < 2 || numel(z) < 2 || ~isfinite(tol) || tol <= 0
+                return;
+            end
+
+            % --- Ensure closure by appending first point at the end ---
+            yExt = [y; y(1)];
+            zExt = [z; z(1)];
+
+            % --- Arc length along the loop ---
+            dSeg = hypot(diff(yExt), diff(zExt));
+            s    = [0; cumsum(dSeg)];
+
+            % Collapse duplicate arc-length samples (zero-length segments)
+            [sUnique, idxUnique] = unique(s, 'stable');
+            yExt = yExt(idxUnique);
+            zExt = zExt(idxUnique);
+
+            if numel(sUnique) < 2
+                % Not enough unique samples to resample meaningfully
+                yR = yExt;
+                zR = zExt;
+                return;
+            end
+
+            totalLen = sUnique(end);
+            if totalLen <= 0
+                yR = yExt;
+                zR = zExt;
+                return;
+            end
+
+            % --- Target point count from tolerance, with safety bounds ---
+            nTarget = round(totalLen / tol);
+            nTarget = max(nTarget, 50);    % at least 50 points
+            nTarget = min(nTarget, 2000);  % cap to avoid silly sizes
+
+            if nTarget < 3
+                yR = yExt;
+                zR = zExt;
+                return;
+            end
+
+            sSamples = linspace(0, totalLen, nTarget).';
+
+            % --- Interpolate back onto the loop ---
+            yR = interp1(sUnique, yExt, sSamples, 'linear');
+            zR = interp1(sUnique, zExt, sSamples, 'linear');
+        end
+
     end
 end
