@@ -80,6 +80,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         RightProfilePoints  % Nx3 double (NaNs removed)
         LeftProfile2DLine
         RightProfile2DLine
+        LeftProfile2DMeshLine    % faint raw mesh slice (left)
+        RightProfile2DMeshLine   % faint raw mesh slice (right)
+        LeftProfileRawYZ         % [:,2] = [y, z] raw (NaN-separated)
+        RightProfileRawYZ
 
         % ---------- FreeCAD ----------
         FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"
@@ -605,6 +609,8 @@ classdef HotWireSTEPApp_v6_2 < handle
      
         function clearProfiles2D(app)
             % Deletes 2D profile lines on the Profiles tab
+
+            % Main resampled profiles
             if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
                 delete(app.LeftProfile2DLine);
             end
@@ -612,8 +618,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                 delete(app.RightProfile2DLine);
             end
 
-            app.LeftProfile2DLine  = gobjects(0);
-            app.RightProfile2DLine = gobjects(0);
+            % Faint raw mesh slice overlays
+            if ~isempty(app.LeftProfile2DMeshLine) && isgraphics(app.LeftProfile2DMeshLine)
+                delete(app.LeftProfile2DMeshLine);
+            end
+            if ~isempty(app.RightProfile2DMeshLine) && isgraphics(app.RightProfile2DMeshLine)
+                delete(app.RightProfile2DMeshLine);
+            end
+
+            % Reset graphics handles only
+            app.LeftProfile2DLine      = gobjects(0);
+            app.RightProfile2DLine     = gobjects(0);
+            app.LeftProfile2DMeshLine  = gobjects(0);
+            app.RightProfile2DMeshLine = gobjects(0);
+
+            % NOTE:
+            % We deliberately do NOT clear LeftProfileRawYZ / RightProfileRawYZ here.
+            % They are refreshed in computeProfiles() before updateProfiles2D() is called.
         end
 
         function enterState0(app)
@@ -692,6 +713,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
                 V, F, xLeft + epsX);
 
+            % Raw mesh slice (for faint overlay in Profiles tab)
+            if ~isempty(ysL) && any(~isnan(ysL))
+                app.LeftProfileRawYZ = [ysL(:), zsL(:)];
+            else
+                app.LeftProfileRawYZ = [];
+            end
+
             yLoopL = [];
             zLoopL = [];
             if ~isempty(xsL) && any(~isnan(xsL))
@@ -722,6 +750,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             % -------------------------------------------------------
             [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
                 V, F, xRight - epsX);
+
+            % Raw mesh slice (for faint overlay in Profiles tab)
+            if ~isempty(ysR) && any(~isnan(ysR))
+                app.RightProfileRawYZ = [ysR(:), zsR(:)];
+            else
+                app.RightProfileRawYZ = [];
+            end
 
             yLoopR = [];
             zLoopR = [];
@@ -794,17 +829,93 @@ classdef HotWireSTEPApp_v6_2 < handle
             leftColor  = [0.96 0.06 0.06];
             rightColor = [0.20 1.00 0.35];
 
+            % Faint "mesh slice" colours: grey with a hint of red/green
+            leftRawColor  = [0.80 0.80 0.80];
+            rightRawColor = [0.80 0.80 0.80];
+
             % Clear only profile lines (labels/titles persist)
             app.clearProfiles2D();
 
+            % ----- LEFT AXIS -----
+            hold(app.AxLeftProfile,'on');
+
+            % Raw mesh slice (background)
+            if ~isempty(app.LeftProfileRawYZ)
+                rawL = app.LeftProfileRawYZ;
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, ...
+                    rawL(:,1), rawL(:,2), ...
+                    'Color',leftRawColor, ...
+                    'LineStyle',':', ...
+                    'LineWidth',2.5);
+            end
+
+            % Resampled main loop (foreground)
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, ...
-                    yL, zL, 'Color', leftColor, 'LineWidth',1.5);
+                    yL, zL, ...
+                    'Color', leftColor, ...
+                    'LineWidth',0.5);
+            end
+
+            hold(app.AxLeftProfile,'off');
+
+            % ----- RIGHT AXIS -----
+            hold(app.AxRightProfile,'on');
+
+            if ~isempty(app.RightProfileRawYZ)
+                rawR = app.RightProfileRawYZ;
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, ...
+                    rawR(:,1), rawR(:,2), ...
+                    'Color',rightRawColor, ...
+                    'LineStyle',':', ...
+                    'LineWidth',2.5);
             end
 
             if ~isempty(yR)
                 app.RightProfile2DLine = plot(app.AxRightProfile, ...
-                    yR, zR, 'Color', rightColor, 'LineWidth',1.5);
+                    yR, zR, ...
+                    'Color', rightColor, ...
+                    'LineWidth',0.5);
+            end
+
+            hold(app.AxRightProfile,'off');
+            
+            % Legend / key for left profile
+            leftLegendHandles = gobjects(0);
+            leftLegendLabels  = {};
+
+            if ~isempty(app.LeftProfile2DMeshLine) && isgraphics(app.LeftProfile2DMeshLine)
+                leftLegendHandles(end+1) = app.LeftProfile2DMeshLine;
+                leftLegendLabels{end+1}  = 'Model mesh slice';
+            end
+            if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
+                leftLegendHandles(end+1) = app.LeftProfile2DLine;
+                leftLegendLabels{end+1}  = 'Extracted cutting profile';
+            end
+
+            if ~isempty(leftLegendHandles)
+                lgdL = legend(app.AxLeftProfile, leftLegendHandles, leftLegendLabels, ...
+                    'Location','northeast');
+                lgdL.Box = 'off';
+            end
+            
+            % Legend / key for right profile
+            rightLegendHandles = gobjects(0);
+            rightLegendLabels  = {};
+
+            if ~isempty(app.RightProfile2DMeshLine) && isgraphics(app.RightProfile2DMeshLine)
+                rightLegendHandles(end+1) = app.RightProfile2DMeshLine;
+                rightLegendLabels{end+1}  = 'Model mesh slice';
+            end
+            if ~isempty(app.RightProfile2DLine) && isgraphics(app.RightProfile2DLine)
+                rightLegendHandles(end+1) = app.RightProfile2DLine;
+                rightLegendLabels{end+1}  = 'Extracted cutting profile';
+            end
+
+            if ~isempty(rightLegendHandles)
+                lgdR = legend(app.AxRightProfile, rightLegendHandles, rightLegendLabels, ...
+                    'Location','northeast');
+                lgdR.Box = 'off';
             end
 
             % Shared limits (only reset when not locked)
@@ -819,9 +930,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             daspect(app.AxLeftProfile,[1 1 1]);
             daspect(app.AxRightProfile,[1 1 1]);
 
-            % Titles / labels
-            title(app.AxLeftProfile,  sprintf('Left Profile  (X = %.2f mm)',  xLeft));
-            title(app.AxRightProfile, sprintf('Right Profile (X = %.2f mm)', xRight));
+            % Titles / labels (use offsets relative to model left face)
+            offsetLeft  = app.NumLeftOffset.Value;
+            offsetRight = app.NumRightOffset.Value;
+
+            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)',  offsetLeft));
+            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', offsetRight));
             xlabel(app.AxLeftProfile,'Y (mm)');
             ylabel(app.AxLeftProfile,'Z (mm)');
             xlabel(app.AxRightProfile,'Y (mm)');
