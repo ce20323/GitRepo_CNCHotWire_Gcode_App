@@ -57,6 +57,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetProfileTol                % "Reset tolerance" button
         BtnResetProfilesView              % "Reset Profiles View" button
 
+        % ---------- Kerf compensation ----------
+        KerfValue (1,1) double = 0.5      % [mm], positive = shrink profile
+        KerfSpinner                       % UI handle for kerf control
+        LeftKerf2DLine                    % 2D kerf path (left)
+        RightKerf2DLine                   % 2D kerf path (right)
+
         % ---------- Profile generation (future) ----------
         BtnGenerateProfiles   % stub – no heavy logic yet
         BtnContinue           % stub – disabled initially
@@ -206,7 +212,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ================================
             profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
             profilesLeft.Layout.Column   = 1;
-            profilesLeft.RowHeight       = {'fit','fit','fit','1x','fit','fit'};
+            profilesLeft.RowHeight       = {'fit','fit','fit','fit','fit','1x'};
             profilesLeft.Padding         = [10 10 10 10];
             profilesLeft.BackgroundColor = [0.16 0.16 0.16];
 
@@ -257,7 +263,40 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
             app.BtnResetProfilesView.Layout.Row = 3;
 
-            % (rows 4–6 of profilesLeft left free for future kerf / options)
+            % --- Kerf Compensation Panel ---
+            kerfPanel = uipanel(profilesLeft, ...
+                'Title','Kerf Compensation', ...
+                'BackgroundColor',[0.12 0.12 0.12], ...
+                'ForegroundColor',[0.9 0.9 0.9], ...
+                'FontWeight','bold', ...
+                'BorderType','line');
+            kerfPanel.Layout.Row = 4;
+
+            kerfGrid = uigridlayout(kerfPanel,[1 2]);
+            kerfGrid.ColumnWidth   = {'fit',80};
+            kerfGrid.RowHeight     = {'fit'};
+            kerfGrid.Padding       = [10 5 10 5];
+            kerfGrid.ColumnSpacing = 8;
+
+            lblKerf = uilabel(kerfGrid, ...
+                'Text','Kerf [mm]:', ...
+                'HorizontalAlignment','right', ...
+                'FontWeight','bold', ...
+                'FontColor',[0.9 0.9 0.9]);
+            lblKerf.Layout.Row    = 1;
+            lblKerf.Layout.Column = 1;
+
+            app.KerfSpinner = uispinner(kerfGrid, ...
+                'Limits',[0 5], ...
+                'Value',app.KerfValue, ...
+                'Step',0.1, ...
+                'ValueDisplayFormat','%.2f', ...
+                'Tooltip','Positive kerf expands profile (wire centreline offset)', ...
+                'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
+            app.KerfSpinner.Layout.Row    = 1;
+            app.KerfSpinner.Layout.Column = 2;
+
+            % (rows 5–6 of profilesLeft left free for future options)
 
             % ================================
             % RIGHT COLUMN: 2D PROFILE AXES
@@ -626,14 +665,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                 delete(app.RightProfile2DMeshLine);
             end
 
+            % Kerf paths
+            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
+                delete(app.LeftKerf2DLine);
+            end
+            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
+                delete(app.RightKerf2DLine);
+            end
+
             % Reset graphics handles only
             app.LeftProfile2DLine      = gobjects(0);
             app.RightProfile2DLine     = gobjects(0);
             app.LeftProfile2DMeshLine  = gobjects(0);
             app.RightProfile2DMeshLine = gobjects(0);
+            app.LeftKerf2DLine         = gobjects(0);
+            app.RightKerf2DLine        = gobjects(0);
 
-            % NOTE:
-            % We deliberately do NOT clear LeftProfileRawYZ / RightProfileRawYZ here.
+            % NOTE: We deliberately do NOT clear LeftProfileRawYZ / RightProfileRawYZ here.
             % They are refreshed in computeProfiles() before updateProfiles2D() is called.
         end
 
@@ -849,12 +897,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'LineWidth',2.5);
             end
 
-            % Resampled main loop (foreground)
+            % Resampled main loop (geometry, no kerf)
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, ...
                     yL, zL, ...
                     'Color', leftColor, ...
-                    'LineWidth',0.5);
+                    'LineWidth',0.75);
+            end
+
+            % Kerf-compensated path (wire centreline)
+            if ~isempty(yL) && app.KerfValue > 0
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
+                    yL, zL, app.KerfValue);
+                app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
+                    yKerfL, zKerfL, ...
+                    'Color',[1.0 0.75 0.0], ...   % warm "wire" colour
+                    'LineWidth',0.75);
             end
 
             hold(app.AxLeftProfile,'off');
@@ -875,7 +933,16 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.RightProfile2DLine = plot(app.AxRightProfile, ...
                     yR, zR, ...
                     'Color', rightColor, ...
-                    'LineWidth',0.5);
+                    'LineWidth',0.75);
+            end
+
+            if ~isempty(yR) && app.KerfValue > 0
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
+                    yR, zR, app.KerfValue);
+                app.RightKerf2DLine = plot(app.AxRightProfile, ...
+                    yKerfR, zKerfR, ...
+                    'Color',[1.0 0.75 0.0], ...
+                    'LineWidth',0.75);
             end
 
             hold(app.AxRightProfile,'off');
@@ -891,6 +958,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
                 leftLegendHandles(end+1) = app.LeftProfile2DLine;
                 leftLegendLabels{end+1}  = 'Extracted cutting profile';
+            end
+            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
+                leftLegendHandles(end+1) = app.LeftKerf2DLine;
+                leftLegendLabels{end+1}  = 'Kerf path';
             end
 
             if ~isempty(leftLegendHandles)
@@ -911,7 +982,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 rightLegendHandles(end+1) = app.RightProfile2DLine;
                 rightLegendLabels{end+1}  = 'Extracted cutting profile';
             end
-
+            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
+                rightLegendHandles(end+1) = app.RightKerf2DLine;
+                rightLegendLabels{end+1}  = 'Kerf path';
+            end
             if ~isempty(rightLegendHandles)
                 lgdR = legend(app.AxRightProfile, rightLegendHandles, rightLegendLabels, ...
                     'Location','northeast');
@@ -1052,6 +1126,27 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.ProfileAxesLocked = true;
                 app.updatePlanes();           % recompute profiles only
+                app.ProfileAxesLocked = false;
+            end
+        end
+
+        function onKerfChanged(app, src)
+            % Update stored kerf value and refresh profiles without
+            % resetting the Profiles tab zoom/pan.
+            val = src.Value;
+            if ~isfinite(val) || val < 0
+                % Kerf must be >= 0; revert to previous
+                src.Value = app.KerfValue;
+                return;
+            end
+
+            app.KerfValue = val;
+
+            % If we're already in STATE 1 (planes + profiles live),
+            % recompute profiles (and kerf) but keep current zoom.
+            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();           % will call computeProfiles() -> updateProfiles2D()
                 app.ProfileAxesLocked = false;
             end
         end

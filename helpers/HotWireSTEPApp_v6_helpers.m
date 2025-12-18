@@ -371,5 +371,93 @@ classdef HotWireSTEPApp_v6_helpers
             zR = interp1(sUnique, zExt, sSamples, 'linear');
         end
 
+        function [yKerf, zKerf] = offsetProfileLoop(yLoop, zLoop, kerf)
+    %OFFSETPROFILELOOP  Offset a closed Y–Z profile by kerf [mm].
+    %
+    % Inputs:
+    %   yLoop, zLoop : column or row vectors of equal length (profile loop)
+    %   kerf         : positive distance [mm]
+    %
+    %   NOTE: In this version, POSITIVE kerf moves the profile OUTWARDS
+    %         (i.e. increases the size of the loop).
+    %
+    % Outputs:
+    %   yKerf, zKerf : kerf-offset profile, same length as input
+    %
+    % This is a simple polygon-offset based on vertex normals.
+    % It assumes a reasonably smooth, closed loop (like an airfoil).
+
+    y = yLoop(:);
+    z = zLoop(:);
+
+    n = numel(y);
+    if n < 3 || kerf == 0 || any(~isfinite(y)) || any(~isfinite(z))
+        yKerf = yLoop;
+        zKerf = zLoop;
+        return;
+    end
+
+    % Ensure closed loop for normal computation
+    if y(1) ~= y(end) || z(1) ~= z(end)
+        y = [y; y(1)];
+        z = [z; z(1)];
+    end
+    N = numel(y) - 1;  % number of edges / vertices
+
+    % Signed area to detect orientation (CCW vs CW)
+    A = 0.5 * sum(y(1:N).*z(2:N+1) - y(2:N+1).*z(1:N));
+    if A == 0
+        % Degenerate polygon; bail out
+        yKerf = yLoop;
+        zKerf = zLoop;
+        return;
+    end
+
+    % Edge vectors
+    dy = y(2:end) - y(1:end-1);
+    dz = z(2:end) - z(1:end-1);
+    L  = hypot(dy,dz);
+    L(L == 0) = eps;
+
+    % Outward normals for CCW polygon: [dz, -dy] / L
+    nx = dz ./ L;
+    nz = -dy ./ L;
+
+    % If polygon is CW, flip to keep nx/nz as outward normals
+    if A < 0
+        nx = -nx;
+        nz = -nz;
+    end
+
+    % Vertex normals: average of adjacent edge normals
+    vx = zeros(N,1);
+    vz = zeros(N,1);
+    for i = 1:N
+        iPrev = i - 1;
+        if iPrev == 0
+            iPrev = N;
+        end
+        vx(i) = nx(iPrev) + nx(i);
+        vz(i) = nz(iPrev) + nz(i);
+    end
+
+    vL = hypot(vx,vz);
+    mask = vL > eps;
+    vx(~mask) = 0;
+    vz(~mask) = 0;
+    vx(mask)  = vx(mask) ./ vL(mask);
+    vz(mask)  = vz(mask) ./ vL(mask);
+
+    % Move OUTWARD by kerf: add outward normal
+    yKerf = y(1:N) + kerf * vx;
+    zKerf = z(1:N) + kerf * vz;
+
+    % Return in original orientation (column vs row)
+    if isrow(yLoop)
+        yKerf = yKerf.';
+        zKerf = zKerf.';
+    end
+end
+
     end
 end
