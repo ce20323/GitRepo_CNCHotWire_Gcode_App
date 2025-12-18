@@ -53,8 +53,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ---------- Profile sampling ----------
         ProfileTolerance (1,1) double = 0.2     % [mm], target segment size
         ProfileTolSpinner                 % UI handle for tolerance control
-        BtnResetProfileTol               % "Reset tolerance" button
-        
+        ProfileAxesLocked (1,1) logical = false  % When true, updateProfiles2D will NOT reset xlim/ylim.
+        BtnResetProfileTol                % "Reset tolerance" button
+        BtnResetProfilesView              % "Reset Profiles View" button
+
         % ---------- Profile generation (future) ----------
         BtnGenerateProfiles   % stub – no heavy logic yet
         BtnContinue           % stub – disabled initially
@@ -184,12 +186,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabModel    = uitab(app.TabGroup,'Title','Model');
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % reserved
 
-            % React to tab changes so we can enable/disable custom 3D mouse rotation
-            app.TabGroup.SelectionChangedFcn = @(src,evt)app.onTabChanged(src,evt);
-
-            % Initialise mouse handlers for the initially selected tab
-            app.onTabChanged([], struct('NewValue', app.TabGroup.SelectedTab));
-
             % -------------------------------------------------------
             % PROFILES TAB LAYOUT
             % Left: control panel (like model tab)
@@ -243,13 +239,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileTolSpinner.Layout.Row    = 1;
             app.ProfileTolSpinner.Layout.Column = 2;
 
-            % (rows 2–6 of profilesLeft left free for future kerf / options)
             % --- Reset tolerance to default ---
             app.BtnResetProfileTol = uibutton(profilesLeft, ...
                 'Text','Reset Tolerance', ...
                 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
             app.BtnResetProfileTol.Layout.Row = 2;
+
+            % --- Reset Profiles plot view (optional) ---
+            app.BtnResetProfilesView = uibutton(profilesLeft, ...
+                'Text','Reset Profiles View', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
+            app.BtnResetProfilesView.Layout.Row = 3;
+
+            % (rows 4–6 of profilesLeft left free for future kerf / options)
 
             % ================================
             % RIGHT COLUMN: 2D PROFILE AXES
@@ -533,7 +537,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Hide the built-in axes toolbar so our custom mouse
             % rotation isn't fighting the zoom/pan tools.
-            app.AxModel.Toolbar.Visible = 'off';
+            %app.AxModel.Toolbar.Visible = 'off';
 
             % Default labels to reserve space
             xlabel(app.AxModel,'X (mm)','FontWeight','bold');
@@ -803,12 +807,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     yR, zR, 'Color', rightColor, 'LineWidth',1.5);
             end
 
-            % Shared limits
-            xlim(app.AxLeftProfile,  yLim);
-            ylim(app.AxLeftProfile,  zLim);
-            xlim(app.AxRightProfile, yLim);
-            ylim(app.AxRightProfile, zLim);
-            
+            % Shared limits (only reset when not locked)
+            if ~app.ProfileAxesLocked
+                xlim(app.AxLeftProfile,  yLim);
+                ylim(app.AxLeftProfile,  zLim);
+                xlim(app.AxRightProfile, yLim);
+                ylim(app.AxRightProfile, zLim);
+            end
+
             % True-scale Y–Z aspect ratio on both axes
             daspect(app.AxLeftProfile,[1 1 1]);
             daspect(app.AxRightProfile,[1 1 1]);
@@ -825,6 +831,44 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(app.AxRightProfile,'on');
         end
 
+        function resetProfilesView(app)
+            % Reset Profiles tab axes limits to fit current profiles.
+            % Uses stored LeftProfilePoints / RightProfilePoints so it
+            % does not trigger a full recompute.
+
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) ...
+                    || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+                return;
+            end
+
+            yL = [];
+            zL = [];
+            yR = [];
+            zR = [];
+            xLeft  = 0;
+            xRight = 0;
+
+            if ~isempty(app.LeftProfilePoints)
+                yL    = app.LeftProfilePoints(:,2);
+                zL    = app.LeftProfilePoints(:,3);
+                xLeft = app.LeftProfilePoints(1,1);
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                yR     = app.RightProfilePoints(:,2);
+                zR     = app.RightProfilePoints(:,3);
+                xRight = app.RightProfilePoints(1,1);
+            end
+
+            if isempty(yL) && isempty(yR)
+                return;
+            end
+
+            % Force a full relimit of axes
+            app.ProfileAxesLocked = false;
+            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
+        end
+        
         function onTaperModeChanged(app)
 
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
@@ -838,26 +882,26 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % TAB CHANGE HANDLER
         % ===========================================================
-        function onTabChanged(app, ~, evt)
-            % Enable custom mouse rotation only on the Model tab.
-            % When on other tabs (e.g. Profiles), disable the UIFigure
-            % mouse callbacks so built-in uiaxes interactions work.
-
-            newTab = evt.NewValue;
-
-            if newTab == app.TabModel
-                % Model tab active: enable our custom mouse handlers
-                app.UIFigure.WindowButtonDownFcn   = @(src,ev)app.onMouseDown(src,ev);
-                app.UIFigure.WindowButtonMotionFcn = @(src,ev)app.onMouseMove(src,ev);
-                app.UIFigure.WindowButtonUpFcn     = @(src,ev)app.onMouseUp(src,ev);
-            else
-                % Any other tab: disable our handlers so the axes
-                % use MATLAB's built-in interactions.
-                app.UIFigure.WindowButtonDownFcn   = [];
-                app.UIFigure.WindowButtonMotionFcn = [];
-                app.UIFigure.WindowButtonUpFcn     = [];
-            end
-        end
+        % function onTabChanged(app, ~, evt)
+        %     % Enable custom mouse rotation only on the Model tab.
+        %     % When on other tabs (e.g. Profiles), disable the UIFigure
+        %     % mouse callbacks so built-in uiaxes interactions work.
+        % 
+        %     newTab = evt.NewValue;
+        % 
+        %     if newTab == app.TabModel
+        %         % Model tab active: enable our custom mouse handlers
+        %         app.UIFigure.WindowButtonDownFcn   = @(src,ev)app.onMouseDown(src,ev);
+        %         app.UIFigure.WindowButtonMotionFcn = @(src,ev)app.onMouseMove(src,ev);
+        %         app.UIFigure.WindowButtonUpFcn     = @(src,ev)app.onMouseUp(src,ev);
+        %     else
+        %         % Any other tab: disable our handlers so the axes
+        %         % use MATLAB's built-in interactions.
+        %         app.UIFigure.WindowButtonDownFcn   = [];
+        %         app.UIFigure.WindowButtonMotionFcn = [];
+        %         app.UIFigure.WindowButtonUpFcn     = [];
+        %     end
+        % end
 
         function onProfileToleranceChanged(app, src)
             % Update stored profile tolerance and recompute profiles if active.
@@ -871,14 +915,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileTolerance = val;
 
             % If we're already in STATE 1 (planes + profiles live),
-            % recompute profiles using the new tolerance.
+            % recompute profiles using the new tolerance, but do NOT
+            % reset the Profiles tab zoom/pan.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                app.updatePlanes();  % will call computeProfiles()
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();           % will call computeProfiles()
+                app.ProfileAxesLocked = false;
             end
         end
-
+        
         function onResetProfileTolerance(app)
             % Reset profile tolerance to its default and refresh profiles
+            % without resetting the Profiles tab zoom/pan.
             defaultTol = 0.2;  % keep in sync with ProfileTolerance default
 
             app.ProfileTolerance = defaultTol;
@@ -887,10 +935,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.ProfileTolSpinner.Value = defaultTol;
             end
 
-            % If we're already in STATE 1 (planes + profiles live),
-            % recompute profiles using the reset tolerance.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                app.updatePlanes();  % will call computeProfiles()
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();           % recompute profiles only
+                app.ProfileAxesLocked = false;
             end
         end
 
