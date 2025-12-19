@@ -17,6 +17,28 @@ classdef HotWireSTEPApp_v6_2 < handle
     % working single-file baseline, but with the STEP-import function
     % moved into a separate helpers class.
     % ===========================================================
+    
+    properties (Constant)
+        % -------- Profile sampling defaults --------
+        DefaultProfileTolerance (1,1) double = 0.2;   % [mm]
+        MinProfileTolerance     (1,1) double = 0.01;  % [mm]
+        MaxProfileTolerance     (1,1) double = 5.0;   % [mm]
+
+        % -------- Kerf / wire offset defaults --------
+        DefaultKerf (1,1) double = 0.5;   % [mm]
+        MinKerf     (1,1) double = 0.0;   % [mm]
+        MaxKerf     (1,1) double = 5.0;   % [mm]
+
+        % -------- View / plane padding factors --------
+        AutoFitPaddingFactor (1,1) double = 0.35;  % model view padding
+        PlanePaddingFactor   (1,1) double = 0.20;  % plane extents padding
+
+        % (Future)
+        % MachineSpanX (1,1) double = 2000;  % mm, for example
+        % MachineSpanY (1,1) double = 1000;
+        % MachineSpanZ (1,1) double = 600;
+        % etc...
+    end
 
     properties
         % ---------- UI containers ----------
@@ -247,12 +269,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblTol.Layout.Column = 1;
 
             app.ProfileTolSpinner = uispinner(tolGrid, ...
-                'Limits',[0.01 5], ...
-                'Value',app.ProfileTolerance, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, ...
+                HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
                 'Step',0.05, ...
                 'ValueDisplayFormat','%.2f', ...
                 'Tooltip','Maximum segment length along profile (mm)', ...
                 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            % Keep the stored tolerance in sync with the UI default
+            app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
             app.ProfileTolSpinner.Layout.Row    = 1;
             app.ProfileTolSpinner.Layout.Column = 2;
             
@@ -307,12 +332,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblKerf.Layout.Column = 1;
 
             app.KerfSpinner = uispinner(kerfGrid, ...
-                'Limits',[0 5], ...
-                'Value',app.KerfValue, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinKerf, ...
+                HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultKerf, ...
                 'Step',0.1, ...
                 'ValueDisplayFormat','%.2f', ...
                 'Tooltip','Positive kerf expands profile (wire centreline offset)', ...
                 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
+            % Keep stored kerf value in sync with the UI default
+            app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
             app.KerfSpinner.Layout.Row    = 1;
             app.KerfSpinner.Layout.Column = 2;
 
@@ -1244,11 +1272,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onResetProfileTolerance(app)
             % Reset profile tolerance to its default and refresh profiles
             % without resetting the Profiles tab zoom/pan.
-
-            defaultTol = 0.2;  % keep in sync with ProfileTolerance default
-
+            defaultTol = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
             app.ProfileTolerance = defaultTol;
-
+            
             if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
                 app.ProfileTolSpinner.Value = defaultTol;
             end
@@ -1460,7 +1486,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 maxs = center + span/2;
             end
 
-            pad = 0.35 * span;
+            pad = HotWireSTEPApp_v6_2.AutoFitPaddingFactor * span;
             xlim(app.AxModel,[mins(1)-pad maxs(1)+pad]);
             ylim(app.AxModel,[mins(2)-pad maxs(2)+pad]);
             zlim(app.AxModel,[mins(3)-pad maxs(3)+pad]);
@@ -1737,7 +1763,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if span <= 0
                 span = 1;
             end
-            pad = 0.2 * span;
+            pad = HotWireSTEPApp_v6_2.PlanePaddingFactor * span;
 
             yMin = mins(2) - pad;
             yMax = maxs(2) + pad;

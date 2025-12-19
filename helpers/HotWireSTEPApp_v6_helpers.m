@@ -12,7 +12,12 @@ classdef HotWireSTEPApp_v6_helpers
 
         % Maximum number of points for a resampled profile loop
         % (caps how much a tiny tolerance can explode point count)
-        ProfileResampleMaxPoints (1,1) double = 50000;
+        ProfileResampleMaxPoints (1,1) double = 20000;
+
+        % FreeCAD meshing tolerances (STEP -> mesh)
+        % These control how finely the STEP geometry is tessellated.
+        FreeCADLinearDeflection  (1,1) double = 0.5;   % [mm]
+        FreeCADAngularDeflection (1,1) double = 0.3;   % [rad]
     end
     
     methods(Static)
@@ -51,7 +56,10 @@ classdef HotWireSTEPApp_v6_helpers
             fprintf(fid,"doc = FreeCAD.newDocument()\n");
             fprintf(fid,"shape = Part.Shape()\n");
             fprintf(fid,"shape.read(r'%s')\n", cadPath);
-            fprintf(fid,"mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=0.5,AngularDeflection=0.3)\n");
+            fprintf(fid, ...
+                "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
+                HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, ...
+                HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
             fprintf(fid,"mesh.write(r'%s')\n", outSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
