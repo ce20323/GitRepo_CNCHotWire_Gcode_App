@@ -258,7 +258,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             
             % Read-only point-count label (L/R)
             app.ProfilePointCountLabel = uilabel(tolGrid, ...
-                'Text','Points (L/R): -- / --', ...
+                'Text','Number of Points (L/R): -- / --', ...
                 'HorizontalAlignment','right', ...
                 'FontColor',[0.9 0.9 0.9], ...
                 'FontAngle','italic');
@@ -896,7 +896,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 capN = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
 
                 if nL == 0 && nR == 0
-                    app.ProfilePointCountLabel.Text = 'Points (L/R): -- / --';
+                    app.ProfilePointCountLabel.Text = 'Number of Points (L/R): -- / --';
                 else
                     if (nL >= capN) || (nR >= capN)
                         suffix = sprintf('  (cap at %d pts)', capN);
@@ -904,7 +904,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         suffix = '';
                     end
                     app.ProfilePointCountLabel.Text = ...
-                        sprintf('Points (L/R): %d / %d%s', nL, nR, suffix);
+                        sprintf('Number of Points (L/R): %d / %d%s', nL, nR, suffix);
                 end
             end
 
@@ -1149,9 +1149,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if nLeft <= 0 && nRight <= 0
-                txt = 'Points (L/R): -- / --';
+                txt = 'Number of Points (L/R): -- / --';
             else
-                txt = sprintf('Points (L/R): %d / %d', nLeft, nRight);
+                txt = sprintf('Number of Points (L/R): %d / %d', nLeft, nRight);
             end
 
             if capLeft || capRight
@@ -1200,7 +1200,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         % end
 
         function onProfileToleranceChanged(app, src)
-            % Update stored profile tolerance and recompute profiles if active.
+            % Update stored profile tolerance and recompute profiles if active,
+            % preserving any active kerf and current zoom/pan on the Profiles tab.
+
             val = src.Value;
             if ~isfinite(val) || val <= 0
                 % Revert to previous good value
@@ -1209,36 +1211,32 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.ProfileTolerance = val;
-            % Changing tolerance invalidates kerf – user re-applies later
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
+
             % If we're already in STATE 1 (planes + profiles live),
-            % recompute profiles using the new tolerance, but do NOT
-            % reset the Profiles tab zoom/pan.
+            % recompute profiles (and kerf if enabled) without resetting zoom.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.ProfileAxesLocked = true;
-                app.updatePlanes();           % will call computeProfiles()
+                app.updatePlanes();           % calls computeProfiles() -> updateProfiles2D()
                 app.ProfileAxesLocked = false;
             end
         end
-        
+
         function onResetProfileTolerance(app)
             % Reset profile tolerance to its default and refresh profiles
             % without resetting the Profiles tab zoom/pan.
+
             defaultTol = 0.2;  % keep in sync with ProfileTolerance default
 
             app.ProfileTolerance = defaultTol;
-            % Resetting tolerance also clears kerf until re-applied
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
 
             if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
                 app.ProfileTolSpinner.Value = defaultTol;
             end
 
+            % Recompute profiles (and kerf if enabled) but keep zoom.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.ProfileAxesLocked = true;
-                app.updatePlanes();           % recompute profiles only
+                app.updatePlanes();
                 app.ProfileAxesLocked = false;
             end
         end
