@@ -60,6 +60,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ---------- Kerf compensation ----------
         KerfValue (1,1) double = 0.5      % [mm], positive = shrink profile
         KerfSpinner                       % UI handle for kerf control
+        BtnApplyKerf                      % "Apply kerf offset" button
+        KerfEnabled (1,1) logical = false % only draw kerf when true
         LeftKerf2DLine                    % 2D kerf path (left)
         RightKerf2DLine                   % 2D kerf path (right)
 
@@ -272,11 +274,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BorderType','line');
             kerfPanel.Layout.Row = 4;
 
-            kerfGrid = uigridlayout(kerfPanel,[1 2]);
-            kerfGrid.ColumnWidth   = {'fit',80};
-            kerfGrid.RowHeight     = {'fit'};
+            % 2-row grid: row 1 = label+spinner, row 2 = "Apply kerf" button
+            kerfGrid = uigridlayout(kerfPanel,[2 2]);
+            % Match the offset panel style:
+            % left column stretches, right column is a fixed-width spinner
+            kerfGrid.ColumnWidth   = {'1x',90};
+            kerfGrid.RowHeight     = {'fit','fit'};
             kerfGrid.Padding       = [10 5 10 5];
             kerfGrid.ColumnSpacing = 8;
+            kerfGrid.RowSpacing    = 6;
 
             lblKerf = uilabel(kerfGrid, ...
                 'Text','Kerf [mm]:', ...
@@ -295,6 +301,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
             app.KerfSpinner.Layout.Row    = 1;
             app.KerfSpinner.Layout.Column = 2;
+
+            % --- Apply kerf button (generates kerf path when pressed) ---
+            app.BtnApplyKerf = uibutton(kerfGrid, ...
+                'Text','Apply Kerf Offset', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf.Layout.Row    = 2;
+            app.BtnApplyKerf.Layout.Column = [1 2];
 
             % (rows 5–6 of profilesLeft left free for future options)
 
@@ -681,8 +695,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LeftKerf2DLine         = gobjects(0);
             app.RightKerf2DLine        = gobjects(0);
 
-            % NOTE: We deliberately do NOT clear LeftProfileRawYZ / RightProfileRawYZ here.
-            % They are refreshed in computeProfiles() before updateProfiles2D() is called.
+            % NOTE:
+            % We deliberately do NOT change app.KerfEnabled here.
+            % Callers that want to invalidate kerf (rotation, plane
+            % movement, tolerance changes, etc.) already set
+            %   app.KerfEnabled = false;
+            % and call app.clearKerfPaths() explicitly.
+            % This allows onApplyKerf() to enable kerf and redraw it
+            % without the flag being immediately reset.
+            % LeftProfileRawYZ / RightProfileRawYZ are refreshed in
+            % computeProfiles(), so we also leave those alone here.
+        end
+
+        function clearKerfPaths(app)
+            % Delete only the kerf paths on the Profiles tab.
+            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
+                delete(app.LeftKerf2DLine);
+            end
+            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
+                delete(app.RightKerf2DLine);
+            end
+            app.LeftKerf2DLine  = gobjects(0);
+            app.RightKerf2DLine = gobjects(0);
         end
 
         function enterState0(app)
@@ -693,6 +727,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.clearPlanes();
             app.clearProfiles();
             app.clearProfiles2D();
+            app.KerfEnabled = false;
 
             % Continue button disabled and visually muted
             if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
@@ -906,9 +941,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Kerf-compensated path (wire centreline)
-            if ~isempty(yL) && app.KerfValue > 0
+            if app.KerfEnabled && ~isempty(yL) && app.KerfValue > 0
                 [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
                     yL, zL, app.KerfValue);
+
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
                     yKerfL, zKerfL, ...
                     'Color',[1.0 0.75 0.0], ...   % warm "wire" colour
@@ -936,7 +972,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'LineWidth',0.75);
             end
 
-            if ~isempty(yR) && app.KerfValue > 0
+            if app.KerfEnabled && ~isempty(yR) && app.KerfValue > 0
                 [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
                     yR, zR, app.KerfValue);
                 app.RightKerf2DLine = plot(app.AxRightProfile, ...
@@ -1101,7 +1137,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.ProfileTolerance = val;
-
+            % Changing tolerance invalidates kerf – user re-applies later
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
             % If we're already in STATE 1 (planes + profiles live),
             % recompute profiles using the new tolerance, but do NOT
             % reset the Profiles tab zoom/pan.
@@ -1118,6 +1156,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             defaultTol = 0.2;  % keep in sync with ProfileTolerance default
 
             app.ProfileTolerance = defaultTol;
+            % Resetting tolerance also clears kerf until re-applied
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
 
             if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
                 app.ProfileTolSpinner.Value = defaultTol;
@@ -1149,6 +1190,39 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.updatePlanes();           % will call computeProfiles() -> updateProfiles2D()
                 app.ProfileAxesLocked = false;
             end
+        end
+
+        function onApplyKerf(app)
+            % Enable kerf drawing and (re)draw kerf paths based on the
+            % currently extracted profiles, WITHOUT changing zoom/pan.
+
+            if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
+                % No profiles yet (user hasn't generated them)
+                return;
+            end
+
+            app.KerfEnabled = true;
+
+            % Use the stored 3D profile points to rebuild the 2D view.
+            yL = []; zL = []; xLeft  = 0;
+            yR = []; zR = []; xRight = 0;
+
+            if ~isempty(app.LeftProfilePoints)
+                xLeft = app.LeftProfilePoints(1,1);
+                yL    = app.LeftProfilePoints(:,2);
+                zL    = app.LeftProfilePoints(:,3);
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                xRight = app.RightProfilePoints(1,1);
+                yR     = app.RightProfilePoints(:,2);
+                zR     = app.RightProfilePoints(:,3);
+            end
+
+            % Just update the 2D plots; keep current zoom.
+            app.ProfileAxesLocked = true;
+            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
+            app.ProfileAxesLocked = false;
         end
 
         % ===========================================================
@@ -1463,7 +1537,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Update view and store as new "home" orientation
             app.autoFitView();
             app.captureHomeView();
-
+            % Rotation changes the geometry → invalidate kerf
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
             % OPTION A: After rotation, behave like Reset Planes
             app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
@@ -1483,6 +1559,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.autoFitView();
             app.captureHomeView();
+
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
 
             % Reset model bounds & plane offsets to defaults
             app.updateModelBoundsAndDefaultOffsets(true); % reset offsets
@@ -1527,6 +1606,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
+            % Plane movement invalidates kerf
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
+
             app.updatePlanes();  % this will also call computeProfiles() in STATE 1
         end
 
@@ -1535,6 +1618,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
             app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
         end
