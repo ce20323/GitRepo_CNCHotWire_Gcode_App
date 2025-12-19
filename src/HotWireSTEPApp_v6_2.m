@@ -780,6 +780,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
+            % Determine cut mode from toggle: 'Straight' or 'Tapered'
+            isTaper = true;
+            if ~isempty(app.TaperToggle) && isgraphics(app.TaperToggle)
+                isTaper = strcmp(app.TaperToggle.Value,'Tapered');
+            end
+
             % Clear previous graphics
             app.clearProfiles();
             app.clearProfiles2D();
@@ -857,19 +863,33 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             yLoopR = [];
             zLoopR = [];
-            if ~isempty(xsR) && any(~isnan(xsR))
-                [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
-                    xsR, ysR, zsR);
-            end
 
-            % Resample right profile by tolerance
-            if ~isempty(yLoopR)
-                tol = app.ProfileTolerance;
-                if isfinite(tol) && tol > 0
-                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
-                        yLoopR, zLoopR, tol);
+            if isTaper
+                % TAPERED MODE:
+                %   Right profile is a true slice at the right plane.
+                if ~isempty(xsR) && any(~isnan(xsR))
+                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
+                        xsR, ysR, zsR);
                 end
 
+                % Resample right profile by tolerance
+                if ~isempty(yLoopR)
+                    tol = app.ProfileTolerance;
+                    if isfinite(tol) && tol > 0
+                        [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
+                            yLoopR, zLoopR, tol);
+                    end
+                end
+            else
+                % STRAIGHT MODE:
+                %   Force right cutting profile to match left profile
+                %   (same Y–Z loop), but drawn at the right plane X.
+                yLoopR = yLoopL;
+                zLoopR = zLoopL;
+            end
+
+            % Draw right profile in 3D if we have something
+            if ~isempty(yLoopR)
                 xVecR = xRight * ones(numel(yLoopR),1);
                 app.RightProfileLine3D = plot3(app.AxModel, ...
                     xVecR, yLoopR, zLoopR, ...

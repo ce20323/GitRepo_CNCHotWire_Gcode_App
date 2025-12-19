@@ -12,7 +12,7 @@ classdef HotWireSTEPApp_v6_helpers
 
         % Maximum number of points for a resampled profile loop
         % (caps how much a tiny tolerance can explode point count)
-        ProfileResampleMaxPoints (1,1) double = 20000;
+        ProfileResampleMaxPoints (1,1) double = 50000;
     end
     
     methods(Static)
