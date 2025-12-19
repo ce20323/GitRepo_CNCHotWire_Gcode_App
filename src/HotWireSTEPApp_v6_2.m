@@ -56,6 +56,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         ProfileAxesLocked (1,1) logical = false  % When true, updateProfiles2D will NOT reset xlim/ylim.
         BtnResetProfileTol                % "Reset tolerance" button
         BtnResetProfilesView              % "Reset Profiles View" button
+        ProfilePointCountLabel            % read-only "points (L/R)" display
 
         % ---------- Kerf compensation ----------
         KerfValue (1,1) double = 0.5      % [mm], positive = shrink profile
@@ -227,11 +228,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BorderType','line');
             tolPanel.Layout.Row = 1;
 
-            tolGrid = uigridlayout(tolPanel,[1 2]);
-            tolGrid.ColumnWidth    = {'fit',80};
-            tolGrid.RowHeight      = {'fit'};
+            % 2 rows:
+            %   row 1: label + spinner
+            %   row 2: read-only points label
+            tolGrid = uigridlayout(tolPanel,[2 2]);
+            tolGrid.ColumnWidth    = {'1x',90};
+            tolGrid.RowHeight      = {'fit','fit'};
             tolGrid.Padding        = [10 5 10 5];
             tolGrid.ColumnSpacing  = 8;
+
 
             lblTol = uilabel(tolGrid, ...
                 'Text','Profile Tolerance [mm]:', ...
@@ -250,6 +255,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolSpinner.Layout.Row    = 1;
             app.ProfileTolSpinner.Layout.Column = 2;
+            
+            % Read-only point-count label (L/R)
+            app.ProfilePointCountLabel = uilabel(tolGrid, ...
+                'Text','Points (L/R): -- / --', ...
+                'HorizontalAlignment','right', ...
+                'FontColor',[0.9 0.9 0.9], ...
+                'FontAngle','italic');
+            app.ProfilePointCountLabel.Layout.Row    = 2;
+            app.ProfilePointCountLabel.Layout.Column = [1 2];
 
             % --- Reset tolerance to default ---
             app.BtnResetProfileTol = uibutton(profilesLeft, ...
@@ -867,6 +881,35 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % -------------------------------------------------------
+            % Update "points (L/R)" read-out + simple cap indication
+            % -------------------------------------------------------
+            nL = 0;
+            nR = 0;
+            if ~isempty(app.LeftProfilePoints)
+                nL = size(app.LeftProfilePoints,1);
+            end
+            if ~isempty(app.RightProfilePoints)
+                nR = size(app.RightProfilePoints,1);
+            end
+
+            if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
+                capN = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
+
+                if nL == 0 && nR == 0
+                    app.ProfilePointCountLabel.Text = 'Points (L/R): -- / --';
+                else
+                    if (nL >= capN) || (nR >= capN)
+                        suffix = sprintf('  (cap at %d pts)', capN);
+                    else
+                        suffix = '';
+                    end
+                    app.ProfilePointCountLabel.Text = ...
+                        sprintf('Points (L/R): %d / %d%s', nL, nR, suffix);
+                end
+            end
+
+
+            % -------------------------------------------------------
             % 2D PROFILES TAB UPDATE (shared Y/Z limits)
             % -------------------------------------------------------
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
@@ -1093,6 +1136,35 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
         end
         
+        function updateProfilePointCountLabel(app, nLeft, nRight, capLeft, capRight)
+            % Update the read-only "Points (L/R)" label in the Profiles tab.
+
+            if nargin < 2, nLeft  = 0; end
+            if nargin < 3, nRight = 0; end
+            if nargin < 4, capLeft  = false; end
+            if nargin < 5, capRight = false; end
+
+            if isempty(app.ProfilePointCountLabel) || ~isgraphics(app.ProfilePointCountLabel)
+                return;
+            end
+
+            if nLeft <= 0 && nRight <= 0
+                txt = 'Points (L/R): -- / --';
+            else
+                txt = sprintf('Points (L/R): %d / %d', nLeft, nRight);
+            end
+
+            if capLeft || capRight
+                txt = [txt '  (max points reached)'];
+                % For now, just warn to the command window. Later we can route
+                % this into the collapsible "messages/help" panel.
+                warning('ProfileSampler:PointCapHit', ...
+                    'Profile point cap reached; further reductions in tolerance will not add detail.');
+            end
+
+            app.ProfilePointCountLabel.Text = txt;
+        end
+
         function onTaperModeChanged(app)
 
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)

@@ -6,6 +6,15 @@ classdef HotWireSTEPApp_v6_helpers
     %   - sliceMeshAtX       : Triangle–plane intersection at X = const
     %
 
+    properties (Constant)
+        % Minimum number of points for a resampled profile loop
+        ProfileResampleMinPoints (1,1) double = 50;
+
+        % Maximum number of points for a resampled profile loop
+        % (caps how much a tiny tolerance can explode point count)
+        ProfileResampleMaxPoints (1,1) double = 20000;
+    end
+    
     methods(Static)
 
         % ===============================================================
@@ -299,7 +308,7 @@ classdef HotWireSTEPApp_v6_helpers
         % ---------------------------------------------------------------
         % RESAMPLEPROFILEBYTOLERANCE
         % ---------------------------------------------------------------
-        function [yR, zR] = resampleProfileByTolerance(y, z, tol)
+        function [yR, zR, info] = resampleProfileByTolerance(y, z, tol)
             % RESAMPLEPROFILEBYTOLERANCE Resample a closed profile loop (y,z)
             % so that successive points are spaced by ~tol [mm] in arc length.
             %
@@ -321,6 +330,9 @@ classdef HotWireSTEPApp_v6_helpers
             z = z(:);
             yR = y;
             zR = z;
+            
+            % Default info struct
+            info = struct('capHit',false, 'nPoints', numel(yR));
 
             if numel(y) < 2 || numel(z) < 2 || ~isfinite(tol) || tol <= 0
                 return;
@@ -350,13 +362,21 @@ classdef HotWireSTEPApp_v6_helpers
             if totalLen <= 0
                 yR = yExt;
                 zR = zExt;
+                info.nPoints = numel(yR);
                 return;
             end
 
             % --- Target point count from tolerance, with safety bounds ---
-            nTarget = round(totalLen / tol);
-            nTarget = max(nTarget, 50);    % at least 50 points
-            nTarget = min(nTarget, 2000);  % cap to avoid silly sizes
+            % --- Target point count from tolerance, with safety bounds ---
+            rawN    = totalLen / tol;
+            nTarget = round(rawN);
+
+            minPoints = HotWireSTEPApp_v6_helpers.ProfileResampleMinPoints;
+            maxPoints = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
+
+            nTarget = max(nTarget, minPoints);     % at least minPoints
+            capHit  = nTarget > maxPoints;         % requesting more than cap
+            nTarget = min(nTarget, maxPoints);     % enforce cap
 
             if nTarget < 3
                 yR = yExt;
@@ -369,6 +389,9 @@ classdef HotWireSTEPApp_v6_helpers
             % --- Interpolate back onto the loop ---
             yR = interp1(sUnique, yExt, sSamples, 'linear');
             zR = interp1(sUnique, zExt, sSamples, 'linear');
+            info.capHit  = capHit;
+            info.nPoints = numel(yR);
+
         end
 
         function [yKerf, zKerf] = offsetProfileLoop(yLoop, zLoop, kerf)
