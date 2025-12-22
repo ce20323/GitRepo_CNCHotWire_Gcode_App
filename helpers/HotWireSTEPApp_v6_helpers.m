@@ -504,5 +504,208 @@ classdef HotWireSTEPApp_v6_helpers
             end
         end
 
+        function [yOut, zOut] = reorderLoopByMinY(yIn, zIn)
+            %REORDERLOOPBYMINY Rotate a closed loop so that the first
+            % vertex is the one with the minimum Y (then minimum Z).
+            %
+            %   [yOut, zOut] = reorderLoopByMinY(yIn, zIn)
+            %
+            % Inputs:
+            %   yIn, zIn : profile loop (row or column, same length)
+            %
+            % Outputs:
+            %   yOut, zOut : reordered loop, closed
+            %               (last point duplicates first).
+            %
+            % NOTE:
+            %   - If the loop is already (approximately) closed, we drop
+            %     the last duplicate vertex before rotating.
+            %   - If there are multiple vertices with the same minimum Y,
+            %     we choose the one with the smallest Z.
+
+            yOut = yIn;
+            zOut = zIn;
+
+            if isempty(yIn) || numel(yIn) < 2 || numel(zIn) ~= numel(yIn)
+                return;
+            end
+
+            y = yIn(:);
+            z = zIn(:);
+
+            if any(~isfinite(y)) || any(~isfinite(z))
+                return;
+            end
+
+            % Remove duplicate last vertex if it coincides with the first
+            spanYZ = max(max(abs([y; z])));
+            if spanYZ <= 0
+                spanYZ = 1;
+            end
+
+            if hypot(y(end) - y(1), z(end) - z(1)) < 1e-9 * spanYZ
+                y = y(1:end-1);
+                z = z(1:end-1);
+            end
+
+            if numel(y) < 2
+                yOut = y;
+                zOut = z;
+                return;
+            end
+
+            % Find index of minimum Y, break ties with minimum Z
+            yMin = min(y);
+            % Allow for floating-point fuzz on "same Y"
+            tolY = 1e-9 * max(abs(yMin), 1);
+            idxCandidates = find(abs(y - yMin) <= tolY);
+
+            if numel(idxCandidates) > 1
+                [~, k] = min(z(idxCandidates));
+                idxStart = idxCandidates(k);
+            else
+                idxStart = idxCandidates(1);
+            end
+
+            % Rotate so idxStart becomes the first point
+            yRot = [y(idxStart:end); y(1:idxStart-1)];
+            zRot = [z(idxStart:end); z(1:idxStart-1)];
+
+            % Re-close the loop explicitly
+            yRot = [yRot; yRot(1)];
+            zRot = [zRot; zRot(1)];
+
+            % Match input orientation (row vs column)
+            if isrow(yIn)
+                yOut = yRot.';
+                zOut = zRot.';
+            else
+                yOut = yRot;
+                zOut = zRot;
+            end
+        end
+
+        % ===============================================================
+        % BILLET DEFAULTS FROM MESH
+        % ===============================================================
+        function billet = computeDefaultBilletFromMesh(V, gapYZ, xPlaneA, xPlaneB)
+            %COMPUTEDEFAULTBILLETFROMMESH Default billet from mesh vertices.
+            %
+            %   - Leaves ~gapYZ clearance around the model in Y and Z.
+            %   - Billet height (Z) is rounded UP to 50 / 75 / 100 mm.
+            %   - Billet length (X):
+            %       * If xPlaneA/xPlaneB are provided and finite:
+            %           → matches the distance between the two planes
+            %             (billet Xmin/Xmax = plane positions).
+            %       * Otherwise:
+            %           → falls back to the model X bounding box.
+            %
+            % Inputs
+            %   V        : Nx3 model vertices [X Y Z]
+            %   gapYZ    : scalar clearance in Y/Z (mm), default 5
+            %   xPlaneA  : X position of first plane (optional)
+            %   xPlaneB  : X position of second plane (optional)
+            %
+            % Output
+            %   billet : struct with fields
+            %       gapYZ
+            %       lengthX, widthY, heightZ
+            %       Xmin, Xmax, Ymin, Ymax, Zmin, Zmax
+            %       clearLeft, clearRight, clearBottom, clearTop
+
+            % ---- Defaults / validation ----
+            if nargin < 2 || ~isscalar(gapYZ) || ~isfinite(gapYZ) || gapYZ <= 0
+                gapYZ = 5;   % 5 mm clearance in Y/Z
+            end
+
+            billet = struct( ...
+                'gapYZ',       gapYZ, ...
+                'lengthX',     NaN, ...
+                'widthY',      NaN, ...
+                'heightZ',     NaN, ...
+                'Xmin',        NaN, ...
+                'Xmax',        NaN, ...
+                'Ymin',        NaN, ...
+                'Ymax',        NaN, ...
+                'Zmin',        NaN, ...
+                'Zmax',        NaN, ...
+                'clearLeft',   NaN, ...
+                'clearRight',  NaN, ...
+                'clearBottom', NaN, ...
+                'clearTop',    NaN);
+
+            if isempty(V) || size(V,2) ~= 3
+                return;
+            end
+
+            % ---- Model bounding box ----
+            mins = min(V,[],1);
+            maxs = max(V,[],1);
+
+            minX = mins(1);  maxX = maxs(1);
+            minY = mins(2);  maxY = maxs(2);
+            minZ = mins(3);  maxZ = maxs(3);
+
+            widthYModel  = maxY - minY;   %#ok<NASGU> % kept for clarity / future use
+            heightZModel = maxZ - minZ;   %#ok<NASGU>
+
+            % ---- Billet X: prefer plane separation if given ----
+            usePlanes = (nargin >= 4) ...
+                && all(isfinite([xPlaneA, xPlaneB])) ...
+                && (xPlaneA ~= xPlaneB);
+
+            if usePlanes
+                billetXmin = min(xPlaneA, xPlaneB);
+                billetXmax = max(xPlaneA, xPlaneB);
+            else
+                % Fallback to model span
+                billetXmin = minX;
+                billetXmax = maxX;
+            end
+
+            % ---- Billet Y: add gapYZ either side ----
+            billetYmin = minY - gapYZ;
+            billetYmax = maxY + gapYZ;
+
+            % ---- Billet Z: add gapYZ, then snap height to 50/75/100 ----
+            rawZmin   = minZ - gapYZ;
+            rawZmax   = maxZ + gapYZ;
+            rawHeight = rawZmax - rawZmin;
+
+            stockHeights = [50 75 100];  % mm
+
+            h = rawHeight;
+            idx = find(stockHeights >= rawHeight - 1e-6, 1, 'first');
+            if ~isempty(idx)
+                % Round UP to next available stock size
+                h = stockHeights(idx);
+            else
+                % If model is taller than 100mm, just use the actual height
+                h = rawHeight;
+            end
+
+            % Keep the bottom against the requested clearance, grow upwards
+            billetZmin = rawZmin;
+            billetZmax = billetZmin + h;
+
+            % ---- Store billet dims / extents ----
+            billet.lengthX = billetXmax - billetXmin;
+            billet.widthY  = billetYmax - billetYmin;
+            billet.heightZ = billetZmax - billetZmin;
+
+            billet.Xmin = billetXmin;
+            billet.Xmax = billetXmax;
+            billet.Ymin = billetYmin;
+            billet.Ymax = billetYmax;
+            billet.Zmin = billetZmin;
+            billet.Zmax = billetZmax;
+
+            % ---- Actual clearances with snapped height ----
+            billet.clearLeft   = minY - billetYmin;   % ≈ gapYZ
+            billet.clearRight  = billetYmax - maxY;   % ≈ gapYZ
+            billet.clearBottom = minZ - billetZmin;   % = gapYZ
+            billet.clearTop    = billetZmax - maxZ;   % ≥ gapYZ (because of rounding)
+        end
+
     end
 end
