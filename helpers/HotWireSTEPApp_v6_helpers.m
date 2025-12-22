@@ -403,7 +403,7 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function [yKerf, zKerf] = offsetProfileLoop(yLoop, zLoop, kerf)
-            %OFFSETPROFILELOOP Robust polygon offset for a closed Y–Z profile.
+            %OFFSETPROFILELOOP Polygon offset via polybuffer for a closed Y–Z profile.
             %
             %   [yKerf,zKerf] = offsetProfileLoop(yLoop,zLoop,kerf)
             %
@@ -417,168 +417,90 @@ classdef HotWireSTEPApp_v6_helpers
             % Outputs:
             %   yKerf, zKerf : offset loop, same orientation as input.
             %
-            % Method:
-            %   - Treats profile as a closed polygon.
-            %   - For each edge, builds an outward offset line.
-            %   - For each vertex, intersects its two adjacent offset
-            %     lines to get the new corner position.
-            %   - Uses a miter limit so very sharp corners don't explode.
-            %   - Then smooths small concave notches so the kerf path
-            %     "bridges" tight internal corners instead of kinking.
+            % Implementation:
+            %   Uses polyshape + polybuffer in the Y–Z plane. If multiple
+            %   regions are produced, keeps the largest by area.
 
-            % ----- Basic validation -----
+            % Default: echo input if nothing sensible can be done
             yKerf = yLoop;
             zKerf = zLoop;
 
-            if kerf == 0
+            % Trivial / invalid kerf → no change
+            if ~isfinite(kerf) || kerf == 0
                 return;
             end
 
+            % Basic validation
             y = yLoop(:);
             z = zLoop(:);
 
-            n = numel(y);
-            if n < 3 || any(~isfinite(y)) || any(~isfinite(z)) || ~isfinite(kerf)
+            if numel(y) < 3 || numel(z) < 3 ...
+                    || any(~isfinite(y)) || any(~isfinite(z))
                 return;
             end
 
-            % Ensure closure for geometry; we'll drop the duplicate at the end
-            if y(1) ~= y(end) || z(1) ~= z(end)
-                y = [y; y(1)];
-                z = [z; z(1)];
-            end
-            N = numel(y) - 1;                      % number of real vertices
-
-            V = [y(1:N), z(1:N)];                  % Nx2 vertices
-
-            % ----- Determine polygon orientation (CCW vs CW) -----
-            A = 0.5 * sum( V(:,1) .* circshift(V(:,2),-1) ...
-                         - circshift(V(:,1),-1) .* V(:,2) );
-            if A == 0
-                % Degenerate polygon – nothing clever we can do
+            % Remove NaNs
+            valid = isfinite(y) & isfinite(z);
+            y = y(valid);
+            z = z(valid);
+            if numel(y) < 3
                 return;
             end
 
-            flipped = false;
-            if A < 0
-                % Make polygon CCW for a consistent "outward" direction
-                V = flipud(V);
-                flipped = true;
+            % Remove duplicate last vertex if it coincides with the first
+            spanYZ = max(max(abs([y; z])));
+            if spanYZ <= 0
+                spanYZ = 1;
+            end
+            if hypot(y(end) - y(1), z(end) - z(1)) < 1e-9 * spanYZ
+                y = y(1:end-1);
+                z = z(1:end-1);
             end
 
-            % ----- Edge tangents and outward normals -----
-            Vnext = circshift(V,-1,1);             % vertex i -> i+1
-            E     = Vnext - V;                     % edge vectors
-            L     = hypot(E(:,1), E(:,2));
-            L(L == 0) = eps;
+            try
+                % Build polyshape in the Y–Z plane
+                p = polyshape(y, z, 'Simplify', true);
 
-            % For CCW polygon, outward normal to edge [dy, -dx]/L
-            Nrm = [ E(:,2)./L, -E(:,1)./L ];       % Nx2 normals
-
-            % ----- Offset each edge by kerf -----
-            % Each edge i defines line:  n_i · p = c_i
-            % Offset line:                 n_i · p = c_i + kerf
-            c = sum(Nrm .* V, 2);                  % n_i · v_i
-
-            % ----- For each vertex, intersect its two adjacent offset lines -----
-            Yk = zeros(N,1);
-            Zk = zeros(N,1);
-
-            % Miter limit: maximum allowed ratio |corner shift| / |kerf|
-            miterLimit = 4;   % tune if needed
-
-            for i = 1:N
-                iPrev = i - 1;
-                if iPrev == 0
-                    iPrev = N;
+                if isempty(p.Vertices)
+                    return;
                 end
-                iCurr = i;
 
-                n1 = Nrm(iPrev,:);   c1 = c(iPrev) + kerf;
-                n2 = Nrm(iCurr,:);   c2 = c(iCurr) + kerf;
+                % polybuffer with POSITIVE kerf = outward offset
+                pb = polybuffer(p, kerf);
 
-                % Solve [n1; n2] * p = [c1; c2]
-                A2 = [n1; n2];
-                b2 = [c1; c2];
+                % No geometry after buffer (e.g. huge negative kerf)
+                if isempty(pb.Vertices)
+                    return;
+                end
 
-                % If nearly parallel, use averaged-normal fallback
-                if abs(det(A2)) < 1e-8
-                    nAvg = n1 + n2;
-                    if norm(nAvg) < 1e-8
-                        nAvg = n1;   % give up and use one normal
-                    end
-                    nAvg = nAvg ./ norm(nAvg);
-                    pk = V(i,:) + kerf * nAvg;
+                % If multiple disjoint regions, keep the largest by area
+                regs = regions(pb);
+                if numel(regs) > 1
+                    a = area(regs);
+                    [~, idxMax] = max(a);
+                    pb = regs(idxMax);
+                end
+
+                % Get boundary of buffered polygon (closed loop)
+                [yB, zB] = boundary(pb);
+
+                % Preserve row/column orientation
+                if isrow(yLoop)
+                    yKerf = yB.';
+                    zKerf = zB.';
                 else
-                    % b2 must be column for A2\b2; result is 2x1
-                    pk = (A2 \ b2).';      % row [y z]
+                    yKerf = yB;
+                    zKerf = zB;
                 end
 
-                % Miter-length clamp: avoid huge spikes at very sharp corners
-                shiftVec = pk - V(i,:);
-                mLen     = norm(shiftVec);
-                if mLen > miterLimit * abs(kerf)
-                    nAvg = n1 + n2;
-                    if norm(nAvg) < 1e-8
-                        nAvg = n1;
-                    end
-                    nAvg = nAvg ./ norm(nAvg);
-                    pk = V(i,:) + kerf * nAvg;
-                end
-
-                Yk(i) = pk(1);
-                Zk(i) = pk(2);
-            end
-
-            % ----- Concave-corner smoothing (bridge tight internal notches) -----
-            P = [Yk, Zk];
-            if N >= 4
-                % "Small" notch length threshold: a few kerf widths
-                smallLen = max(4*abs(kerf), 1e-3);
-
-                for i = 1:N
-                    ip = i - 1; if ip == 0, ip = N; end
-                    in = i + 1; if in > N, in = 1; end
-
-                    v1 = P(i,:) - P(ip,:);
-                    v2 = P(in,:) - P(i,:);
-
-                    if norm(v1) < eps || norm(v2) < eps
-                        continue;
-                    end
-
-                    % Signed turn at vertex i
-                    crossVal = v1(1)*v2(2) - v1(2)*v2(1);
-
-                    % For CCW polygon, cross < 0 => concave corner
-                    isConcave = (crossVal < 0);
-
-                    if isConcave ...
-                            && norm(v1) < smallLen ...
-                            && norm(v2) < smallLen
-                        % Replace the vertex by the midpoint of neighbours:
-                        % this "bridges" the notch and kills the little kink.
-                        P(i,:) = 0.5*(P(ip,:) + P(in,:));
-                    end
-                end
-            end
-            Yk = P(:,1);
-            Zk = P(:,2);
-
-            % If we flipped orientation to CCW earlier, flip back so the
-            % output loop matches the original direction
-            if flipped
-                Yk = flipud(Yk);
-                Zk = flipud(Zk);
-            end
-
-            % Return in same row/column orientation as input
-            if isrow(yLoop)
-                yKerf = Yk.';
-                zKerf = Zk.';
-            else
-                yKerf = Yk;
-                zKerf = Zk;
+            catch ME
+                % If polybuffer / polyshape fails (e.g. toolbox missing),
+                % just warn and return the original loop.
+                warning('offsetProfileLoop:PolybufferFailed', ...
+                    'Kerf offset via polybuffer failed (%s). Returning original profile.', ...
+                    ME.message);
+                yKerf = yLoop;
+                zKerf = zLoop;
             end
         end
 

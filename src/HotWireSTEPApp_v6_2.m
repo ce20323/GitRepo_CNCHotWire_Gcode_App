@@ -373,7 +373,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxLeftProfile,'Y (mm)');
             ylabel(app.AxLeftProfile,'Z (mm)');
             grid(app.AxLeftProfile,'on');
-
+            % True-scale Y–Z: 1 mm in Y = 1 mm in Z, but the axes
+            % box size itself is controlled by the grid layout.
+            app.AxLeftProfile.DataAspectRatio        = [1 1 1];
+            app.AxLeftProfile.DataAspectRatioMode    = 'manual';
+            app.AxLeftProfile.PlotBoxAspectRatioMode = 'auto';
+            
             % Right profile axes (bottom)
             app.AxRightProfile = uiaxes(profilesRight);
             app.AxRightProfile.Layout.Row    = 2;
@@ -383,6 +388,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxRightProfile,'Y (mm)');
             ylabel(app.AxRightProfile,'Z (mm)');
             grid(app.AxRightProfile,'on');
+            app.AxRightProfile.DataAspectRatio        = [1 1 1];
+            app.AxRightProfile.DataAspectRatioMode    = 'manual';
+            app.AxRightProfile.PlotBoxAspectRatioMode = 'auto';
 
             % --- Main layout: left controls / right plot ---
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
@@ -1127,8 +1135,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 ylim(app.AxRightProfile, zLim);
             end
 
-            % True-scale Y–Z aspect ratio on both axes
-            daspect(app.AxLeftProfile,[1 1 1]);
+            % Always keep Y–Z true-scale, even after zoom / tolerance changes
+            daspect(app.AxLeftProfile, [1 1 1]);
             daspect(app.AxRightProfile,[1 1 1]);
 
             % Titles / labels (use offsets relative to model left face)
