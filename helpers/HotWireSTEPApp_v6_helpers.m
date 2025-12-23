@@ -7,17 +7,22 @@ classdef HotWireSTEPApp_v6_helpers
     %
 
     properties (Constant)
-        % Minimum number of points for a resampled profile loop
-        ProfileResampleMinPoints (1,1) double = 50;
 
-        % Maximum number of points for a resampled profile loop
-        % (caps how much a tiny tolerance can explode point count)
-        ProfileResampleMaxPoints (1,1) double = 20000;
+        % --- Profile Sampling ---
+        ProfileResampleMinPoints = 50;
+        ProfileResampleMaxPoints = 20000;
 
-        % FreeCAD meshing tolerances (STEP -> mesh)
-        % These control how finely the STEP geometry is tessellated.
-        FreeCADLinearDeflection  (1,1) double = 0.5;   % [mm]
-        FreeCADAngularDeflection (1,1) double = 0.3;   % [rad]
+        % --- FreeCAD Meshing ---
+        FreeCADLinearDeflection  = 0.5;
+        FreeCADAngularDeflection = 0.3;
+
+        % --- Billet Default Rules ---
+        BilletXBuffer   = 0.001;  % mm (brief: +0.001 either side)
+        BilletYBuffer   = 5.0;    % mm (brief: 5mm front/back)
+        BilletZBuffer   = 10.0;   % mm (brief: model height + 10)
+        BilletZMinClear = 5.0;    % mm (brief: min-Z raised 5mm from bottom)
+        BilletStockHeights = [50 75 100]; % mm
+    
     end
     
     methods(Static)
@@ -588,123 +593,33 @@ classdef HotWireSTEPApp_v6_helpers
         % ===============================================================
         % BILLET DEFAULTS FROM MESH
         % ===============================================================
-        function billet = computeDefaultBilletFromMesh(V, gapYZ, xPlaneA, xPlaneB)
-            %COMPUTEDEFAULTBILLETFROMMESH Default billet from mesh vertices.
-            %
-            %   - Leaves ~gapYZ clearance around the model in Y and Z.
-            %   - Billet height (Z) is rounded UP to 50 / 75 / 100 mm.
-            %   - Billet length (X):
-            %       * If xPlaneA/xPlaneB are provided and finite:
-            %           → matches the distance between the two planes
-            %             (billet Xmin/Xmax = plane positions).
-            %       * Otherwise:
-            %           → falls back to the model X bounding box.
-            %
-            % Inputs
-            %   V        : Nx3 model vertices [X Y Z]
-            %   gapYZ    : scalar clearance in Y/Z (mm), default 5
-            %   xPlaneA  : X position of first plane (optional)
-            %   xPlaneB  : X position of second plane (optional)
-            %
-            % Output
-            %   billet : struct with fields
-            %       gapYZ
-            %       lengthX, widthY, heightZ
-            %       Xmin, Xmax, Ymin, Ymax, Zmin, Zmax
-            %       clearLeft, clearRight, clearBottom, clearTop
+        
+        function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)
+            % Use fully qualified names for Constant properties
+            mins = min(V,[],1); maxs = max(V,[],1);
+            
+            % X: Planes + Buffer
+            billet.Xmin = min(xPlaneA, xPlaneB) - HotWireSTEPApp_v6_helpers.BilletXBuffer;
+            billet.Xmax = max(xPlaneA, xPlaneB) + HotWireSTEPApp_v6_helpers.BilletXBuffer;
 
-            % ---- Defaults / validation ----
-            if nargin < 2 || ~isscalar(gapYZ) || ~isfinite(gapYZ) || gapYZ <= 0
-                gapYZ = 5;   % 5 mm clearance in Y/Z
-            end
+            % Y: Model + Buffer
+            billet.Ymin = mins(2) - HotWireSTEPApp_v6_helpers.BilletYBuffer;
+            billet.Ymax = maxs(2) + HotWireSTEPApp_v6_helpers.BilletYBuffer;
 
-            billet = struct( ...
-                'gapYZ',       gapYZ, ...
-                'lengthX',     NaN, ...
-                'widthY',      NaN, ...
-                'heightZ',     NaN, ...
-                'Xmin',        NaN, ...
-                'Xmax',        NaN, ...
-                'Ymin',        NaN, ...
-                'Ymax',        NaN, ...
-                'Zmin',        NaN, ...
-                'Zmax',        NaN, ...
-                'clearLeft',   NaN, ...
-                'clearRight',  NaN, ...
-                'clearBottom', NaN, ...
-                'clearTop',    NaN);
-
-            if isempty(V) || size(V,2) ~= 3
-                return;
-            end
-
-            % ---- Model bounding box ----
-            mins = min(V,[],1);
-            maxs = max(V,[],1);
-
-            minX = mins(1);  maxX = maxs(1);
-            minY = mins(2);  maxY = maxs(2);
-            minZ = mins(3);  maxZ = maxs(3);
-
-            widthYModel  = maxY - minY;   %#ok<NASGU> % kept for clarity / future use
-            heightZModel = maxZ - minZ;   %#ok<NASGU>
-
-            % ---- Billet X: prefer plane separation if given ----
-            usePlanes = (nargin >= 4) ...
-                && all(isfinite([xPlaneA, xPlaneB])) ...
-                && (xPlaneA ~= xPlaneB);
-
-            if usePlanes
-                billetXmin = min(xPlaneA, xPlaneB);
-                billetXmax = max(xPlaneA, xPlaneB);
-            else
-                % Fallback to model span
-                billetXmin = minX;
-                billetXmax = maxX;
-            end
-
-            % ---- Billet Y: add gapYZ either side ----
-            billetYmin = minY - gapYZ;
-            billetYmax = maxY + gapYZ;
-
-            % ---- Billet Z: add gapYZ, then snap height to 50/75/100 ----
-            rawZmin   = minZ - gapYZ;
-            rawZmax   = maxZ + gapYZ;
-            rawHeight = rawZmax - rawZmin;
-
-            stockHeights = [50 75 100];  % mm
-
-            h = rawHeight;
-            idx = find(stockHeights >= rawHeight - 1e-6, 1, 'first');
+            % Z: Rounded Height
+            modelH = maxs(3) - mins(3);
+            rawH   = modelH + HotWireSTEPApp_v6_helpers.BilletZBuffer;
+            
+            % Snap to stock heights
+            idx = find(HotWireSTEPApp_v6_helpers.BilletStockHeights >= rawH - 1e-6, 1, 'first');
             if ~isempty(idx)
-                % Round UP to next available stock size
-                h = stockHeights(idx);
+                finalH = HotWireSTEPApp_v6_helpers.BilletStockHeights(idx);
             else
-                % If model is taller than 100mm, just use the actual height
-                h = rawHeight;
+                finalH = rawH; 
             end
-
-            % Keep the bottom against the requested clearance, grow upwards
-            billetZmin = rawZmin;
-            billetZmax = billetZmin + h;
-
-            % ---- Store billet dims / extents ----
-            billet.lengthX = billetXmax - billetXmin;
-            billet.widthY  = billetYmax - billetYmin;
-            billet.heightZ = billetZmax - billetZmin;
-
-            billet.Xmin = billetXmin;
-            billet.Xmax = billetXmax;
-            billet.Ymin = billetYmin;
-            billet.Ymax = billetYmax;
-            billet.Zmin = billetZmin;
-            billet.Zmax = billetZmax;
-
-            % ---- Actual clearances with snapped height ----
-            billet.clearLeft   = minY - billetYmin;   % ≈ gapYZ
-            billet.clearRight  = billetYmax - maxY;   % ≈ gapYZ
-            billet.clearBottom = minZ - billetZmin;   % = gapYZ
-            billet.clearTop    = billetZmax - maxZ;   % ≥ gapYZ (because of rounding)
+            
+            billet.Zmin = mins(3) - HotWireSTEPApp_v6_helpers.BilletZMinClear;
+            billet.Zmax = billet.Zmin + finalH;
         end
 
     end

@@ -33,6 +33,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         AutoFitPaddingFactor (1,1) double = 0.35;  % model view padding
         PlanePaddingFactor   (1,1) double = 0.20;  % plane extents padding
 
+                % --- Billet UI Increments ---
+        BilletSizeStep  = 1.0;  % mm
+        BilletShiftStep = 0.5;  % mm
+
         % (Future)
         % MachineSpanX (1,1) double = 2000;  % mm, for example
         % MachineSpanY (1,1) double = 1000;
@@ -106,10 +110,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnAutoFitBillet
         
         % ---------- Billet  ----------   
-        MeshVertices   double = [];   % Nx3 [X Y Z] model vertices in *current* orientation
         ModelF   double     % Mx3 faces   of the current model
-        Billet         struct = struct();  % latest billet defaults/values
-        BilletGapYZ    double = 5;    % default 5mm gap in Y/Z (if you want it configurable)
 
         % Billet size controls (X/Y/Z)
         BilletSizeEdits          % 1×3 numeric edit fields for billet size [mm]
@@ -167,37 +168,23 @@ classdef HotWireSTEPApp_v6_2 < handle
         IsDragging logical = false
         LastMousePos (1,2) double = [NaN NaN]
 
-        % ---------- Internal plane reference ----------
-        ModelXMin double = 0   % left face of the model in machine X
-        ModelXMax double = 0   % right face of the model in machine X
-        ModelYMin double = 0
-        ModelYMax double = 0
-        ModelZMin double = 0
-        ModelZMax double = 0
+        % ---------- Model Bounding Box (Crucial for Planes/Billet) ----------
+        ModelXMin, ModelXMax
+        ModelYMin, ModelYMax
+        ModelZMin, ModelZMax
 
-        % ---------- Billet sizing / positioning ----------
-        BilletXMin double = 0
-        BilletXMax double = 0
-        BilletYMin double = 0
-        BilletYMax double = 0
-        BilletZMin double = 0
-        BilletZMax double = 0
+        % ---------- Billet State ----------   
+        BilletXMin, BilletXMax
+        BilletYMin, BilletYMax
+        BilletZMin, BilletZMax
+        BilletSize  = [0 0 0]  % [Length X, Width Y, Height Z] - The Driving Factor
+        BilletShift = [0 0 0]  % Cumulative [dX, dY, dZ] from import position
 
-        % Auto-position baseline (defines "zero" for current offset)
-        BilletXMinAuto double = 0
-        BilletXMaxAuto double = 0
-        BilletYMinAuto double = 0
-        BilletYMaxAuto double = 0
-        BilletZMinAuto double = 0
-        BilletZMaxAuto double = 0
-        
-        BilletData struct = struct();  % stores billet dims + clearances
-        
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
         AppState (1,1) double = 0
-        
+
     end
 
     methods
@@ -2259,302 +2246,234 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
-        % BILLET TAB CALLBACK STUBS (logic added in next steps)
+        % BILLET TAB CALLBACKS
         % ===========================================================  
+
         function updateBilletDefaultsFromMesh(app)
-            % UPDATEBILLETDEFAULTSFROMMESH
-            % Recompute the "default" billet from the current model + planes
-            % and push the result into:
-            %   - BilletX/Y/ZMin, BilletX/Y/ZMax
-            %   - BilletX/Y/ZMinAuto, BilletX/Y/ZMaxAuto
-            %   - Billet size controls (X/Y/Z)
-            %   - Billet position controls (−gap, centre offset, +gap)
-            %
-            % Rules:
-            %   X: billet length is the distance between left/right planes.
-            %   Y: model min/max with ± BilletGapYZ (default 5 mm).
-            %   Z: model height + 10 mm, rounded up to 50/75/100 mm if
-            %      <= 100 mm, otherwise just height+10.  Model min-Z sits
-            %      5 mm above the billet bottom.
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
 
+            b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR);
+
+            % Sync the driving property
+            app.BilletSize = [b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
+
+            % For this tab, the Billet origin is always fixed at 0
+            app.BilletXMin = 0; app.BilletYMin = 0; app.BilletZMin = 0;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function syncBilletUI(app)
+            if isempty(app.BilletSizeEdits), return; end
+
+            % 1. Model Bounds in current space
             V = app.ModelPatch.Vertices;
-            if isempty(V) || size(V,2) ~= 3
-                return;
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
+            mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+
+            % 2. Billet Bounds (Always 0 to Size in this tab)
+            bMin = [0, 0, 0];
+            bMax = app.BilletSize;
+
+            for i = 1:3
+                % Size Field
+                app.BilletSizeEdits(i).Value = app.BilletSize(i);
+
+                % Positioning Fields (Gap from 0 or Gap from Size)
+                app.BilletNegOffsetEdits(i).Value    = mMin(i) - bMin(i);
+                app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
+                app.BilletPosOffsetEdits(i).Value    = bMax(i) - mMax(i);
             end
 
-            % Ensure X/Y/Z bounds are up to date
-            app.updateModelBoundsAndDefaultOffsets(false);
+            % 3. Safety Warning: Red background if outside billet
+            % Using a small epsilon (1e-5) to avoid floating point flicker
+            isOutside = any(mMin < (bMin - 1e-5)) || any(mMax > (bMax + 1e-5));
 
-            % ---- Gap / clearance in Y,Z ----
-            gapYZ = 5;
-            if ~isempty(app.BilletGapYZ) && isfinite(app.BilletGapYZ) && app.BilletGapYZ > 0
-                gapYZ = app.BilletGapYZ;
-            end
-
-            % ===== X: use cutting planes =====
-            xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
-            xRight = app.ModelXMin + app.NumRightOffset.Value;
-            if xRight < xLeft
-                tmp   = xLeft;
-                xLeft = xRight;
-                xRight = tmp;
-            end
-
-            app.BilletXMinAuto = xLeft;
-            app.BilletXMaxAuto = xRight;
-            app.BilletXMin     = xLeft;
-            app.BilletXMax     = xRight;
-
-            lenX = app.BilletXMax - app.BilletXMin;
-            if lenX <= 0
-                lenX = 1;
-            end
-
-            % ===== Y: model ± gapYZ =====
-            yMinModel = app.ModelYMin;
-            yMaxModel = app.ModelYMax;
-
-            app.BilletYMinAuto = yMinModel - gapYZ;
-            app.BilletYMaxAuto = yMaxModel + gapYZ;
-            app.BilletYMin     = app.BilletYMinAuto;
-            app.BilletYMax     = app.BilletYMaxAuto;
-
-            lenY = app.BilletYMax - app.BilletYMin;
-            if lenY <= 0
-                lenY = 1;
-            end
-
-            % ===== Z: model height + 10 mm, rounded =====
-            zMinModel = app.ModelZMin;
-            zMaxModel = app.ModelZMax;
-            modelH    = zMaxModel - zMinModel;
-            if modelH < 0
-                modelH = 0;
-            end
-
-            rawH = modelH + 10;  % base spec: height + 10 mm
-
-            if rawH <= 50
-                heightZ = 50;
-            elseif rawH <= 75
-                heightZ = 75;
-            elseif rawH <= 100
-                heightZ = 100;
+            if isOutside
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Muted Red
+                % Future: app.MessageLabel.Text = 'WARNING: Model exceeds billet dimensions!';
             else
-                heightZ = rawH;
-            end
-
-            % Model min-Z sits 5 mm above billet bottom
-            app.BilletZMinAuto = zMinModel - 5;
-            app.BilletZMaxAuto = app.BilletZMinAuto + heightZ;
-            app.BilletZMin     = app.BilletZMinAuto;
-            app.BilletZMax     = app.BilletZMaxAuto;
-
-            lenZ = app.BilletZMax - app.BilletZMin;
-            if lenZ <= 0
-                lenZ = 1;
-            end
-
-            % ===== Update billet size controls (X/Y/Z) =====
-            % X = length, Y = width, Z = height, all in mm
-            if ~isempty(app.BilletSizeEdits)
-                if numel(app.BilletSizeEdits) >= 1 && isgraphics(app.BilletSizeEdits(1))
-                    app.BilletSizeEdits(1).Value = lenX;
-                end
-                if numel(app.BilletSizeEdits) >= 2 && isgraphics(app.BilletSizeEdits(2))
-                    app.BilletSizeEdits(2).Value = lenY;
-                end
-                if numel(app.BilletSizeEdits) >= 3 && isgraphics(app.BilletSizeEdits(3))
-                    app.BilletSizeEdits(3).Value = lenZ;
-                end
-            end
-
-            % ===== Update billet position controls (−gap, centre offset, +gap) =====
-            % Define centre offset as shift of billet centre relative to the
-            % auto-position billet centre.  Auto-fit → centre offset = 0.
-
-            % Axis 1: X
-            cxAuto = 0.5*(app.BilletXMinAuto + app.BilletXMaxAuto);
-            cx     = 0.5*(app.BilletXMin     + app.BilletXMax);
-            negX   = app.ModelXMin - app.BilletXMin;
-            posX   = app.BilletXMax - app.ModelXMax;
-            cOffX  = cx - cxAuto;
-
-            % Axis 2: Y
-            cyAuto = 0.5*(app.BilletYMinAuto + app.BilletYMaxAuto);
-            cy     = 0.5*(app.BilletYMin     + app.BilletYMax);
-            negY   = app.ModelYMin - app.BilletYMin;
-            posY   = app.BilletYMax - app.ModelYMax;
-            cOffY  = cy - cyAuto;
-
-            % Axis 3: Z
-            czAuto = 0.5*(app.BilletZMinAuto + app.BilletZMaxAuto);
-            cz     = 0.5*(app.BilletZMin     + app.BilletZMax);
-            negZ   = app.ModelZMin - app.BilletZMin;
-            posZ   = app.BilletZMax - app.ModelZMax;
-            cOffZ  = cz - czAuto;
-
-            % Push into the three rows: X, Y, Z
-            if ~isempty(app.BilletNegOffsetEdits) && ...
-                    ~isempty(app.BilletCenterOffsetEdits) && ...
-                    ~isempty(app.BilletPosOffsetEdits)
-
-                valsNeg = [negX, negY, negZ];
-                valsCtr = [cOffX, cOffY, cOffZ];
-                valsPos = [posX, posY, posZ];
-
-                for k = 1:3
-                    if isgraphics(app.BilletNegOffsetEdits(k))
-                        app.BilletNegOffsetEdits(k).Value = valsNeg(k);
-                    end
-                    if isgraphics(app.BilletCenterOffsetEdits(k))
-                        app.BilletCenterOffsetEdits(k).Value = valsCtr(k);
-                    end
-                    if isgraphics(app.BilletPosOffsetEdits(k))
-                        app.BilletPosOffsetEdits(k).Value = valsPos(k);
-                    end
-                end
-            end
-
-            % ===== Optional: refresh billet preview plots (if/when added) =====
-            try
-                app.refreshBilletPlots();
-            catch
-                % Safe to ignore for now; we'll implement this later.
+                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % Normal Dark Grey
             end
         end
 
         function onAutoFitBillet(app)
-            % Apply your default billet sizing rules to the current model.
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                uialert(app.UIFigure, ...
-                    'Please import a model on the Model tab before fitting a billet.', ...
-                    'No Model Loaded');
-                return;
-            end
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
-            % Recompute billet based on current mesh + planes and update
-            % all size/position fields.
-            app.updateBilletDefaultsFromMesh();
+            % 1. Get cutting plane positions for X-sizing
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            % 2. Get bounds from Helper (Xmin, Xmax, etc.)
+            b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR);
+
+            % 3. Calculate and set the Driving Factor (Size)
+            app.BilletSize = [b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
+
+            % 4. Reset shift for a fresh fit
+            app.BilletShift = [0 0 0];
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
         end
 
         function onAutoPositionModel(app)
-            % Placeholder – will apply your default model-in-billet positioning.
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                uialert(app.UIFigure, ...
-                    'Please import a model on the Model tab before positioning it in the billet.', ...
-                    'No Model Loaded');
-                return;
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+
+            % 1. Get current model minima
+            V = app.ModelPatch.Vertices;
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
+
+            % 2. Get targets from Helper constants
+            % X: 0.001 | Y: 5.0 | Z: 5.0
+            h = HotWireSTEPApp_v6_helpers;
+            targetMin = [h.BilletXBuffer, h.BilletYBuffer, h.BilletZMinClear];
+
+            % 3. Calculate movement required
+            deltas = targetMin - mMin;
+
+            % 4. Apply movements
+            for i = 1:3
+                app.moveModelInSpace(i, deltas(i));
             end
 
-            disp('onAutoPositionModel stub: positioning logic not implemented yet.');
+            % Reset the "Current Offset" counter since we are at the Home position
+            app.BilletShift = [0 0 0];
+            app.syncBilletUI();
         end
 
-        function onBilletSizeStep(app, axisIdx, delta)
-            % Step the billet size for axisIdx by delta [mm] in the UI.
-            if isempty(app.BilletSizeEdits) || axisIdx < 1 || axisIdx > numel(app.BilletSizeEdits)
-                return;
-            end
+        function onBilletSizeStep(app, axisIdx, direction)
+            % Increments billet size by BilletSizeStep (1mm)
+            delta = direction * app.BilletSizeStep;
 
-            fld = app.BilletSizeEdits(axisIdx);
-            if ~isgraphics(fld)
-                return;
-            end
+            % Update the driving property
+            app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
 
-            newVal = fld.Value + delta;
-            newVal = max(newVal, 0);  % prevent negative size
-            fld.Value = newVal;
-
-            % Full billet geometry update will come in the next step.
-            disp(sprintf('Billet size axis %d stepped by %+g mm (now %.2f mm)', ...
-                axisIdx, delta, newVal));
+            app.syncBilletUI();
+            app.refreshBilletPlots();
         end
 
         function onBilletSizeEdited(app, axisIdx, src)
-            % User directly edited the billet size value.
-            val = src.Value;
-            if ~isfinite(val) || val < 0
-                % Revert invalid entries to zero
-                src.Value = max(0, src.Value);
-                return;
-            end
+            % Driving factor: Just update the size
+            app.BilletSize(axisIdx) = src.Value;
 
-            disp(sprintf('Billet size axis %d set to %.2f mm (stub only)', ...
-                axisIdx, val));
-
-            % In the next step, this will update BilletX/Y/ZMin/Max and refresh plots.
+            app.syncBilletUI();
+            app.refreshBilletPlots();
         end
 
         function onBilletOffsetEdited(app, axisIdx, whichField, src)
-            % User edited one of the offset fields:
-            % whichField ∈ {"neg","center","pos"}.
             val = src.Value;
-            if ~isfinite(val)
-                src.Value = 0;
-                return;
+            V = app.ModelPatch.Vertices;
+
+            % Current Model Bounds (including current planes for X)
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
+            mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+
+            % Billet is fixed at 0 in this tab
+            bMin = [0, 0, 0];
+            bMax = app.BilletSize;
+
+            delta = 0;
+            if strcmp(whichField, 'neg')
+                % Target ModelMin = BilletMin(0) + InputGap
+                delta = (bMin(axisIdx) + val) - mMin(axisIdx);
+            elseif strcmp(whichField, 'pos')
+                % Target ModelMax = BilletMax(Size) - InputGap
+                delta = (bMax(axisIdx) - val) - mMax(axisIdx);
+            elseif strcmp(whichField, 'center')
+                % Manual shift input
+                delta = val - app.BilletShift(axisIdx);
             end
 
-            disp(sprintf('Billet offset axis %d, field %s set to %.2f mm (stub only)', ...
-                axisIdx, whichField, val));
+            app.moveModelInSpace(axisIdx, delta);
+        end
 
-            % Next step: update billet min/max + current offset consistently,
-            % then refresh all three views.
+        function moveModelInSpace(app, axisIdx, delta)
+            % This physically moves the vertices and updates all reference properties
+            if delta == 0, return; end
+
+            V = app.ModelPatch.Vertices;
+            V(:, axisIdx) = V(:, axisIdx) + delta;
+            app.ModelPatch.Vertices = V;
+
+            % Update the reference bounds so the math stays correct
+            if axisIdx == 1
+                app.ModelXMin = app.ModelXMin + delta;
+                app.ModelXMax = app.ModelXMax + delta;
+            elseif axisIdx == 2
+                app.ModelYMin = app.ModelYMin + delta;
+                app.ModelYMax = app.ModelYMax + delta;
+            else
+                app.ModelZMin = app.ModelZMin + delta;
+                app.ModelZMax = app.ModelZMax + delta;
+            end
+
+            % Update the cumulative shift tracker
+            app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+
+            % If planes/profiles are live, redraw them at the new location
+            if app.AppState == 1
+                app.updatePlanes();
+            end
         end
 
         function onBilletShift(app, axisIdx, delta)
-            % Shift model/billet position by delta [mm] in the given axis.
-            if isempty(app.BilletCenterOffsetEdits) || ...
-                    axisIdx < 1 || axisIdx > numel(app.BilletCenterOffsetEdits)
-                return;
-            end
-
-            fld = app.BilletCenterOffsetEdits(axisIdx);
-            if ~isgraphics(fld)
-                return;
-            end
-
-            fld.Value = fld.Value + delta;
-
-            disp(sprintf('Billet shift axis %d by %+0.3f mm (stub only, center now %.3f)', ...
-                axisIdx, delta, fld.Value));
-
-            % Next step: use this to translate the billet box relative to
-            % the auto-position baseline, recompute +/- offsets and plots.
+            app.moveModelInSpace(axisIdx, delta);
         end
 
-        function updateBilletControlsFromStruct(app)
-            b = app.Billet;
-            if isempty(b) || ~isstruct(b) || ~isfield(b,'lengthX') || isnan(b.lengthX)
-                return;
+        function refreshBilletPlots(app)
+            if isempty(app.ModelPatch), return; end
+
+            V = app.ModelPatch.Vertices;
+            F = app.ModelPatch.Faces;
+            bSize = app.BilletSize;
+
+            axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight};
+            pair = {[1 2], [1 3], [2 3]}; % XY, XZ, YZ
+            labs = {{'X (mm)','Y (mm)'}, {'X (mm)','Z (mm)'}, {'Y (mm)','Z (mm)'}};
+
+            for i = 1:3
+                ax = axs{i}; p = pair{i};
+                cla(ax); hold(ax,'on');
+
+                % 1. Draw Billet Outline (Dashed box from 0 to Size)
+                bx = [0 bSize(p(1)) bSize(p(1)) 0 0];
+                by = [0 0 bSize(p(2)) bSize(p(2)) 0];
+                plot(ax, bx, by, 'w--', 'LineWidth', 1.5);
+
+                % 2. Draw Model Silhouette (Physically where it is in space)
+                patch(ax, 'Vertices', V(:,p), 'Faces', F, ...
+                    'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
+
+                % 3. Intelligent Limits: Always show the Billet, and the Model if nearby
+                % If model is far away, the axes will expand to show both.
+                mMin = min(V(:,p), [], 1);
+                mMax = max(V(:,p), [], 1);
+
+                viewX = [min(0, mMin(1)), max(bSize(p(1)), mMax(1))];
+                viewY = [min(0, mMin(2)), max(bSize(p(2)), mMax(2))];
+
+                % Add a 10mm padding for visibility
+                xlim(ax, [viewX(1)-10, viewX(2)+10]);
+                ylim(ax, [viewY(1)-10, viewY(2)+10]);
+
+                axis(ax, 'equal');
+                grid(ax, 'on');
+                xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
             end
-
-            % ---- Billet size (edit fields the user can change) ----
-            % (Rename these to your actual component names!)
-            app.BilletLengthEditField.Value = b.lengthX;   % X length
-            app.BilletWidthEditField.Value  = b.widthY;    % Y width
-            app.BilletHeightEditField.Value = b.heightZ;   % Z height
-
-            % ---- Billet position fields (Y/Z extents or origins) ----
-            % If your UI exposes min/max edges:
-            app.BilletXMinEditField.Value = b.Xmin;
-            app.BilletXMaxEditField.Value = b.Xmax;
-            app.BilletYMinEditField.Value = b.Ymin;
-            app.BilletYMaxEditField.Value = b.Ymax;
-            app.BilletZMinEditField.Value = b.Zmin;
-            app.BilletZMaxEditField.Value = b.Zmax;
-
-            % ---- Clearance display fields (read-only info) ----
-            % If you have labels/DRO-style fields for clearances:
-            app.ClearLeftEditField.Value   = b.clearLeft;    % ≈ gapYZ
-            app.ClearRightEditField.Value  = b.clearRight;   % ≈ gapYZ
-            app.ClearBottomEditField.Value = b.clearBottom;  % = gapYZ
-            app.ClearTopEditField.Value    = b.clearTop;     % ≥ gapYZ (because of rounding)
-
-            % If some of these don't exist in the UI, just delete those lines.
         end
 
         % ===========================================================
