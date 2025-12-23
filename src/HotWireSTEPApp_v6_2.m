@@ -108,6 +108,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % ---------- Billet tab controls ----------
         BtnAutoFitBillet
+        BtnResetPosition
+        BilletMessageLabel
         
         % ---------- Billet  ----------   
         ModelF   double     % Mx3 faces   of the current model
@@ -172,7 +174,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         ModelXMin, ModelXMax
         ModelYMin, ModelYMax
         ModelZMin, ModelZMax
-
+        
+        % Reference bounds to define the "Import Position"
+        BilletRefXMin
+        BilletRefYMin
+        BilletRefZMin
+        
         % ---------- Billet State ----------   
         BilletXMin, BilletXMax
         BilletYMin, BilletYMax
@@ -465,9 +472,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ================================
             % LEFT CONTROL COLUMN (Billet tab)
             % ================================
-            app.BilletLeftPanel = uigridlayout(app.GLBillet,[6 1]);
+            app.BilletLeftPanel = uigridlayout(app.GLBillet,[7 1]); % 7 rows total
             app.BilletLeftPanel.Layout.Column   = 1;
-            app.BilletLeftPanel.RowHeight       = {'fit','fit','fit','fit','1x','fit'};
+            % Row 1-5: controls, Row 6: warning message (expands), Row 7: button
+            app.BilletLeftPanel.RowHeight       = {'fit','fit','fit','fit','fit','1x','fit'};
             app.BilletLeftPanel.Padding         = [10 10 10 10];
             app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16];
 
@@ -486,67 +494,32 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'FontWeight','bold');
             billetSizePanel.Layout.Row = 2;
 
-            % Outer layout with small side gutters
+            % [KEEPING YOUR ENTIRE SIZE GRID LOGIC HERE...]
             sizeOuter = uigridlayout(billetSizePanel,[1 3]);
             sizeOuter.ColumnWidth = {5,'1x',5};
             sizeOuter.RowHeight   = {'fit'};
             sizeOuter.Padding     = [5 5 5 5];
-
-            % Inner 3×4 grid:
-            %   [axis]  [-] [size (mm)] [+]
             sizeGrid = uigridlayout(sizeOuter,[3 4]);
             sizeGrid.Layout.Column = 2;
-            sizeGrid.ColumnWidth   = { ...
-                'fit', ...  % axis label
-                24,   ...   % [-] button
-                80,   ...   % size numeric
-                24};        % [+] button
-            sizeGrid.RowHeight     = {'fit','fit','fit'};
-            sizeGrid.Padding       = [4 4 4 4];
+            sizeGrid.ColumnWidth = {'fit', 24, 80, 24};
+            sizeGrid.RowHeight = {'fit','fit','fit'};
+            sizeGrid.Padding = [4 4 4 4];
             sizeGrid.ColumnSpacing = 6;
-            sizeGrid.RowSpacing    = 4;
-
+            sizeGrid.RowSpacing = 4;
             axisLabels = {'X','Y','Z'};
-
-            app.BilletSizeEdits     = gobjects(1,3);
+            app.BilletSizeEdits = gobjects(1,3);
             app.BilletSizeMinusBtns = gobjects(1,3);
-            app.BilletSizePlusBtns  = gobjects(1,3);
+            app.BilletSizePlusBtns = gobjects(1,3);
 
             for i = 1:3
-                % Axis label
-                lbl = uilabel(sizeGrid, ...
-                    'Text',axisLabels{i}, ...
-                    'HorizontalAlignment','center', ...
-                    'FontWeight','bold', ...
-                    'FontColor',[0.9 0.9 0.9]);
-                lbl.Layout.Row    = i;
-                lbl.Layout.Column = 1;
-
-                % Size numeric (mm)
-                app.BilletSizeEdits(i) = uieditfield(sizeGrid,'numeric', ...
-                    'Limits',[0 Inf], ...
-                    'Value',0, ...
-                    'ValueDisplayFormat','%.2f', ...
-                    'HorizontalAlignment','center', ...
-                    'ValueChangedFcn',@(src,~)app.onBilletSizeEdited(i,src));
-                app.BilletSizeEdits(i).Layout.Row    = i;
-                app.BilletSizeEdits(i).Layout.Column = 3;
-
-                % [-] size step (−1 mm)
-                app.BilletSizeMinusBtns(i) = uibutton(sizeGrid, ...
-                    'Text','-', ...
-                    'FontWeight','bold', ...
-                    'ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,-1));
-                app.BilletSizeMinusBtns(i).Layout.Row    = i;
-                app.BilletSizeMinusBtns(i).Layout.Column = 2;
-
-                % [+] size step (+1 mm)
-                app.BilletSizePlusBtns(i) = uibutton(sizeGrid, ...
-                    'Text','+', ...
-                    'FontWeight','bold', ...
-                    'ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,+1));
-                app.BilletSizePlusBtns(i).Layout.Row    = i;
-                app.BilletSizePlusBtns(i).Layout.Column = 4;
+                lbl = uilabel(sizeGrid, 'Text',axisLabels{i},'HorizontalAlignment','center','FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+                lbl.Layout.Row = i; lbl.Layout.Column = 1;
+                app.BilletSizeEdits(i) = uieditfield(sizeGrid,'numeric','Limits',[0 Inf],'Value',0,'ValueDisplayFormat','%.2f','HorizontalAlignment','center','ValueChangedFcn',@(src,~)app.onBilletSizeEdited(i,src));
+                app.BilletSizeEdits(i).Layout.Row = i; app.BilletSizeEdits(i).Layout.Column = 3;
+                app.BilletSizeMinusBtns(i) = uibutton(sizeGrid,'Text','-','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,-1));
+                app.BilletSizeMinusBtns(i).Layout.Row = i; app.BilletSizeMinusBtns(i).Layout.Column = 2;
+                app.BilletSizePlusBtns(i) = uibutton(sizeGrid,'Text','+','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,+1));
+                app.BilletSizePlusBtns(i).Layout.Row = i; app.BilletSizePlusBtns(i).Layout.Column = 4;
             end
 
             % --- [Auto-position Model] button (row 3) ---
@@ -556,108 +529,67 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ButtonPushedFcn',@(~,~)app.onAutoPositionModel());
             app.BtnAutoPositionModel.Layout.Row = 3;
 
-            % --- Billet position controls block (row 4) ---
+            % --- [Reset Position] button (row 4) ---
+            app.BtnResetPosition = uibutton(app.BilletLeftPanel, ...
+                'Text','Reset Position', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetPosition());
+            app.BtnResetPosition.Layout.Row = 4;
+
+            % --- Billet position controls block (row 5) ---
             posPanel = uipanel(app.BilletLeftPanel, ...
                 'Title','Billet Position Controls', ...
                 'BackgroundColor',[0.12 0.12 0.12], ...
                 'ForegroundColor',[0.9 0.9 0.9], ...
                 'FontWeight','bold');
-            posPanel.Layout.Row = 4;
+            posPanel.Layout.Row = 5;
 
-            % Single grid (keeps cropping fix) but with sizing / padding
-            % similar to the billet size block:
-            %   - 24px shift buttons
-            %   - wider numeric fields
-            %   - slightly larger padding and spacing
+            % [KEEPING YOUR ENTIRE POSITION GRID LOGIC HERE...]
             posGrid = uigridlayout(posPanel,[3 6]);
-            posGrid.ColumnWidth   = { ...
-                'fit', ...  % axis label
-                70,   ...   % -offset numeric (mm)
-                20,   ...   % [-] shift button
-                70,   ...   % centre offset numeric (mm)
-                20,   ...   % [+] shift button
-                70};        % +offset numeric (mm)
-            posGrid.RowHeight     = {'fit','fit','fit'};
-            posGrid.Padding       = [4 4 4 4];   % closer to billet size block
+            posGrid.ColumnWidth = {'fit', 70, 20, 70, 20, 70};
+            posGrid.RowHeight = {'fit','fit','fit'};
+            posGrid.Padding = [4 4 4 4];
             posGrid.ColumnSpacing = 5;
-            posGrid.RowSpacing    = 4;
-
-            % Create X/Y/Z rows
+            posGrid.RowSpacing = 4;
             axisLetters = {'X','Y','Z'};
-            app.BilletNegOffsetEdits    = gobjects(1,3);
+            app.BilletNegOffsetEdits = gobjects(1,3);
             app.BilletCenterOffsetEdits = gobjects(1,3);
-            app.BilletPosOffsetEdits    = gobjects(1,3);
-            app.BilletShiftMinusBtns    = gobjects(1,3);
-            app.BilletShiftPlusBtns     = gobjects(1,3);
+            app.BilletPosOffsetEdits = gobjects(1,3);
+            app.BilletShiftMinusBtns = gobjects(1,3);
+            app.BilletShiftPlusBtns = gobjects(1,3);
 
             for k = 1:3
-                % Axis label (centre the text inside its cell)
-                lbl = uilabel(posGrid, ...
-                    'Text',axisLetters{k}, ...
-                    'FontWeight','bold', ...
-                    'HorizontalAlignment','center');
-                lbl.Layout.Row    = k;
-                lbl.Layout.Column = 1;
-
-                % Negative gap (billet min → model min)
-                app.BilletNegOffsetEdits(k) = uieditfield(posGrid,'numeric', ...
-                    'Value',0, ...
-                    'HorizontalAlignment','center', ...
-                    'ValueDisplayFormat','%.2f', ...
-                    'Tooltip','Gap from billet min to model min (mm)', ...
-                    'ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"neg",src));
-                app.BilletNegOffsetEdits(k).Layout.Row    = k;
-                app.BilletNegOffsetEdits(k).Layout.Column = 2;
-
-                % Shift - button (narrow, like billet size [-]/[+] buttons)
-                app.BilletShiftMinusBtns(k) = uibutton(posGrid, ...
-                    'Text','-', ...
-                    'FontWeight','bold', ...
-                    'ButtonPushedFcn',@(~,~)app.onBilletShift(k,-0.5));
-                app.BilletShiftMinusBtns(k).Layout.Row    = k;
-                app.BilletShiftMinusBtns(k).Layout.Column = 3;
-
-                % Centre offset
-                app.BilletCenterOffsetEdits(k) = uieditfield(posGrid,'numeric', ...
-                    'Value',0, ...
-                    'HorizontalAlignment','center', ...
-                    'ValueDisplayFormat','%.2f', ...
-                    'Tooltip','Current offset of model within billet (mm)', ...
-                    'ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"center",src));
-                app.BilletCenterOffsetEdits(k).Layout.Row    = k;
-                app.BilletCenterOffsetEdits(k).Layout.Column = 4;
-
-                % Shift + button
-                app.BilletShiftPlusBtns(k) = uibutton(posGrid, ...
-                    'Text','+', ...
-                    'FontWeight','bold', ...
-                    'ButtonPushedFcn',@(~,~)app.onBilletShift(k,+0.5));
-                app.BilletShiftPlusBtns(k).Layout.Row    = k;
-                app.BilletShiftPlusBtns(k).Layout.Column = 5;
-
-                % Positive gap (model max → billet max)
-                app.BilletPosOffsetEdits(k) = uieditfield(posGrid,'numeric', ...
-                    'Value',0, ...
-                    'HorizontalAlignment','center', ...
-                    'ValueDisplayFormat','%.2f', ...
-                    'Tooltip','Gap from model max to billet max (mm)', ...
-                    'ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"pos",src));
-                app.BilletPosOffsetEdits(k).Layout.Row    = k;
-                app.BilletPosOffsetEdits(k).Layout.Column = 6;
+                lbl = uilabel(posGrid,'Text',axisLetters{k},'FontWeight','bold','HorizontalAlignment','center');
+                lbl.Layout.Row = k; lbl.Layout.Column = 1;
+                app.BilletNegOffsetEdits(k) = uieditfield(posGrid,'numeric','Value',0,'HorizontalAlignment','center','ValueDisplayFormat','%.2f','ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"neg",src));
+                app.BilletNegOffsetEdits(k).Layout.Row = k; app.BilletNegOffsetEdits(k).Layout.Column = 2;
+                app.BilletShiftMinusBtns(k) = uibutton(posGrid,'Text','-','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletShift(k,-0.5));
+                app.BilletShiftMinusBtns(k).Layout.Row = k; app.BilletShiftMinusBtns(k).Layout.Column = 3;
+                app.BilletCenterOffsetEdits(k) = uieditfield(posGrid,'numeric','Value',0,'HorizontalAlignment','center','ValueDisplayFormat','%.2f','ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"center",src));
+                app.BilletCenterOffsetEdits(k).Layout.Row = k; app.BilletCenterOffsetEdits(k).Layout.Column = 4;
+                app.BilletShiftPlusBtns(k) = uibutton(posGrid,'Text','+','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletShift(k,+0.5));
+                app.BilletShiftPlusBtns(k).Layout.Row = k; app.BilletShiftPlusBtns(k).Layout.Column = 5;
+                app.BilletPosOffsetEdits(k) = uieditfield(posGrid,'numeric','Value',0,'HorizontalAlignment','center','ValueDisplayFormat','%.2f','ValueChangedFcn',@(src,~)app.onBilletOffsetEdited(k,"pos",src));
+                app.BilletPosOffsetEdits(k).Layout.Row = k; app.BilletPosOffsetEdits(k).Layout.Column = 6;
             end
 
-            % --- Spacer row to push Continue to the bottom (row 5) ---
-            spBilletBottom = uilabel(app.BilletLeftPanel,'Text','');
-            spBilletBottom.Layout.Row = 5;
+            % --- Message Label (row 6 - replaces old spacer) ---
+            app.BilletMessageLabel = uilabel(app.BilletLeftPanel, ...
+                'Text','', ...
+                'WordWrap','on', ...
+                'FontWeight','bold', ...
+                'FontColor', [1 1 1], ...
+                'VerticalAlignment','top');
+            app.BilletMessageLabel.Layout.Row = 6;
 
-            % --- [Continue] button (row 6 – bottom, green) ---
+            % --- [Continue] button (row 7 – bottom, green) ---
             app.BtnBilletContinue = uibutton(app.BilletLeftPanel, ...
                 'Text','Continue', ...
                 'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], ...  % green
+                'BackgroundColor',[0.1 0.6 0.1], ...
                 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnBilletContinue.Layout.Row = 6;
+            app.BtnBilletContinue.Layout.Row = 7;
 
             % ================================
             % RIGHT COLUMN: BILLET PLOTS
@@ -1808,6 +1740,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Compute initial billet defaults from this mesh
             app.updateBilletDefaultsFromMesh();
+            
+            % Capture the "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
 
         end
 
@@ -1954,6 +1891,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             %   LeftOffset  = 0 (left face)
             %   RightOffset = width (right face)
             app.updateModelBoundsAndDefaultOffsets(true);
+            % Rotation/Reset defines a new "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
             app.updatePlanes();
 
             % Recompute billet based on the rotated model
@@ -2005,6 +1947,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.clearKerfPaths();
             % OPTION A: After rotation, behave like Reset Planes
             app.updateModelBoundsAndDefaultOffsets(true);
+            % Rotation/Reset defines a new "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
             app.updatePlanes();
             % Recompute billet based on the rotated model
             app.updateBilletDefaultsFromMesh();
@@ -2031,6 +1978,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Reset model bounds & plane offsets to defaults
             app.updateModelBoundsAndDefaultOffsets(true); % reset offsets
+            % Rotation/Reset defines a new "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
             app.updatePlanes();
 
             % Recompute billet based on the rotated model
@@ -2270,36 +2222,47 @@ classdef HotWireSTEPApp_v6_2 < handle
         function syncBilletUI(app)
             if isempty(app.BilletSizeEdits), return; end
 
-            % 1. Model Bounds in current space
+            % 1. Get Model Bounds in local Billet space (origin at 0)
             V = app.ModelPatch.Vertices;
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+            bSize = app.BilletSize;
 
-            % 2. Billet Bounds (Always 0 to Size in this tab)
-            bMin = [0, 0, 0];
-            bMax = app.BilletSize;
-
+            % 2. Update positioning fields
             for i = 1:3
-                % Size Field
-                app.BilletSizeEdits(i).Value = app.BilletSize(i);
-
-                % Positioning Fields (Gap from 0 or Gap from Size)
-                app.BilletNegOffsetEdits(i).Value    = mMin(i) - bMin(i);
+                app.BilletSizeEdits(i).Value = bSize(i);
+                app.BilletNegOffsetEdits(i).Value    = mMin(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
-                app.BilletPosOffsetEdits(i).Value    = bMax(i) - mMax(i);
+                app.BilletPosOffsetEdits(i).Value    = bSize(i) - mMax(i);
             end
 
-            % 3. Safety Warning: Red background if outside billet
-            % Using a small epsilon (1e-5) to avoid floating point flicker
-            isOutside = any(mMin < (bMin - 1e-5)) || any(mMax > (bMax + 1e-5));
+            % 3. Check for Warnings (priority: Red > Amber > Normal)
+            eps = 1e-5;
+            isOutside = any(mMin < -eps) || any(mMax > bSize + eps);
+
+            % Check 5mm buffer for Y (index 2) and Z (index 3)
+            isTooClose = (mMin(2) < 5) || (mMax(2) > bSize(2) - 5) || ...
+                (mMin(3) < 5) || (mMax(3) > bSize(3) - 5);
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Muted Red
-                % Future: app.MessageLabel.Text = 'WARNING: Model exceeds billet dimensions!';
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % RED
+                app.BilletMessageLabel.Text = "WARNING: model outside of billet, use auto-position model button or model position controls to move the model inside the billet bounds.";
+                app.BilletMessageLabel.FontColor = [1 0.6 0.6];
+                app.BtnBilletContinue.Enable = 'off';
+                app.BtnBilletContinue.BackgroundColor = [0.3 0.3 0.3];
+            elseif isTooClose
+                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % AMBER
+                app.BilletMessageLabel.Text = "WARNING: model is too close the edge of the billet, a 5mm border around the model is advised in the YZ directions.";
+                app.BilletMessageLabel.FontColor = [1 1 0.7];
+                app.BtnBilletContinue.Enable = 'on';
+                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1];
             else
-                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % Normal Dark Grey
+                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % NORMAL
+                app.BilletMessageLabel.Text = "";
+                app.BtnBilletContinue.Enable = 'on';
+                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1];
             end
         end
 
@@ -2346,6 +2309,24 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Reset the "Current Offset" counter since we are at the Home position
+            app.BilletShift = [0 0 0];
+            app.syncBilletUI();
+        end
+
+        function onResetPosition(app)
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+
+            % Calculate delta needed to get back to the Reference (Import) bounds
+            dx = app.BilletRefXMin - app.ModelXMin;
+            dy = app.BilletRefYMin - app.ModelYMin;
+            dz = app.BilletRefZMin - app.ModelZMin;
+
+            % Physically move the model back
+            app.moveModelInSpace(1, dx);
+            app.moveModelInSpace(2, dy);
+            app.moveModelInSpace(3, dz);
+
+            % Since we are now back at the Reference point, reset the UI shift counter
             app.BilletShift = [0 0 0];
             app.syncBilletUI();
         end
