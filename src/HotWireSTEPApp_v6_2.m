@@ -197,6 +197,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
         AppState (1,1) double = 0
+        
     end
 
     methods
