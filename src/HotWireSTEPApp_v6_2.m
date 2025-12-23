@@ -174,7 +174,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         ModelXMin, ModelXMax
         ModelYMin, ModelYMax
         ModelZMin, ModelZMax
-        
+        BilletModelDimLabels     % 1x3 handles for model dimension readouts
+
         % Reference bounds to define the "Import Position"
         BilletRefXMin
         BilletRefYMin
@@ -499,27 +500,42 @@ classdef HotWireSTEPApp_v6_2 < handle
             sizeOuter.ColumnWidth = {5,'1x',5};
             sizeOuter.RowHeight   = {'fit'};
             sizeOuter.Padding     = [5 5 5 5];
-            sizeGrid = uigridlayout(sizeOuter,[3 4]);
+            % Inner 3×5 grid: [axis] [-] [size (mm)] [+] [Model Dim]
+            sizeGrid = uigridlayout(sizeOuter,[3 5]);
             sizeGrid.Layout.Column = 2;
-            sizeGrid.ColumnWidth = {'fit', 24, 80, 24};
-            sizeGrid.RowHeight = {'fit','fit','fit'};
-            sizeGrid.Padding = [4 4 4 4];
+            sizeGrid.ColumnWidth   = {'fit', 24, 80, 24, 'fit'};
+            sizeGrid.RowHeight     = {'fit','fit','fit'};
+            sizeGrid.Padding       = [4 4 4 4];
             sizeGrid.ColumnSpacing = 6;
-            sizeGrid.RowSpacing = 4;
+            sizeGrid.RowSpacing    = 4;
+
             axisLabels = {'X','Y','Z'};
-            app.BilletSizeEdits = gobjects(1,3);
+            app.BilletSizeEdits     = gobjects(1,3);
             app.BilletSizeMinusBtns = gobjects(1,3);
-            app.BilletSizePlusBtns = gobjects(1,3);
+            app.BilletSizePlusBtns  = gobjects(1,3);
+            app.BilletModelDimLabels = gobjects(1,3);
 
             for i = 1:3
-                lbl = uilabel(sizeGrid, 'Text',axisLabels{i},'HorizontalAlignment','center','FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+                % Axis label
+                lbl = uilabel(sizeGrid, 'Text',axisLabels{i}, 'HorizontalAlignment','center', 'FontWeight','bold', 'FontColor',[0.9 0.9 0.9]);
                 lbl.Layout.Row = i; lbl.Layout.Column = 1;
-                app.BilletSizeEdits(i) = uieditfield(sizeGrid,'numeric','Limits',[0 Inf],'Value',0,'ValueDisplayFormat','%.2f','HorizontalAlignment','center','ValueChangedFcn',@(src,~)app.onBilletSizeEdited(i,src));
+
+                % Size numeric (mm)
+                app.BilletSizeEdits(i) = uieditfield(sizeGrid,'numeric', 'Limits',[0 Inf], 'Value',0, 'ValueDisplayFormat','%.2f', 'HorizontalAlignment','center', 'ValueChangedFcn',@(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = i; app.BilletSizeEdits(i).Layout.Column = 3;
-                app.BilletSizeMinusBtns(i) = uibutton(sizeGrid,'Text','-','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,-1));
+
+                % [-] button
+                app.BilletSizeMinusBtns(i) = uibutton(sizeGrid, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,-1));
                 app.BilletSizeMinusBtns(i).Layout.Row = i; app.BilletSizeMinusBtns(i).Layout.Column = 2;
-                app.BilletSizePlusBtns(i) = uibutton(sizeGrid,'Text','+','FontWeight','bold','ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,+1));
+
+                % [+] button
+                app.BilletSizePlusBtns(i) = uibutton(sizeGrid, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onBilletSizeStep(i,+1));
                 app.BilletSizePlusBtns(i).Layout.Row = i; app.BilletSizePlusBtns(i).Layout.Column = 4;
+
+                % Model Dimension readout
+                mdLbl = uilabel(sizeGrid, 'Text','(Model: 0.0)', 'FontColor',[0.7 0.7 0.7], 'FontAngle','italic');
+                mdLbl.Layout.Row = i; mdLbl.Layout.Column = 5;
+                app.BilletModelDimLabels(i) = mdLbl;
             end
 
             % --- [Auto-position Model] button (row 3) ---
@@ -2222,47 +2238,44 @@ classdef HotWireSTEPApp_v6_2 < handle
         function syncBilletUI(app)
             if isempty(app.BilletSizeEdits), return; end
 
-            % 1. Get Model Bounds in local Billet space (origin at 0)
+            % 1. Calculate Model Bounds & Dimensions
             V = app.ModelPatch.Vertices;
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
+
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+            mDim = mMax - mMin;
             bSize = app.BilletSize;
 
-            % 2. Update positioning fields
             for i = 1:3
+                % Update stock size field
                 app.BilletSizeEdits(i).Value = bSize(i);
+
+                % Update the model dimension readout label
+                app.BilletModelDimLabels(i).Text = sprintf('(Model: %.1f)', mDim(i));
+
+                % Positioning Fields
                 app.BilletNegOffsetEdits(i).Value    = mMin(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
                 app.BilletPosOffsetEdits(i).Value    = bSize(i) - mMax(i);
             end
 
-            % 3. Check for Warnings (priority: Red > Amber > Normal)
+            % 2. Safety Warnings (Color Coding)
             eps = 1e-5;
+            % Check if outside (Red)
             isOutside = any(mMin < -eps) || any(mMax > bSize + eps);
 
-            % Check 5mm buffer for Y (index 2) and Z (index 3)
+            % Check clearance (Amber): < 5mm on Y or Z faces
             isTooClose = (mMin(2) < 5) || (mMax(2) > bSize(2) - 5) || ...
                 (mMin(3) < 5) || (mMax(3) > bSize(3) - 5);
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % RED
-                app.BilletMessageLabel.Text = "WARNING: model outside of billet, use auto-position model button or model position controls to move the model inside the billet bounds.";
-                app.BilletMessageLabel.FontColor = [1 0.6 0.6];
-                app.BtnBilletContinue.Enable = 'off';
-                app.BtnBilletContinue.BackgroundColor = [0.3 0.3 0.3];
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Muted Red
             elseif isTooClose
-                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % AMBER
-                app.BilletMessageLabel.Text = "WARNING: model is too close the edge of the billet, a 5mm border around the model is advised in the YZ directions.";
-                app.BilletMessageLabel.FontColor = [1 1 0.7];
-                app.BtnBilletContinue.Enable = 'on';
-                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1];
+                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Muted Amber
             else
-                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % NORMAL
-                app.BilletMessageLabel.Text = "";
-                app.BtnBilletContinue.Enable = 'on';
-                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1];
+                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % Normal Dark Grey
             end
         end
 
@@ -2420,7 +2433,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             V = app.ModelPatch.Vertices;
             F = app.ModelPatch.Faces;
-            bSize = app.BilletSize;
+            bMax = app.BilletSize;
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight};
             pair = {[1 2], [1 3], [2 3]}; % XY, XZ, YZ
@@ -2430,31 +2443,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 ax = axs{i}; p = pair{i};
                 cla(ax); hold(ax,'on');
 
-                % 1. Draw Billet Outline (Dashed box from 0 to Size)
-                bx = [0 bSize(p(1)) bSize(p(1)) 0 0];
-                by = [0 0 bSize(p(2)) bSize(p(2)) 0];
+                % Draw Billet Outline
+                bx = [0 bMax(p(1)) bMax(p(1)) 0 0];
+                by = [0 0 bMax(p(2)) bMax(p(2)) 0];
                 plot(ax, bx, by, 'w--', 'LineWidth', 1.5);
 
-                % 2. Draw Model Silhouette (Physically where it is in space)
+                % Draw Model Silhouette
                 patch(ax, 'Vertices', V(:,p), 'Faces', F, ...
                     'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
 
-                % 3. Intelligent Limits: Always show the Billet, and the Model if nearby
-                % If model is far away, the axes will expand to show both.
-                mMin = min(V(:,p), [], 1);
-                mMax = max(V(:,p), [], 1);
+                % Viewport padding
+                all_x = [0, bMax(p(1)), min(V(:,p(1))), max(V(:,p(1)))];
+                all_y = [0, bMax(p(2)), min(V(:,p(2))), max(V(:,p(2)))];
+                xlim(ax, [min(all_x)-10, max(all_x)+10]);
+                ylim(ax, [min(all_y)-10, max(all_y)+10]);
 
-                viewX = [min(0, mMin(1)), max(bSize(p(1)), mMax(1))];
-                viewY = [min(0, mMin(2)), max(bSize(p(2)), mMax(2))];
-
-                % Add a 10mm padding for visibility
-                xlim(ax, [viewX(1)-10, viewX(2)+10]);
-                ylim(ax, [viewY(1)-10, viewY(2)+10]);
-
-                axis(ax, 'equal');
-                grid(ax, 'on');
+                axis(ax, 'equal'); grid(ax, 'on');
                 xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
             end
+
+            % Fixes slowness during movement
+            drawnow limitrate;
         end
 
         % ===========================================================
