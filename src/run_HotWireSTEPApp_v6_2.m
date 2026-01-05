@@ -8,7 +8,7 @@ delete(findall(0, 'Type', 'figure', 'Name', 'Hot Wire STEP App v6.2'));
 
 % Clear variables but NOT classes (to avoid the warnings you saw)
 clearvars;
-
+clc;
 % Launch
 app = HotWireSTEPApp_v6_2();
 end

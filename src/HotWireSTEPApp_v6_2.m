@@ -40,8 +40,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Machine Configuration Constants/State
         MachineSpan      = [1100, 550, 400] % Tower movement range [X, Y, Z]
         MachineBedSize   = [1000, 500, 20]  % Physical dimensions [L, W, H]
-        MachineBedPos    = [50, 50, 0]      % Bed origin relative to machine 0,0,0
-        MachineBilletPos = [100, 500, 0]   % Billet origin relative to machine 0,0,0
+        MachineBedPos    = [50, 50, -20]      % Bed origin relative to machine 0,0,0
 
         % (Future)
         % MachineSpanX (1,1) double = 2000;  % mm, for example
@@ -200,7 +199,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MachineLeftPanel
         AxMachine
         MachinePosSpinners       % 1x3 handles for the spinners
-
+        MachineBilletPos = [100, 50, 0]   % Billet origin relative to machine 0,0,0
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -1011,7 +1010,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 s = uispinner(mGrid);
                 s.Limits = [-500, 2000];
                 s.Value = app.MachineBilletPos(i);
-                s.Step = 10;
+                s.ValueDisplayFormat = '%.2f'; % 2 decimal places
+                s.Step = 1.0;
                 s.ValueChangedFcn = @(src,~)app.onMachinePosEdited(i,src);
                 s.Layout.Row = ri; s.Layout.Column = 2;
                 app.MachinePosSpinners(i) = s;
@@ -2297,17 +2297,39 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onContinue(app)
-            % Context-aware navigation for 'Continue' buttons
-            if app.TabGroup.SelectedTab == app.TabModel
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            currTab = app.TabGroup.SelectedTab;
+
+            if currTab == app.TabModel
                 app.TabGroup.SelectedTab = app.TabProfiles;
-            elseif app.TabGroup.SelectedTab == app.TabProfiles
+            elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
-            elseif app.TabGroup.SelectedTab == app.TabBillet
+            elseif currTab == app.TabBillet
+                % --- 1. Calculate Target Machine Position ---
+                offX = app.MachineBedPos(1);
+                idealUserX = (app.MachineBedSize(1) - app.BilletSize(1)) / 2;
+                roundedUserX = 50 * floor(idealUserX / 50);
+                
+                targetMachPos = [offX + max(0, roundedUserX), 50.0, 0.0];
+
+                % --- 2. Calculate Delta from current position ---
+                % Model is currently at Billet-tab 'Import' position
+                dx = targetMachPos(1) - app.ModelXMin;
+                dy = targetMachPos(2) - app.ModelYMin;
+                dz = targetMachPos(3) - app.ModelZMin;
+
+                % --- 3. Move vertices and update properties ---
+                app.moveModelInSpace(1, dx);
+                app.moveModelInSpace(2, dy);
+                app.moveModelInSpace(3, dz);
+                app.MachineBilletPos = targetMachPos;
+                
                 app.TabGroup.SelectedTab = app.TabMachine;
-                app.refreshMachinePlot(); % Ensure plot updates when entering tab
+                app.syncMachineUI();
+                app.refreshMachinePlot();
             end
         end
-        
+
         function onContinueFromProfiles(app)
             % If a Billet tab exists, go there; otherwise just stay on Profiles.
             if isprop(app,'TabBillet') && ~isempty(app.TabBillet) && isgraphics(app.TabBillet)
@@ -2591,53 +2613,120 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
-        % BILLET TAB CALLBACKS
+        % MACHINE TAB CALLBACKS
         % ===========================================================  
 
         function onMachinePosEdited(app, axisIdx, src)
-            app.MachineBilletPos(axisIdx) = src.Value;
+            oldVal = app.MachineBilletPos(axisIdx);
+            if axisIdx == 1
+                app.MachineBilletPos(1) = app.MachineBedPos(1) + src.Value;
+            else
+                app.MachineBilletPos(axisIdx) = src.Value;
+            end
+
+            % Move the model by the same delta
+            delta = app.MachineBilletPos(axisIdx) - oldVal;
+            app.moveModelInSpace(axisIdx, delta);
+
             app.refreshMachinePlot();
         end
 
         function refreshMachinePlot(app)
-            if isempty(app.AxMachine) || ~isgraphics(app.AxMachine), return; end
-            cla(app.AxMachine); hold(app.AxMachine, 'on');
+            ax = app.AxMachine;
+            cla(ax); hold(ax,'on');
 
-            span = app.MachineSpan;
-            bp   = app.MachineBilletPos;
-            bs   = app.BilletSize;
-            bedS = app.MachineBedSize;
-            bedP = app.MachineBedPos;
+            % --- COORDINATE SYSTEM ---
+            offX = app.MachineBedPos(1); % Plot X=0 is Bed Left
+            mSpan = app.MachineSpan;     % Absolute machine limits
 
-            % 1. Machine Bed (Light Blue Cuboid)
-            % Template scaled by Size and shifted by Position
-            tempV = [0 0 0; 1 0 0; 1 1 0; 0 1 0; 0 0 1; 1 0 1; 1 1 1; 0 1 1];
-            bedV = (tempV .* bedS) + bedP;
-            bedF = [1 2 6 5; 2 3 7 6; 3 4 8 7; 4 1 5 8; 1 2 3 4; 5 6 7 8];
-            patch(app.AxMachine, 'Vertices', bedV, 'Faces', bedF, ...
-                'FaceColor', [0.6 0.8 1.0], 'FaceAlpha', 0.2, 'EdgeColor', [0.4 0.6 0.8]);
+            % 1. Draw Bed (X shifted, Y absolute)
+            bs = app.MachineBedSize;
+            bp = app.MachineBedPos;
+            [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.4, 'EdgeColor',[0.2 0.2 0.2]);
 
-            % 2. Range Planes (Red Left @ X=0, Green Right @ X=SpanX)
-            py = [0 0 span(2) span(2)]; pz = [0 span(3) span(3) 0];
-            patch(app.AxMachine, [0 0 0 0], py, pz, [0.96 0.06 0.06], 'FaceAlpha', 0.1, 'EdgeColor', 'r', 'LineStyle', ':');
-            patch(app.AxMachine, [span(1) span(1) span(1) span(1)], py, pz, [0.2 1.0 0.35], 'FaceAlpha', 0.1, 'EdgeColor', 'g', 'LineStyle', ':');
+            % 2. Draw Billet (Ghost Faces + Refined Dashes)
+            bPosPlot = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), 0];
+            bSize    = app.BilletSize;
+            [xm, ym, zm] = app.makeBoxVertices(bPosPlot(1), bPosPlot(2), bPosPlot(3), bSize(1), bSize(2), bSize(3));
+            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
+                'FaceColor','w', 'FaceAlpha', 0.03, ... % Ghostly transparent faces
+                'EdgeColor','w', 'LineStyle','--', 'LineWidth', 1.0, 'EdgeAlpha', 0.8);
 
-            % 3. Billet (White Dotted Outline)
-            bx = [0 1 1 0 0 0 1 1 0 0 1 1 1 1 0 0] * bs(1) + bp(1);
-            by = [0 0 1 1 0 0 0 1 1 0 0 0 1 1 1 1] * bs(2) + bp(2);
-            bz = [0 0 0 0 0 1 1 1 1 1 1 0 0 1 1 0] * bs(3) + bp(3);
-            plot3(app.AxMachine, bx, by, bz, 'w:', 'LineWidth', 1.5);
-
-            % 4. Model (Offset to Machine Position)
+            % 3. Draw 3D Model (Shifted to Bed-Relative Plot Space)
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                V = app.ModelPatch.Vertices + bp;
-                patch(app.AxMachine, 'Vertices', V, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [0.7 0.7 0.8], 'FaceAlpha', 0.8, 'EdgeColor', 'none');
+                V = app.ModelPatch.Vertices;
+                F = app.ModelPatch.Faces;
+                Vplot = [V(:,1)-offX, V(:,2), V(:,3)];
+                patch(ax, 'Vertices', Vplot, 'Faces', F, ...
+                    'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
             end
 
-            axis(app.AxMachine, 'equal');
-            view(app.AxMachine, -35, 25);
-            title(app.AxMachine, 'Machine Virtual Setup');
+            % 4. Draw Cutting Planes (Anchored at Machine Towers X=0 and X=Max)
+            if app.AppState == 1
+                % Plane 1: Left Tower (Machine X=0)
+                % Plane 2: Right Tower (Machine X=mSpan(1))
+                xL_plot = 0 - offX;
+                xR_plot = mSpan(1) - offX;
+
+                pY = [0; mSpan(2); mSpan(2); 0];
+                pZ = [0; 0; mSpan(3); mSpan(3)];
+
+                lCol = [0.96 0.06 0.06]; rCol = [0.20 1.00 0.35];
+
+                % Left Plane (Tower 1)
+                patch(ax, 'XData',ones(4,1)*xL_plot, 'YData',pY, 'ZData',pZ, ...
+                    'FaceColor',lCol, 'FaceAlpha',0.08, 'EdgeColor',lCol, ...
+                    'LineStyle','--', 'LineWidth', 0.8, 'EdgeAlpha', 0.4);
+                % Right Plane (Tower 2)
+                patch(ax, 'XData',ones(4,1)*xR_plot, 'YData',pY, 'ZData',pZ, ...
+                    'FaceColor',rCol, 'FaceAlpha',0.08, 'EdgeColor',rCol, ...
+                    'LineStyle','--', 'LineWidth', 0.8, 'EdgeAlpha', 0.4);
+            end
+
+            % 5. Draw Machine Limits (Wireframe - Mid-tone dashes)
+            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan(1), mSpan(2), mSpan(3));
+            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
+                'FaceColor','none', 'EdgeColor',[1 1 1], 'LineStyle',':', 'EdgeAlpha',0.35);
+
+            % --- Formatting ---
+            view(ax, 3); grid(ax, 'on'); axis(ax, 'equal');
+            xlabel(ax, 'X (Bed Relative) [mm]');
+            ylabel(ax, 'Y (Machine Absolute) [mm]');
+            zlabel(ax, 'Z [mm]');
+
+            % Dynamic limits to show the full machine and bed
+            xlim(ax, [-offX - 50, mSpan(1)-offX + 50]);
+            ylim(ax, [-50, mSpan(2) + 50]);
+            zlim(ax, [-bs(3)-10, mSpan(3) + 20]);
+            app.AxMachine.BackgroundColor = [0.1 0.1 0.1];
+            drawnow limitrate;
+        end
+
+        function syncMachineUI(app)
+            % X is relative to bed left edge
+            app.MachinePosSpinners(1).Value = app.MachineBilletPos(1) - app.MachineBedPos(1);
+            % Y and Z are machine absolute
+            app.MachinePosSpinners(2).Value = app.MachineBilletPos(2);
+            app.MachinePosSpinners(3).Value = app.MachineBilletPos(3);
+        end
+        
+        function [vx, vy, vz] = makeBoxVertices(~, x, y, z, dx, dy, dz)
+            % Returns the 8 vertices for a box at (x,y,z) with size (dx,dy,dz)
+            vx = [x; x+dx; x+dx; x;    x;    x+dx; x+dx; x   ];
+            vy = [y; y;    y+dy; y+dy; y;    y;    y+dy; y+dy];
+            vz = [z; z;    z;    z;    z+dz; z+dz; z+dz; z+dz];
+        end
+
+        function f = boxFaces(~)
+            % Returns the face connectivity for a standard 8-vertex box
+            f = [1 2 3 4; % Bottom
+                 5 6 7 8; % Top
+                 1 2 6 5; % Front
+                 2 3 7 6; % Right
+                 3 4 8 7; % Back
+                 4 1 5 8]; % Left
         end
 
         % ===========================================================
