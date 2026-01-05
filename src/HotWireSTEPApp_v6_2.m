@@ -430,8 +430,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnProfilesContinue = uibutton(profilesLeft, ...
                 'Text','Continue →', ...
                 'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], ...   % green, like the model tab when active
-                'FontColor',[1 1 1], ...
+                'Enable', 'off', ...                     % START DISABLED
+                'BackgroundColor',[0.3 0.3 0.3], ...      % START GREY'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinueFromProfiles());
             app.BtnProfilesContinue.Layout.Row = 6;
 
@@ -1102,15 +1102,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightKerf2DLine        = gobjects(0);
 
             % NOTE:
-            % We deliberately do NOT change app.KerfEnabled here.
-            % Callers that want to invalidate kerf (rotation, plane
-            % movement, tolerance changes, etc.) already set
-            %   app.KerfEnabled = false;
-            % and call app.clearKerfPaths() explicitly.
-            % This allows onApplyKerf() to enable kerf and redraw it
-            % without the flag being immediately reset.
-            % LeftProfileRawYZ / RightProfileRawYZ are refreshed in
-            % computeProfiles(), so we also leave those alone here.
+            % We deliberately do NOT change app.KerfEnabled or the 
+            % 'Continue' button state here. This is a graphics-only function.
+            % Logic resets (like rotation or plane movement) should call 
+            % app.invalidateKerf() instead.
+
         end
 
         function clearKerfPaths(app)
@@ -1125,6 +1121,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightKerf2DLine = gobjects(0);
         end
 
+        function invalidateKerf(app)
+            % This is the "Central Reset" for Kerf logic
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
+
+            % Mute the Continue button
+            if ~isempty(app.BtnProfilesContinue) && isgraphics(app.BtnProfilesContinue)
+                app.BtnProfilesContinue.Enable = 'off';
+                app.BtnProfilesContinue.BackgroundColor = [0.3 0.3 0.3];
+                app.BtnProfilesContinue.FontColor       = [0.8 0.8 0.8];
+            end
+        end
+
         function enterState0(app)
             % STATE 0: model only, no planes, no profiles
             app.AppState = 0;
@@ -1133,7 +1142,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.clearPlanes();
             app.clearProfiles();
             app.clearProfiles2D();
-            app.KerfEnabled = false;
+            app.invalidateKerf();
 
             % Continue button disabled and visually muted
             if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
@@ -1592,7 +1601,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Re-run planes + profiles under the new taper mode
+            app.invalidateKerf();
             app.updatePlanes();  % will call computeProfiles() in STATE 1
+            
         end
 
         % ===========================================================
@@ -1690,6 +1701,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.KerfEnabled = true;
+
+            % --- ACTIVATE CONTINUE BUTTON ---
+            app.BtnProfilesContinue.Enable = 'on';
+            app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1]; % Light up Green
+            app.BtnProfilesContinue.FontColor       = [1 1 1];
 
             % Use the stored 3D profile points to rebuild the 2D view.
             yL = []; zL = []; xLeft  = 0;
@@ -2044,8 +2060,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.autoFitView();
             app.captureHomeView();
             % Rotation changes the geometry → invalidate kerf
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
+            app.invalidateKerf();
             % OPTION A: After rotation, behave like Reset Planes
             app.updateModelBoundsAndDefaultOffsets(true);
             % Rotation/Reset defines a new "Home" position for the Billet tab
@@ -2074,8 +2089,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.autoFitView();
             app.captureHomeView();
 
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
+            app.invalidateKerf();
 
             % Reset model bounds & plane offsets to defaults
             app.updateModelBoundsAndDefaultOffsets(true); % reset offsets
@@ -2135,8 +2149,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Plane movement invalidates kerf
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
+            app.invalidateKerf();
 
             app.updatePlanes();  % this will also call computeProfiles() in STATE 1
             
@@ -2150,8 +2163,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
+            app.invalidateKerf();
+            
             app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
 
@@ -2335,38 +2348,58 @@ classdef HotWireSTEPApp_v6_2 < handle
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
+            % mMin and mMax are the boundaries of the model
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
             mDim = mMax - mMin;
-            bSize = app.BilletSize;
+            bSize = app.BilletSize; % The current user-defined stock size
 
             for i = 1:3
+                % Update stock size field
                 app.BilletSizeEdits(i).Value = bSize(i);
-                app.BilletModelDimLabels(i).Text = sprintf('%.1f mm', mDim(i));
 
+                % Update the model dimension readout label
+                app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
+
+                % Positioning Fields
                 app.BilletNegOffsetEdits(i).Value    = mMin(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
                 app.BilletPosOffsetEdits(i).Value    = bSize(i) - mMax(i);
             end
 
-            % 2. Safety Warnings (Update the BilletMessageLabel)
-            epsVal = 1e-3;
-            isOutside = any(mMin < -epsVal) || any(mMax > bSize + epsVal);
+            % 2. Safety Warnings (Color Coding)
+            eps = 1e-5;
+            % isOutside = Is any part of the model below 0 or beyond the stock size?
+            isOutside = any(mMin < -eps) || any(mMax > bSize + eps);
+
+            % isTooClose = Less than 5mm clearance on Y or Z faces
             isTooClose = (mMin(2) < 5) || (mMax(2) > bSize(2) - 5) || ...
                 (mMin(3) < 5) || (mMax(3) > bSize(3) - 5);
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16];
-                app.BilletMessageLabel.Text = 'ERROR: Model outside billet!';
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Red
+                % --- BLOCK BUTTON ---
+                app.BtnBilletContinue.Enable = 'off';
+                app.BtnBilletContinue.BackgroundColor = [0.3 0.3 0.3];
+                app.BtnBilletContinue.FontColor       = [0.8 0.8 0.8];
+                app.BilletMessageLabel.Text = 'CRITICAL: Model is outside billet bounds!';
                 app.BilletMessageLabel.FontColor = [1 0.4 0.4];
-            elseif isTooClose
-                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1];
-                app.BilletMessageLabel.Text = 'WARNING: Model near edge (< 5mm)';
-                app.BilletMessageLabel.FontColor = [1 0.8 0.2];
             else
-                app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16];
-                app.BilletMessageLabel.Text = 'Position OK';
-                app.BilletMessageLabel.FontColor = [0.5 0.9 0.5];
+                % If Valid or Amber
+                if isTooClose
+                    app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Amber
+                    app.BilletMessageLabel.Text = 'Warning: Model is very close to billet edges.';
+                    app.BilletMessageLabel.FontColor = [1 0.8 0.4];
+                else
+                    app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % Normal
+                    app.BilletMessageLabel.Text = 'Billet configuration valid.';
+                    app.BilletMessageLabel.FontColor = [0.4 1 0.4];
+                end
+
+                % --- ALLOW PROGRESS ---
+                app.BtnBilletContinue.Enable = 'on';
+                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1]; % Highlight Green
+                app.BtnBilletContinue.FontColor       = [1 1 1];
             end
         end
 
