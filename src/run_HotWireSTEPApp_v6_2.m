@@ -3,6 +3,12 @@ function run_HotWireSTEPApp_v6_2
 %
 % Usage (from Command Window):
 %   run_HotWireSTEPApp_v6_2
-clear classes
-app = HotWireSTEPApp_v6_2(); %#ok<NASGU>
+% Close any existing app figures first
+delete(findall(0, 'Type', 'figure', 'Name', 'Hot Wire STEP App v6.2'));
+
+% Clear variables but NOT classes (to avoid the warnings you saw)
+clearvars;
+
+% Launch
+app = HotWireSTEPApp_v6_2();
 end

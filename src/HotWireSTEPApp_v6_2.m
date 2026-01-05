@@ -33,9 +33,15 @@ classdef HotWireSTEPApp_v6_2 < handle
         AutoFitPaddingFactor (1,1) double = 0.35;  % model view padding
         PlanePaddingFactor   (1,1) double = 0.20;  % plane extents padding
 
-                % --- Billet UI Increments ---
+        % --- Billet UI Increments ---
         BilletSizeStep  = 1.0;  % mm
         BilletShiftStep = 0.5;  % mm
+
+        % Machine Configuration Constants/State
+        MachineSpan      = [1100, 550, 400] % Tower movement range [X, Y, Z]
+        MachineBedSize   = [1000, 500, 20]  % Physical dimensions [L, W, H]
+        MachineBedPos    = [50, 50, 0]      % Bed origin relative to machine 0,0,0
+        MachineBilletPos = [100, 500, 0]   % Billet origin relative to machine 0,0,0
 
         % (Future)
         % MachineSpanX (1,1) double = 2000;  % mm, for example
@@ -188,6 +194,14 @@ classdef HotWireSTEPApp_v6_2 < handle
         BilletSize  = [0 0 0]  % [Length X, Width Y, Height Z] - The Driving Factor
         BilletShift = [0 0 0]  % Cumulative [dX, dY, dZ] from import position
 
+        % ---------- Machine tab ----------
+        TabMachine
+        GLMachine
+        MachineLeftPanel
+        AxMachine
+        MachinePosSpinners       % 1x3 handles for the spinners
+
+
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -206,7 +220,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 delete(old);
             end
 
-            clc;
+            %clc;
             app.buildUI();
 
             % ===========================================================
@@ -953,6 +967,63 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Ensure additional plots (planes, profiles) don't wipe the model
             hold(app.AxModel,'on');
             app.AxModel.NextPlot = 'add';
+
+            % Add Machine Tab to group
+            app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
+
+            app.GLMachine = uigridlayout(app.TabMachine, [1 2]);
+            app.GLMachine.ColumnWidth = {320, '1x'};
+            app.GLMachine.Padding = [10 10 10 10];
+
+            % --- Left Control Column ---
+            app.MachineLeftPanel = uigridlayout(app.GLMachine, [5 1]);
+            app.MachineLeftPanel.BackgroundColor = [0.16 0.16 0.16];
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x','fit'};
+
+            % --- Placement Panel ---
+            mPanel = uipanel(app.MachineLeftPanel);
+            mPanel.Title = 'Billet Placement on Machine';
+            mPanel.BackgroundColor = [0.12 0.12 0.12];
+            mPanel.ForegroundColor = [0.9 0.9 0.9];
+            mPanel.FontWeight = 'bold';
+            mPanel.Layout.Row = 1;
+
+            mOuter = uigridlayout(mPanel, [1 1]);
+            mGrid = uigridlayout(mOuter, [4 2]);
+            mGrid.ColumnWidth = {'1x', 110};
+            mGrid.RowHeight = {'fit','fit','fit','fit'};
+            mGrid.Padding = [10 5 10 5];
+
+            % Headings
+            hM1 = uilabel(mGrid, 'Text','Axis', 'FontWeight','bold', 'FontColor',[0.9 0.9 0.9]);
+            hM1.Layout.Row=1; hM1.Layout.Column=1;
+            hM2 = uilabel(mGrid, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',[0.9 0.9 0.9]);
+            hM2.Layout.Row=1; hM2.Layout.Column=2;
+
+            mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
+            app.MachinePosSpinners = gobjects(1,3);
+            for i = 1:3
+                ri = i + 1;
+                lbl = uilabel(mGrid, 'Text', mAxisLabels{i}, 'FontColor',[0.9 0.9 0.9]);
+                lbl.Layout.Row = ri; lbl.Layout.Column = 1;
+
+                % Clean Spinner (No background fill)
+                s = uispinner(mGrid);
+                s.Limits = [-500, 2000];
+                s.Value = app.MachineBilletPos(i);
+                s.Step = 10;
+                s.ValueChangedFcn = @(src,~)app.onMachinePosEdited(i,src);
+                s.Layout.Row = ri; s.Layout.Column = 2;
+                app.MachinePosSpinners(i) = s;
+            end
+
+            % --- Machine Visualization Plot ---
+            app.AxMachine = uiaxes(app.GLMachine);
+            app.AxMachine.Layout.Column = 2;
+            app.AxMachine.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxMachine, 'X'); ylabel(app.AxMachine, 'Y'); zlabel(app.AxMachine, 'Z');
+            grid(app.AxMachine, 'on'); view(app.AxMachine, 3);
+            hold(app.AxMachine, 'on');
 
         end
 
@@ -2213,8 +2284,15 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onContinue(app)
-            % For now, just jump to Profiles tab (placeholder behaviour).
-            app.TabGroup.SelectedTab = app.TabProfiles;
+            % Context-aware navigation for 'Continue' buttons
+            if app.TabGroup.SelectedTab == app.TabModel
+                app.TabGroup.SelectedTab = app.TabProfiles;
+            elseif app.TabGroup.SelectedTab == app.TabProfiles
+                app.TabGroup.SelectedTab = app.TabBillet;
+            elseif app.TabGroup.SelectedTab == app.TabBillet
+                app.TabGroup.SelectedTab = app.TabMachine;
+                app.refreshMachinePlot(); % Ensure plot updates when entering tab
+            end
         end
         
         function onContinueFromProfiles(app)
@@ -2477,6 +2555,56 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Fixes slowness during movement
             drawnow limitrate;
+        end
+
+        % ===========================================================
+        % BILLET TAB CALLBACKS
+        % ===========================================================  
+
+        function onMachinePosEdited(app, axisIdx, src)
+            app.MachineBilletPos(axisIdx) = src.Value;
+            app.refreshMachinePlot();
+        end
+
+        function refreshMachinePlot(app)
+            if isempty(app.AxMachine) || ~isgraphics(app.AxMachine), return; end
+            cla(app.AxMachine); hold(app.AxMachine, 'on');
+
+            span = app.MachineSpan;
+            bp   = app.MachineBilletPos;
+            bs   = app.BilletSize;
+            bedS = app.MachineBedSize;
+            bedP = app.MachineBedPos;
+
+            % 1. Machine Bed (Light Blue Cuboid)
+            % Template scaled by Size and shifted by Position
+            tempV = [0 0 0; 1 0 0; 1 1 0; 0 1 0; 0 0 1; 1 0 1; 1 1 1; 0 1 1];
+            bedV = (tempV .* bedS) + bedP;
+            bedF = [1 2 6 5; 2 3 7 6; 3 4 8 7; 4 1 5 8; 1 2 3 4; 5 6 7 8];
+            patch(app.AxMachine, 'Vertices', bedV, 'Faces', bedF, ...
+                'FaceColor', [0.6 0.8 1.0], 'FaceAlpha', 0.2, 'EdgeColor', [0.4 0.6 0.8]);
+
+            % 2. Range Planes (Red Left @ X=0, Green Right @ X=SpanX)
+            py = [0 0 span(2) span(2)]; pz = [0 span(3) span(3) 0];
+            patch(app.AxMachine, [0 0 0 0], py, pz, [0.96 0.06 0.06], 'FaceAlpha', 0.1, 'EdgeColor', 'r', 'LineStyle', ':');
+            patch(app.AxMachine, [span(1) span(1) span(1) span(1)], py, pz, [0.2 1.0 0.35], 'FaceAlpha', 0.1, 'EdgeColor', 'g', 'LineStyle', ':');
+
+            % 3. Billet (White Dotted Outline)
+            bx = [0 1 1 0 0 0 1 1 0 0 1 1 1 1 0 0] * bs(1) + bp(1);
+            by = [0 0 1 1 0 0 0 1 1 0 0 0 1 1 1 1] * bs(2) + bp(2);
+            bz = [0 0 0 0 0 1 1 1 1 1 1 0 0 1 1 0] * bs(3) + bp(3);
+            plot3(app.AxMachine, bx, by, bz, 'w:', 'LineWidth', 1.5);
+
+            % 4. Model (Offset to Machine Position)
+            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                V = app.ModelPatch.Vertices + bp;
+                patch(app.AxMachine, 'Vertices', V, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', [0.7 0.7 0.8], 'FaceAlpha', 0.8, 'EdgeColor', 'none');
+            end
+
+            axis(app.AxMachine, 'equal');
+            view(app.AxMachine, -35, 25);
+            title(app.AxMachine, 'Machine Virtual Setup');
         end
 
         % ===========================================================
