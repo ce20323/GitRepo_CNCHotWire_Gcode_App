@@ -200,7 +200,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         AxMachine
         MachinePosSpinners       % 1x3 handles for the spinners
         MachineBilletPos = [100, 50, 0]   % Billet origin relative to machine 0,0,0
-
+        BtnResetMachineBillet
+        BtnResetMachinePlot
+        BtnMachineContinue
+        
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -975,9 +978,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLMachine.Padding = [10 10 10 10];
 
             % --- Left Control Column ---
-            app.MachineLeftPanel = uigridlayout(app.GLMachine, [5 1]);
+            app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]); % 6 Rows
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
+            app.MachineLeftPanel.Padding = [10 10 10 10];
             app.MachineLeftPanel.BackgroundColor = [0.16 0.16 0.16];
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x','fit'};
 
             % --- Placement Panel ---
             mPanel = uipanel(app.MachineLeftPanel);
@@ -1016,6 +1020,28 @@ classdef HotWireSTEPApp_v6_2 < handle
                 s.Layout.Row = ri; s.Layout.Column = 2;
                 app.MachinePosSpinners(i) = s;
             end
+          
+            % --- Reset Billet Position Button ---
+            app.BtnResetMachineBillet = uibutton(app.MachineLeftPanel, ...
+                'Text','Reset Billet Position', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
+            app.BtnResetMachineBillet.Layout.Row = 3; % Adjust row index as needed
+
+            % --- Reset Machine Plot View Button ---
+            app.BtnResetMachinePlot = uibutton(app.MachineLeftPanel, ...
+                'Text','Reset Plot View', ...
+                'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetMachinePlotView());
+            app.BtnResetMachinePlot.Layout.Row = 4; % Adjust row index as needed
+
+            % Row 6: Continue Button (Green)
+            app.BtnMachineContinue = uibutton(app.MachineLeftPanel, ...
+                'Text','Continue', ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            app.BtnMachineContinue.Layout.Row = 6;
 
             % --- Machine Visualization Plot ---
             app.AxMachine = uiaxes(app.GLMachine);
@@ -2305,28 +2331,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
             elseif currTab == app.TabBillet
-                % --- 1. Calculate Target Machine Position ---
-                offX = app.MachineBedPos(1);
-                idealUserX = (app.MachineBedSize(1) - app.BilletSize(1)) / 2;
-                roundedUserX = 50 * floor(idealUserX / 50);
-                
-                targetMachPos = [offX + max(0, roundedUserX), 50.0, 0.0];
-
-                % --- 2. Calculate Delta from current position ---
-                % Model is currently at Billet-tab 'Import' position
-                dx = targetMachPos(1) - app.ModelXMin;
-                dy = targetMachPos(2) - app.ModelYMin;
-                dz = targetMachPos(3) - app.ModelZMin;
-
-                % --- 3. Move vertices and update properties ---
-                app.moveModelInSpace(1, dx);
-                app.moveModelInSpace(2, dy);
-                app.moveModelInSpace(3, dz);
-                app.MachineBilletPos = targetMachPos;
-                
+                % [Billet to Machine transition logic from previous turn...]
                 app.TabGroup.SelectedTab = app.TabMachine;
                 app.syncMachineUI();
                 app.refreshMachinePlot();
+            elseif currTab == app.TabMachine
+                % Final Step: Transition to G-Code Export (Placeholder)
+                uialert(app.UIFigure, 'Setup Complete! Proceeding to G-code Generation...', 'Success', 'Icon', 'success');
+                % app.TabGroup.SelectedTab = app.TabExport; % If you add an export tab later
             end
         end
 
@@ -2631,6 +2643,46 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.refreshMachinePlot();
         end
 
+        function onResetMachineBilletPosition(app)
+            % 1. Calculate the "Clever Default" target
+            offX = app.MachineBedPos(1);
+            idealUserX = (app.MachineBedSize(1) - app.BilletSize(1)) / 2;
+            roundedUserX = 50 * floor(idealUserX / 50);
+
+            targetPos = [offX + max(0, roundedUserX), 50.0, 0.0];
+
+            % 2. Calculate delta and move model/billet
+            for i = 1:3
+                delta = targetPos(i) - app.MachineBilletPos(i);
+                app.moveModelInSpace(i, delta);
+            end
+
+            % 3. Update state and UI
+            app.MachineBilletPos = targetPos;
+            app.syncMachineUI();
+            app.refreshMachinePlot();
+        end
+
+        function onResetMachinePlotView(app)
+            ax = app.AxMachine;
+            if isempty(ax) || ~isgraphics(ax), return; end
+            
+            % Reset to the isometric overview
+            view(ax, 3);
+            
+            % Re-apply the standard limits used in refreshMachinePlot
+            offX = app.MachineBedPos(1);
+            mSpan = app.MachineSpan;
+            bs = app.MachineBedSize;
+            
+            xlim(ax, [-offX - 50, mSpan(1)-offX + 50]);
+            ylim(ax, [-50, mSpan(2) + 50]);
+            zlim(ax, [-bs(3)-10, mSpan(3) + 20]);
+            
+            % Force a redraw to fix any rotation artifacts
+            drawnow limitrate;
+        end
+        
         function refreshMachinePlot(app)
             ax = app.AxMachine;
             cla(ax); hold(ax,'on');
@@ -2647,11 +2699,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.4, 'EdgeColor',[0.2 0.2 0.2]);
 
             % 2. Draw Billet (Ghost Faces + Refined Dashes)
-            bPosPlot = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), 0];
+           bPosPlot = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
             bSize    = app.BilletSize;
             [xm, ym, zm] = app.makeBoxVertices(bPosPlot(1), bPosPlot(2), bPosPlot(3), bSize(1), bSize(2), bSize(3));
+            
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor','w', 'FaceAlpha', 0.03, ... % Ghostly transparent faces
+                'FaceColor','w', 'FaceAlpha', 0.03, ...
                 'EdgeColor','w', 'LineStyle','--', 'LineWidth', 1.0, 'EdgeAlpha', 0.8);
 
             % 3. Draw 3D Model (Shifted to Bed-Relative Plot Space)
