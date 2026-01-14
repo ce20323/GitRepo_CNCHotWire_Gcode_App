@@ -2533,7 +2533,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetMachineBilletPosition(app)
-            % 1. Bed Geometry
+            % 1. Get Bed Geometry
             offX = app.MachineBedPos(1); % 50mm
             bs   = app.MachineBedSize;   % 1000mm length
             bS   = app.BilletSize;
@@ -2542,11 +2542,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             idealX_rel   = (bs(1) - bS(1)) / 2;
             roundedX_rel = 50 * round(idealX_rel / 50);
 
-            % 3. Calculate Centered Y (Machine-Absolute)
-            % Bed spans 50 to 550. Center is 300.
-            targetY_abs = app.MachineBedPos(2) + (bs(2) - bS(2)) / 2;
+            % 3. Set Y to Front Edge of Bed (Machine Absolute)
+            % This aligns the start of the billet with the bed's origin (50mm)
+            targetY_abs = app.MachineBedPos(2); % 50.0
 
-            % 4. Store (Absolute Machine X = Offset + Relative X)
+            % 4. Store Absolute Machine Coordinates
             app.MachineBilletPos = [offX + roundedX_rel, targetY_abs, 0.0];
 
             % 5. Update and Plot
