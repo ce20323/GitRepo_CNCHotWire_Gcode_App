@@ -2179,36 +2179,42 @@ classdef HotWireSTEPApp_v6_2 < handle
             span = max(maxs - mins); if span <= 0, span = 1; end
             pad  = app.PlanePaddingFactor * span;
 
-            yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
-            zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
+            % --- THE PLANE BOUNDARIES (The actual patch edges) ---
+            yMinP = mins(2) - pad;
+            yMaxP = maxs(2) + pad;
+            zMaxP = maxs(3) + pad;
+
+            % Patch Vertices (Standardized 4x1 columns)
+            yLims = [yMinP; yMaxP; yMaxP; yMinP];
+            zLims = [mins(3)-pad; mins(3)-pad; zMaxP; zMaxP];
 
             xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
+            xR = app.NumLeftOffset.Value + app.ModelXMin(1); % Using ModelXMin as static ref
             xR = app.ModelXMin(1) + app.NumRightOffset.Value;
 
             % --- LEFT PLANE ---
             app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, ...
-                'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
+                'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, 'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
 
-            % RESTORE: Polished Label Displacement (Inside Top-Left)
-            tY_L = maxs(2) - 0.02*(maxs(2) - mins(2));
-            tZ_L = maxs(3) - 0.20*(maxs(3) - mins(3)); % Your refined drop parameter
+            % RESTORE: Just inside the Top-Left corner of the PLANE
+            tY_L = yMaxP - 0.02*(yMaxP - yMinP);
+            tZ_L = zMaxP - 0.50*(maxs(3) - mins(3)); % Re-refined drop
             app.LeftPlaneText = text(app.AxModel, xL, tY_L, tZ_L, {'LEFT','PLANE'}, ...
                 'HorizontalAlignment','left', 'VerticalAlignment', 'top', ...
                 'Color', [0.96 0.4 0.4], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
 
             % --- RIGHT PLANE ---
             app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, ...
-                'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
+                'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, 'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
 
-            % RESTORE: Polished Label Displacement (Inside Top-Right)
-            tY_R = mins(2) + 0.02*(maxs(2) - mins(2));
-            tZ_R = maxs(3) - 0.02*(maxs(3) - mins(3)); % Your refined top parameter
+            % RESTORE: Just inside the Top-Right corner of the PLANE
+            tY_R = yMinP + 0.02*(yMaxP - yMinP);
+            tZ_R = zMaxP - 0.10*(maxs(3) - mins(3)); % Re-refined top margin
             app.RightPlaneText = text(app.AxModel, xR, tY_R, tZ_R, {'RIGHT','PLANE '}, ...
                 'HorizontalAlignment','right', 'VerticalAlignment', 'top', ...
                 'Color', [0.4 1.00 0.5], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
 
+            % Keep labels on top of the transparent planes
             if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
             if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
 
