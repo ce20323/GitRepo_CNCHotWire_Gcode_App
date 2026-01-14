@@ -277,10 +277,15 @@ classdef HotWireSTEPApp_v6_2 < handle
         function buildUI(app)
 
             % --- Main figure ---
-            app.UIFigure = uifigure( ...
-                'Name','Hot Wire STEP App v6.2', ...
-                'Color',[0.1 0.1 0.1]);
+            app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
             app.UIFigure.WindowState = 'maximized';
+
+            % --- UNPACK PALETTE (This fixes your "Unrecognized variable" error) ---
+            t = app.getTheme();
+            sideBg = t.sideBg; panelBg = t.panelBg; labelCol = t.labelCol;
+            inputBg = t.inputBg; inputTxt = t.inputTxt;
+
+            app.UIFigure.Color = sideBg; % Apply background
 
             % --- Tab group ---
             app.TabGroup = uitabgroup(app.UIFigure, ...
@@ -309,14 +314,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             profilesLeft.Layout.Column   = 1;
             profilesLeft.RowHeight       = {'fit','fit','fit','fit','1x','fit'};  % row 5 = spacer, row 6 = button
             profilesLeft.Padding         = [10 10 10 10];
-            profilesLeft.BackgroundColor = [0.16 0.16 0.16];
+            profilesLeft.BackgroundColor = sideBg;
 
 
             % --- Profile Sampling Panel (tolerance) ---
             tolPanel = uipanel(profilesLeft, ...
                 'Title','Profile Sampling', ...
-                'BackgroundColor',[0.12 0.12 0.12], ...
-                'ForegroundColor',[0.9 0.9 0.9], ...
+                'BackgroundColor',panelBg, ...
+                'ForegroundColor',labelCol, ...
                 'FontWeight','bold', ...
                 'BorderType','line');
             tolPanel.Layout.Row = 1;
@@ -335,7 +340,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Text','Profile Tolerance [mm]:', ...
                 'HorizontalAlignment','right', ...
                 'FontWeight','bold', ...
-                'FontColor',[0.9 0.9 0.9]);
+                'FontColor',labelCol);
             lblTol.Layout.Row    = 1;
             lblTol.Layout.Column = 1;
 
@@ -356,7 +361,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfilePointCountLabel = uilabel(tolGrid, ...
                 'Text','Number of Points (L/R): -- / --', ...
                 'HorizontalAlignment','right', ...
-                'FontColor',[0.9 0.9 0.9], ...
+                'FontColor',labelCol, ...
                 'FontAngle','italic');
             app.ProfilePointCountLabel.Layout.Row    = 2;
             app.ProfilePointCountLabel.Layout.Column = [1 2];
@@ -378,8 +383,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- Kerf Compensation Panel ---
             kerfPanel = uipanel(profilesLeft, ...
                 'Title','Kerf Compensation', ...
-                'BackgroundColor',[0.12 0.12 0.12], ...
-                'ForegroundColor',[0.9 0.9 0.9], ...
+                'BackgroundColor',panelBg, ...
+                'ForegroundColor',labelCol, ...
                 'FontWeight','bold', ...
                 'BorderType','line');
             kerfPanel.Layout.Row = 4;
@@ -398,7 +403,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Text','Kerf [mm]:', ...
                 'HorizontalAlignment','right', ...
                 'FontWeight','bold', ...
-                'FontColor',[0.9 0.9 0.9]);
+                'FontColor',labelCol);
             lblKerf.Layout.Row    = 1;
             lblKerf.Layout.Column = 1;
 
@@ -495,7 +500,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Row 1-5: controls, Row 6: warning message (expands), Row 7: button
             app.BilletLeftPanel.RowHeight       = {'fit','fit','fit','fit','fit','1x','fit'};
             app.BilletLeftPanel.Padding         = [10 10 10 10];
-            app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16];
+            app.BilletLeftPanel.BackgroundColor = sideBg;
 
             % --- [Auto-fit Billet] button (row 1)
             app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, ...
@@ -507,8 +512,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- Billet size controls block (row 2) ---
             billetSizePanel = uipanel(app.BilletLeftPanel);
             billetSizePanel.Title = 'Billet Size Controls';
-            billetSizePanel.BackgroundColor = [0.12 0.12 0.12];
-            billetSizePanel.ForegroundColor = [0.9 0.9 0.9];
+            billetSizePanel.BackgroundColor = panelBg;
+            billetSizePanel.ForegroundColor = labelCol;
             billetSizePanel.FontWeight = 'bold';
             billetSizePanel.Layout.Row = 2;
 
@@ -524,13 +529,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             sizeGrid.RowSpacing = 4;
 
             % --- Size Headings ---
-            hS1 = uilabel(sizeGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hS1 = uilabel(sizeGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hS1.Layout.Row = 1; hS1.Layout.Column = 1;
 
-            hS2 = uilabel(sizeGrid, 'Text','Stock [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hS2 = uilabel(sizeGrid, 'Text','Stock [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hS2.Layout.Row = 1; hS2.Layout.Column = [3 5];
 
-            hS3 = uilabel(sizeGrid, 'Text','Model', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hS3 = uilabel(sizeGrid, 'Text','Model', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hS3.Layout.Row = 1; hS3.Layout.Column = 6;
 
             axisLabels = {'X','Y','Z'};
@@ -541,10 +546,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             for i = 1:3
                 r = i + 1;
-                lblA = uilabel(sizeGrid, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+                lblA = uilabel(sizeGrid, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
                 lblA.Layout.Row = r; lblA.Layout.Column = 1;
 
-                lblSp = uilabel(sizeGrid, 'Text','', 'BackgroundColor', [0.12 0.12 0.12]);
+                lblSp = uilabel(sizeGrid, 'Text','', 'BackgroundColor', panelBg);
                 lblSp.Layout.Row = r; lblSp.Layout.Column = 2;
 
                 app.BilletSizeMinusBtns(i) = uibutton(sizeGrid, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
@@ -558,7 +563,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
                 app.BilletModelDimLabels(i) = uilabel(sizeGrid, 'Text','(---)', 'HorizontalAlignment','center', ...
-                    'BackgroundColor',[0.12 0.12 0.12], 'FontColor',[0.7 0.7 0.7]);
+                    'BackgroundColor',panelBg, 'FontColor',[0.7 0.7 0.7]);
                 app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
@@ -570,7 +575,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnResetPosition.Layout.Row = 4;
 
             % --- Billet position controls block (row 5) ---
-            posPanel = uipanel(app.BilletLeftPanel, 'Title','Billet Position Controls', 'BackgroundColor',[0.12 0.12 0.12], 'ForegroundColor',[0.9 0.9 0.9], 'FontWeight','bold');
+            posPanel = uipanel(app.BilletLeftPanel, 'Title','Billet Position Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
             posPanel.Layout.Row = 5;
 
             posGrid = uigridlayout(posPanel, [4 6]);
@@ -580,16 +585,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             posGrid.ColumnSpacing = 4;
             posGrid.RowSpacing = 4;
 
-            hP1 = uilabel(posGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hP1 = uilabel(posGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hP1.Layout.Row = 1; hP1.Layout.Column = 1;
 
-            hP2 = uilabel(posGrid, 'Text','-ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hP2 = uilabel(posGrid, 'Text','-ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hP2.Layout.Row = 1; hP2.Layout.Column = 2;
 
-            hP3 = uilabel(posGrid, 'Text','Shift [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hP3 = uilabel(posGrid, 'Text','Shift [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hP3.Layout.Row = 1; hP3.Layout.Column = [3 5];
 
-            hP4 = uilabel(posGrid, 'Text','+ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+            hP4 = uilabel(posGrid, 'Text','+ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
             hP4.Layout.Row = 1; hP4.Layout.Column = 6;
 
             app.BilletNegOffsetEdits    = gobjects(1,3);
@@ -598,11 +603,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             for k = 1:3
                 rk = k + 1;
-                lblB = uilabel(posGrid, 'Text', axisLabels{k}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
+                lblB = uilabel(posGrid, 'Text', axisLabels{k}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
                 lblB.Layout.Row = rk; lblB.Layout.Column = 1;
 
                 app.BilletNegOffsetEdits(k) = uieditfield(posGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
-                    'BackgroundColor',[0.12 0.12 0.12], 'FontColor', [0.9 0.9 0.9], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
+                    'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
                 app.BilletNegOffsetEdits(k).Layout.Row = rk; app.BilletNegOffsetEdits(k).Layout.Column = 2;
 
                 btnM2 = uibutton(posGrid, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
@@ -616,7 +621,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 btnP2.Layout.Row = rk; btnP2.Layout.Column = 5;
 
                 app.BilletPosOffsetEdits(k) = uieditfield(posGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
-                    'BackgroundColor',[0.12 0.12 0.12], 'FontColor', [0.9 0.9 0.9], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
+                    'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
                 app.BilletPosOffsetEdits(k).Layout.Row = rk; app.BilletPosOffsetEdits(k).Layout.Column = 6;
             end
 
@@ -703,7 +708,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLLeft.RowHeight = repmat({'fit'},1,16);
             app.GLLeft.RowHeight{15} = '1x';   % row 15 = spacer
             % row 16 stays 'fit' so the buttons sit at the bottom
-            app.GLLeft.BackgroundColor = [0.16 0.16 0.16];
+            app.GLLeft.BackgroundColor = sideBg;
 
 
             % -------------------------------------------------------
@@ -728,7 +733,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Text','Current File: ---', ...
                 'FontWeight','bold', ...
                 'HorizontalAlignment','left', ...
-                'FontColor',[0.9 0.9 0.9]);
+                'FontColor',labelCol);
             app.FileLabel.Layout.Row = 3;
 
             % Spacer
@@ -768,9 +773,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % -------------------------------------------------------
             rotPanel = uipanel(app.GLLeft, ...
                 'Title','Model Orientation Controls', ...
-                'BackgroundColor',[0.12 0.12 0.12], ...
+                'BackgroundColor',panelBg, ...
                 'FontWeight','bold', ...
-                'ForegroundColor',[0.9 0.9 0.9]);
+                'ForegroundColor',labelCol);
             rotPanel.Layout.Row = 7;
 
             outer = uigridlayout(rotPanel,[1 3]);
@@ -839,7 +844,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % PLANE OFFSETS PANEL (with Reset Planes)
             % -------------------------------------------------------
             offsetPanel = uipanel(app.GLLeft,...
-                'BackgroundColor',[0.12 0.12 0.12],...
+                'BackgroundColor',panelBg,...
                 'BorderType','line');
             offsetPanel.Layout.Row = 11;
 
@@ -982,13 +987,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]); % 6 Rows
             app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
             app.MachineLeftPanel.Padding = [10 10 10 10];
-            app.MachineLeftPanel.BackgroundColor = [0.16 0.16 0.16];
+            app.MachineLeftPanel.BackgroundColor = sideBg;
 
             % --- Placement Panel ---
             mPanel = uipanel(app.MachineLeftPanel);
             mPanel.Title = 'Billet Placement on Machine';
-            mPanel.BackgroundColor = [0.12 0.12 0.12];
-            mPanel.ForegroundColor = [0.9 0.9 0.9];
+            mPanel.BackgroundColor = panelBg;
+            mPanel.ForegroundColor = labelCol;
             mPanel.FontWeight = 'bold';
             mPanel.Layout.Row = 1;
 
@@ -999,16 +1004,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             mGrid.Padding = [10 5 10 5];
 
             % Headings
-            hM1 = uilabel(mGrid, 'Text','Axis', 'FontWeight','bold', 'FontColor',[0.9 0.9 0.9]);
+            hM1 = uilabel(mGrid, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol);
             hM1.Layout.Row=1; hM1.Layout.Column=1;
-            hM2 = uilabel(mGrid, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',[0.9 0.9 0.9]);
+            hM2 = uilabel(mGrid, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol);
             hM2.Layout.Row=1; hM2.Layout.Column=2;
 
             mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
             app.MachinePosSpinners = gobjects(1,3);
             for i = 1:3
                 ri = i + 1;
-                lbl = uilabel(mGrid, 'Text', mAxisLabels{i}, 'FontColor',[0.9 0.9 0.9]);
+                lbl = uilabel(mGrid, 'Text', mAxisLabels{i}, 'FontColor',labelCol);
                 lbl.Layout.Row = ri; lbl.Layout.Column = 1;
 
                 % Clean Spinner (No background fill)
@@ -2486,12 +2491,19 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
+            % Check if we have a model to plot
             if isempty(app.ModelPatch), return; end
 
-            V = app.ModelPatch.Vertices;
-            F = app.ModelPatch.Faces;
-            bMax  = app.BilletSize;
+            % 1. Setup Data
+            V     = app.ModelPatch.Vertices;
+            F     = app.ModelPatch.Faces;
+            bMax  = app.BilletSize;  % <--- THIS LINE FIXES THE ERROR
             shift = app.BilletShift;
+
+            % 2. Get Theme Palette
+            t = app.getTheme();
+            isDark = app.UIFigure.Color(1) < 0.5;
+            outlineCol = 'k--'; if isDark, outlineCol = 'w--'; end
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight};
             pair = {[1 2], [1 3], [2 3]};
@@ -2504,15 +2516,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % Draw Billet Outline (Dashed relative to stock origin 0,0,0)
                 bx = [0 bMax(p(1)) bMax(p(1)) 0 0];
                 by = [0 0 bMax(p(2)) bMax(p(2)) 0];
-                plot(ax, bx, by, 'w--', 'LineWidth', 1.5);
+                plot(ax, bx, by, outlineCol, 'LineWidth', 1.5);
 
-                % SHIFT-CORRECTED Display: Apply shift only to visual data
+                % Corrected Display: Apply shift only to visual data
                 Vplot = V(:,p) + shift(p);
                 patch(ax, 'Vertices', Vplot, 'Faces', F, ...
                     'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
 
                 axis(ax, 'equal'); grid(ax, 'on');
+                ax.BackgroundColor = t.panelBg; % Use palette background
                 xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
+                set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol);
             end
             drawnow limitrate;
         end
@@ -2737,5 +2751,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LastMousePos = [NaN NaN];
         end
 
+
+        function th = getTheme(app)
+            % This function defines your palette in one place
+            if app.UIFigure.Color(1) < 0.5
+                th.sideBg   = [0.16 0.16 0.16]; % Dark sidebar
+                th.panelBg  = [0.12 0.12 0.12]; % Dark panels
+                th.labelCol = [0.90 0.90 0.90]; % Light text
+                th.inputBg  = [1.00 1.00 1.00]; % White active inputs
+                th.inputTxt = [0.00 0.00 0.00]; % Black text
+            else
+                th.sideBg   = [0.96 0.96 0.96]; % Light sidebar
+                th.panelBg  = [0.90 0.90 0.90]; % Light panels
+                th.labelCol = [0.15 0.15 0.15]; % Dark text
+                th.inputBg  = [1.00 1.00 1.00];
+                th.inputTxt = [0.00 0.00 0.00];
+            end
+        end
     end
 end
