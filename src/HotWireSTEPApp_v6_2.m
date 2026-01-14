@@ -2179,23 +2179,33 @@ classdef HotWireSTEPApp_v6_2 < handle
             span = max(maxs - mins); if span <= 0, span = 1; end
             pad  = app.PlanePaddingFactor * span;
 
-            % Force COLUMN vectors (4x1) with semicolons
+            % Force COLUMN vectors (4x1) for patch compatibility
             yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
             zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
 
-            % Protect X with (1) indexing
+            % PROTECT X (Scalar indexing) - This prevents the Line 270 error
             xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
             xR = app.ModelXMin(1) + app.NumRightOffset.Value;
 
+            % --- LEFT PLANE ---
             app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], ...
                 'YData', yLims, 'ZData', zLims, ...
                 'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, ...
                 'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0);
 
+            % Restore Label
+            app.LeftPlaneText = text(app.AxModel, xL, maxs(2), maxs(3)+pad*0.2, 'LEFT PLANE', ...
+                'Color', [0.96 0.4 0.4], 'FontWeight','bold', 'FontSize', 10, 'VerticalAlignment','bottom');
+
+            % --- RIGHT PLANE ---
             app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], ...
                 'YData', yLims, 'ZData', zLims, ...
                 'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, ...
                 'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0);
+
+            % Restore Label
+            app.RightPlaneText = text(app.AxModel, xR, mins(2), maxs(3)+pad*0.2, 'RIGHT PLANE', ...
+                'Color', [0.4 1.00 0.5], 'FontWeight','bold', 'FontSize', 10, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
 
             app.computeProfiles();
         end
@@ -2353,46 +2363,37 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoPositionModel(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch), return; end
 
-            % 1. Get current model minima (currently relative to 0,0,0 stock corner)
+            % 1. Get LOCAL dimensions (from fixed CAD part)
             V = app.ModelPatch.Vertices;
+            localMins = min(V, [], 1);
+
+            % Account for the user's plane offsets
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
-            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
+            planeMinX = min(xL, xR);
 
-            % 2. Targets from Helper
-            h = HotWireSTEPApp_v6_helpers;
-            targetMin = [h.BilletXBuffer, h.BilletYBuffer, h.BilletZMinClear];
+            % 2. Direct-Set the Shift (Targets: X=0.001, Y=5.0, Z=5.0)
+            app.BilletShift(1) = 0.001 - planeMinX;
+            app.BilletShift(2) = 5.0   - localMins(2);
+            app.BilletShift(3) = 5.0   - localMins(3);
 
-            % 3. Calculate movement required
-            deltas = targetMin - mMin;
-
-            % 4. Apply Virtual movements (will NOT move Model Tab vertices)
-            for i = 1:3
-                app.moveModelInSpace(i, deltas(i));
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+            if app.TabGroup.SelectedTab == app.TabMachine
+                app.refreshMachinePlot();
             end
-
-            % DO NOT reset app.BilletShift = [0 0 0] here!
-            % The shift is now the source of truth for the position.
         end
 
         function onResetPosition(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch), return; end
 
-            % Calculate delta needed to get back to the Reference (Import) bounds
-            dx = app.BilletRefXMin - app.ModelXMin;
-            dy = app.BilletRefYMin - app.ModelYMin;
-            dz = app.BilletRefZMin - app.ModelZMin;
-
-            % Physically move the model back
-            app.moveModelInSpace(1, dx);
-            app.moveModelInSpace(2, dy);
-            app.moveModelInSpace(3, dz);
-
-            % Since we are now back at the Reference point, reset the UI shift counter
+            % Zero out the virtual Machining Shift
             app.BilletShift = [0 0 0];
+
             app.syncBilletUI();
+            app.refreshBilletPlots();
         end
 
         function onBilletSizeStep(app, axisIdx, direction)
@@ -2444,15 +2445,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function moveModelInSpace(app, axisIdx, delta)
-            % Update the virtual shift counter only
-            % (Supports the multi-model workflow where vertices stay put)
+            % STABLE: Only update virtual shift
             app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
 
-            % Update UI and Billet visuals
             app.syncBilletUI();
             app.refreshBilletPlots();
 
-            % Update Machine simulation if visible
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
