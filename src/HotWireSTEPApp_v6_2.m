@@ -1656,6 +1656,17 @@ classdef HotWireSTEPApp_v6_2 < handle
         %         app.UIFigure.WindowButtonUpFcn     = [];
         %     end
         % end
+        
+        function onTabChanged(app, ~, evt)
+            % Standard tab house-keeping
+            if evt.NewValue == app.TabBillet
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+            elseif evt.NewValue == app.TabMachine
+                % Force auto-refresh of machine placement on entry
+                app.onResetMachineBilletPosition();
+            end
+        end
 
         function onProfileToleranceChanged(app, src)
             % Update stored profile tolerance and recompute profiles if active,
@@ -2244,17 +2255,29 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if currTab == app.TabModel
                 app.TabGroup.SelectedTab = app.TabProfiles;
+
             elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
+                % Ensure the billet view is fresh
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+
             elseif currTab == app.TabBillet
-                % [Billet to Machine transition logic from previous turn...]
+                % 1. Trigger the logic to center the Billet on the machine bed
+                app.onResetMachineBilletPosition();
+
+                % 2. Switch to Machine Tab
                 app.TabGroup.SelectedTab = app.TabMachine;
+
+                % 3. Explicitly refresh the machine simulation
                 app.syncMachineUI();
                 app.refreshMachinePlot();
+
             elseif currTab == app.TabMachine
                 % Final Step: Transition to G-Code Export (Placeholder)
-                uialert(app.UIFigure, 'Setup Complete! Proceeding to G-code Generation...', 'Success', 'Icon', 'success');
-                % app.TabGroup.SelectedTab = app.TabExport; % If you add an export tab later
+                uialert(app.UIFigure, 'Setup Complete! Proceeding to G-code Generation...', ...
+                    'Success', 'Icon', 'success');
+                % app.TabGroup.SelectedTab = app.TabExport;
             end
         end
 
@@ -2510,26 +2533,23 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetMachineBilletPosition(app)
-            % 1. Get Bed & Billet dimensions
-            bp = app.MachineBedPos;    % [50, 50, -20]
-            bs = app.MachineBedSize;   % [1000, 500, 20]
-            bSize = app.BilletSize;
+            % 1. Bed Geometry
+            offX = app.MachineBedPos(1); % 50mm
+            bs   = app.MachineBedSize;   % 1000mm length
+            bS   = app.BilletSize;
 
-            % 2. Calculate coordinates
-            % X: Bed-Relative, then converted to Machine Absolute
-            idealX_rel = (bs(1) - bSize(1)) / 2;
+            % 2. Calculate Centered X (Bed-Relative rounded to 50mm)
+            idealX_rel   = (bs(1) - bS(1)) / 2;
             roundedX_rel = 50 * round(idealX_rel / 50);
-            targetX_abs = bp(1) + max(0, roundedX_rel);
 
-            % Y: Machine Absolute centering on the bed
-            targetY_abs = bp(2) + (bs(2) - bSize(2)) / 2;
+            % 3. Calculate Centered Y (Machine-Absolute)
+            % Bed spans 50 to 550. Center is 300.
+            targetY_abs = app.MachineBedPos(2) + (bs(2) - bS(2)) / 2;
 
-            % Z: Machine Absolute (0.0 is top of bed)
-            targetZ_abs = 0.0;
+            % 4. Store (Absolute Machine X = Offset + Relative X)
+            app.MachineBilletPos = [offX + roundedX_rel, targetY_abs, 0.0];
 
-            app.MachineBilletPos = [targetX_abs, targetY_abs, targetZ_abs];
-
-            % 3. Update sidebars and 3D simulation
+            % 5. Update and Plot
             app.syncMachineUI();
             app.refreshMachinePlot();
         end
