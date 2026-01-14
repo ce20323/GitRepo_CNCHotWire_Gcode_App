@@ -2179,33 +2179,38 @@ classdef HotWireSTEPApp_v6_2 < handle
             span = max(maxs - mins); if span <= 0, span = 1; end
             pad  = app.PlanePaddingFactor * span;
 
-            % Force COLUMN vectors (4x1) for patch compatibility
             yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
             zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
 
-            % PROTECT X (Scalar indexing) - This prevents the Line 270 error
             xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
             xR = app.ModelXMin(1) + app.NumRightOffset.Value;
 
             % --- LEFT PLANE ---
-            app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], ...
-                'YData', yLims, 'ZData', zLims, ...
+            app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], 'YData', yLims, 'ZData', zLims, ...
                 'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, ...
-                'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0);
+                'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
 
-            % Restore Label
-            app.LeftPlaneText = text(app.AxModel, xL, maxs(2), maxs(3)+pad*0.2, 'LEFT PLANE', ...
-                'Color', [0.96 0.4 0.4], 'FontWeight','bold', 'FontSize', 10, 'VerticalAlignment','bottom');
+            % RESTORE: Polished Label Displacement (Inside Top-Left)
+            tY_L = maxs(2) - 0.02*(maxs(2) - mins(2));
+            tZ_L = maxs(3) - 0.20*(maxs(3) - mins(3)); % Your refined drop parameter
+            app.LeftPlaneText = text(app.AxModel, xL, tY_L, tZ_L, {'LEFT','PLANE'}, ...
+                'HorizontalAlignment','left', 'VerticalAlignment', 'top', ...
+                'Color', [0.96 0.4 0.4], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
 
             % --- RIGHT PLANE ---
-            app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], ...
-                'YData', yLims, 'ZData', zLims, ...
+            app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], 'YData', yLims, 'ZData', zLims, ...
                 'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, ...
-                'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0);
+                'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
 
-            % Restore Label
-            app.RightPlaneText = text(app.AxModel, xR, mins(2), maxs(3)+pad*0.2, 'RIGHT PLANE', ...
-                'Color', [0.4 1.00 0.5], 'FontWeight','bold', 'FontSize', 10, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
+            % RESTORE: Polished Label Displacement (Inside Top-Right)
+            tY_R = mins(2) + 0.02*(maxs(2) - mins(2));
+            tZ_R = maxs(3) - 0.02*(maxs(3) - mins(3)); % Your refined top parameter
+            app.RightPlaneText = text(app.AxModel, xR, tY_R, tZ_R, {'RIGHT','PLANE '}, ...
+                'HorizontalAlignment','right', 'VerticalAlignment', 'top', ...
+                'Color', [0.4 1.00 0.5], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
+
+            if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
+            if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
 
             app.computeProfiles();
         end
@@ -2280,65 +2285,61 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function syncBilletUI(app)
-            if isempty(app.BilletSizeEdits), return; end
+            if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch), return; end
 
-            % 1. Calculate Model Bounds & Dimensions
-            V = app.ModelPatch.Vertices;
+            % 1. Local CAD Properties (relative to CAD coordinate system)
+            V  = app.ModelPatch.Vertices;
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
-            % mMin and mMax are the boundaries of the model
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
             mDim = mMax - mMin;
-            bSize = app.BilletSize; % The current user-defined stock size
 
+            % 2. Machining Properties (World positions in the stock 0..Size)
+            % This combines the virtual shift with the physical CAD location
+            workMin = app.BilletShift + mMin;
+            workMax = workMin + mDim;
+            bSize   = app.BilletSize;
+
+            % 3. Sync UI Fields
             for i = 1:3
-                % Update stock size field
                 app.BilletSizeEdits(i).Value = bSize(i);
-
-                % Update the model dimension readout label
                 app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
 
-                % Positioning Fields
-                app.BilletNegOffsetEdits(i).Value    = mMin(i);
+                % These now reflect EXACTLY what travels into the machining stock
+                app.BilletNegOffsetEdits(i).Value    = workMin(i);
+                app.BilletPosOffsetEdits(i).Value    = bSize(i) - workMax(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
-                app.BilletPosOffsetEdits(i).Value    = bSize(i) - mMax(i);
             end
 
-            % 2. Safety Warnings (Color Coding)
-            eps = 1e-5;
-            % isOutside = Is any part of the model below 0 or beyond the stock size?
-            isOutside = any(mMin < -eps) || any(mMax > bSize + eps);
+            % 4. Red/Amber Safety Logic (Based on the now-fixed workMin/Max)
+            tol = 1e-4;
+            isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
+            isTooClose = (workMin(2) < 5) || (workMax(2) > bSize(2) - 5) || ...
+                (workMin(3) < 5) || (workMax(3) > bSize(3) - 5);
 
-            % isTooClose = Less than 5mm clearance on Y or Z faces
-            isTooClose = (mMin(2) < 5) || (mMax(2) > bSize(2) - 5) || ...
-                (mMin(3) < 5) || (mMax(3) > bSize(3) - 5);
+            if app.UIFigure.Color(1) < 0.5
+                panelBg = [0.16 0.16 0.16]; successGreen = [0.4 1 0.4];
+            else
+                panelBg = [0.94 0.94 0.94]; successGreen = [0 0.5 0];
+            end
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Red
-                % --- BLOCK BUTTON ---
-                app.BtnBilletContinue.Enable = 'off';
-                app.BtnBilletContinue.BackgroundColor = [0.3 0.3 0.3];
-                app.BtnBilletContinue.FontColor       = [0.8 0.8 0.8];
-                app.BilletMessageLabel.Text = 'CRITICAL: Model is outside billet bounds!';
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16];
+                app.BilletMessageLabel.Text = 'CRITICAL: Model is outside stock!';
                 app.BilletMessageLabel.FontColor = [1 0.4 0.4];
-            else
-                % If Valid or Amber
-                if isTooClose
-                    app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Amber
-                    app.BilletMessageLabel.Text = 'Warning: Model is very close to billet edges.';
-                    app.BilletMessageLabel.FontColor = [1 0.8 0.4];
-                else
-                    app.BilletLeftPanel.BackgroundColor = [0.16 0.16 0.16]; % Normal
-                    app.BilletMessageLabel.Text = 'Billet configuration valid.';
-                    app.BilletMessageLabel.FontColor = [0.4 1 0.4];
-                end
-
-                % --- ALLOW PROGRESS ---
+                app.BtnBilletContinue.Enable = 'off';
+            elseif isTooClose
+                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1];
+                app.BilletMessageLabel.Text = 'Warning: Model is very close (<5mm) to billet edges.';
+                app.BilletMessageLabel.FontColor = [1 0.8 0.4];
                 app.BtnBilletContinue.Enable = 'on';
-                app.BtnBilletContinue.BackgroundColor = [0.1 0.6 0.1]; % Highlight Green
-                app.BtnBilletContinue.FontColor       = [1 1 1];
+            else
+                app.BilletLeftPanel.BackgroundColor = panelBg;
+                app.BilletMessageLabel.Text = 'Billet configuration valid.';
+                app.BilletMessageLabel.FontColor = successGreen;
+                app.BtnBilletContinue.Enable = 'on';
             end
         end
 
@@ -2419,29 +2420,24 @@ classdef HotWireSTEPApp_v6_2 < handle
             val = src.Value;
             V = app.ModelPatch.Vertices;
 
-            % Current Model Bounds (including current planes for X)
+            % Base CAD limits
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
 
-            % Billet is fixed at 0 in this tab
-            bMin = [0, 0, 0];
-            bMax = app.BilletSize;
-
-            delta = 0;
             if strcmp(whichField, 'neg')
-                % Target ModelMin = BilletMin(0) + InputGap
-                delta = (bMin(axisIdx) + val) - mMin(axisIdx);
+                % Logic: Shift + CAD_Min = Input_Gap -> Shift = Input_Gap - CAD_Min
+                app.BilletShift(axisIdx) = val - mMin(axisIdx);
             elseif strcmp(whichField, 'pos')
-                % Target ModelMax = BilletMax(Size) - InputGap
-                delta = (bMax(axisIdx) - val) - mMax(axisIdx);
+                % Logic: BilletSize - (Shift + CAD_Max) = Input_Gap -> Shift = BilletSize - CAD_Max - Input_Gap
+                app.BilletShift(axisIdx) = app.BilletSize(axisIdx) - mMax(axisIdx) - val;
             elseif strcmp(whichField, 'center')
-                % Manual shift input
-                delta = val - app.BilletShift(axisIdx);
+                app.BilletShift(axisIdx) = val;
             end
 
-            app.moveModelInSpace(axisIdx, delta);
+            app.syncBilletUI();
+            app.refreshBilletPlots();
         end
 
         function moveModelInSpace(app, axisIdx, delta)
