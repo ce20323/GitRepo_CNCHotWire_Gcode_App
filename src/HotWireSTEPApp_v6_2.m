@@ -17,7 +17,7 @@ classdef HotWireSTEPApp_v6_2 < handle
     % working single-file baseline, but with the STEP-import function
     % moved into a separate helpers class.
     % ===========================================================
-    
+
     properties (Constant)
         % -------- Profile sampling defaults --------
         DefaultProfileTolerance (1,1) double = 0.2;   % [mm]
@@ -89,7 +89,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         NumLeftOffset
         NumRightOffset
         BtnResetPlanes
-        
+
         % ---------- Profile sampling ----------
         ProfileTolerance (1,1) double = 0.2     % [mm], target segment size
         ProfileTolSpinner                 % UI handle for tolerance control
@@ -115,8 +115,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnAutoFitBillet
         BtnResetPosition
         BilletMessageLabel
-        
-        % ---------- Billet  ----------   
+
+        % ---------- Billet  ----------
         ModelF   double     % Mx3 faces   of the current model
 
         % Billet size controls (X/Y/Z)
@@ -145,7 +145,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         RightPlanePatch
         LeftPlaneText
         RightPlaneText
-        
+
         % ---------- Profiles (3D graphics + raw data) ----------
         LeftProfileLine3D
         RightProfileLine3D
@@ -170,6 +170,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultCameraPosition
         DefaultCameraTarget
         DefaultCameraUpVector
+        DefaultCameraViewAngle
 
         % ---------- Mouse interaction state ----------
         IsDragging logical = false
@@ -185,8 +186,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         BilletRefXMin
         BilletRefYMin
         BilletRefZMin
-        
-        % ---------- Billet State ----------   
+
+        % ---------- Billet State ----------
         BilletXMin, BilletXMax
         BilletYMin, BilletYMax
         BilletZMin, BilletZMax
@@ -203,7 +204,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetMachineBillet
         BtnResetMachinePlot
         BtnMachineContinue
-        
+
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -350,7 +351,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
             app.ProfileTolSpinner.Layout.Row    = 1;
             app.ProfileTolSpinner.Layout.Column = 2;
-            
+
             % Read-only point-count label (L/R)
             app.ProfilePointCountLabel = uilabel(tolGrid, ...
                 'Text','Number of Points (L/R): -- / --', ...
@@ -516,7 +517,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 6-Column Symmetric Layout
             sizeGrid = uigridlayout(sizeOuter, [4 6]);
-            sizeGrid.ColumnWidth = {35, 65, 20, 65, 20, 65}; 
+            sizeGrid.ColumnWidth = {35, 65, 20, 65, 20, 65};
             sizeGrid.RowHeight = {'fit','fit','fit','fit'};
             sizeGrid.Padding = [4 4 4 4];
             sizeGrid.ColumnSpacing = 4;
@@ -525,10 +526,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- Size Headings ---
             hS1 = uilabel(sizeGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hS1.Layout.Row = 1; hS1.Layout.Column = 1;
-            
+
             hS2 = uilabel(sizeGrid, 'Text','Stock [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hS2.Layout.Row = 1; hS2.Layout.Column = [3 5];
-            
+
             hS3 = uilabel(sizeGrid, 'Text','Model', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hS3.Layout.Row = 1; hS3.Layout.Column = 6;
 
@@ -573,7 +574,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             posPanel.Layout.Row = 5;
 
             posGrid = uigridlayout(posPanel, [4 6]);
-            posGrid.ColumnWidth = {35, 65, 20, 65, 20, 65}; 
+            posGrid.ColumnWidth = {35, 65, 20, 65, 20, 65};
             posGrid.RowHeight = {'fit','fit','fit','fit'};
             posGrid.Padding = [4 4 4 4];
             posGrid.ColumnSpacing = 4;
@@ -581,13 +582,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             hP1 = uilabel(posGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hP1.Layout.Row = 1; hP1.Layout.Column = 1;
-            
+
             hP2 = uilabel(posGrid, 'Text','-ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hP2.Layout.Row = 1; hP2.Layout.Column = 2;
-            
+
             hP3 = uilabel(posGrid, 'Text','Shift [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hP3.Layout.Row = 1; hP3.Layout.Column = [3 5];
-            
+
             hP4 = uilabel(posGrid, 'Text','+ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',[0.9 0.9 0.9]);
             hP4.Layout.Row = 1; hP4.Layout.Column = 6;
 
@@ -962,7 +963,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Ensure additional plots (planes, profiles) don't wipe the model
             hold(app.AxModel,'on');
             app.AxModel.NextPlot = 'add';
-            
+
             grid(app.AxModel,'on');
             view(app.AxModel,3);
 
@@ -1020,7 +1021,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 s.Layout.Row = ri; s.Layout.Column = 2;
                 app.MachinePosSpinners(i) = s;
             end
-          
+
             % --- Reset Billet Position Button ---
             app.BtnResetMachineBillet = uibutton(app.MachineLeftPanel, ...
                 'Text','Reset Billet Position', ...
@@ -1091,7 +1092,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LeftProfilePoints  = [];
             app.RightProfilePoints = [];
         end
-     
+
         function clearProfiles2D(app)
             % Deletes 2D profile lines on the Profiles tab
 
@@ -1128,9 +1129,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightKerf2DLine        = gobjects(0);
 
             % NOTE:
-            % We deliberately do NOT change app.KerfEnabled or the 
+            % We deliberately do NOT change app.KerfEnabled or the
             % 'Continue' button state here. This is a graphics-only function.
-            % Logic resets (like rotation or plane movement) should call 
+            % Logic resets (like rotation or plane movement) should call
             % app.invalidateKerf() instead.
 
         end
@@ -1371,7 +1372,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             drawnow limitrate nocallbacks;
         end
-        
+
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
             % Draw 2D Y–Z profiles on the Profiles tab with shared scaling.
 
@@ -1480,7 +1481,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             hold(app.AxRightProfile,'off');
-            
+
             % Legend / key for left profile
             leftLegendHandles = gobjects(0);
             leftLegendLabels  = {};
@@ -1503,7 +1504,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'Location','northeast');
                 lgdL.Box = 'off';
             end
-            
+
             % Legend / key for right profile
             rightLegendHandles = gobjects(0);
             rightLegendLabels  = {};
@@ -1590,7 +1591,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileAxesLocked = false;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
         end
-        
+
         function updateProfilePointCountLabel(app, nLeft, nRight, capLeft, capRight)
             % Update the read-only "Points (L/R)" label in the Profiles tab.
 
@@ -1629,7 +1630,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Re-run planes + profiles under the new taper mode
             app.invalidateKerf();
             app.updatePlanes();  % will call computeProfiles() in STATE 1
-            
+
         end
 
         % ===========================================================
@@ -1639,9 +1640,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         %     % Enable custom mouse rotation only on the Model tab.
         %     % When on other tabs (e.g. Profiles), disable the UIFigure
         %     % mouse callbacks so built-in uiaxes interactions work.
-        % 
+        %
         %     newTab = evt.NewValue;
-        % 
+        %
         %     if newTab == app.TabModel
         %         % Model tab active: enable our custom mouse handlers
         %         app.UIFigure.WindowButtonDownFcn   = @(src,ev)app.onMouseDown(src,ev);
@@ -1683,7 +1684,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % without resetting the Profiles tab zoom/pan.
             defaultTol = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
             app.ProfileTolerance = defaultTol;
-            
+
             if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
                 app.ProfileTolSpinner.Value = defaultTol;
             end
@@ -1772,7 +1773,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 % NOTE: STEP import is now handled by the helpers class
                 [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
-                            fullfile(path,file), app.FreeCADExe);
+                    fullfile(path,file), app.FreeCADExe);
                 if isempty(V)
                     close(d);
                     return;
@@ -1883,7 +1884,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Compute initial billet defaults from this mesh
             app.updateBilletDefaultsFromMesh();
-            
+
             % Capture the "Home" position for the Billet tab
             app.BilletRefXMin = app.ModelXMin;
             app.BilletRefYMin = app.ModelYMin;
@@ -1892,58 +1893,50 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function autoFitView(app)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
+            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch), return; end
 
+            % 1. Get geometry bounds from physical vertices
             V      = app.ModelPatch.Vertices;
             mins   = min(V,[],1);
             maxs   = max(V,[],1);
             center = mean([mins; maxs],1);
+            span   = max(maxs - mins);
+            if span <= 0, span = 1; end
 
-            spanVec = maxs - mins;
-            span    = max(spanVec);
-            if span <= 0
-                span = 1;
-                mins = center - span/2;
-                maxs = center + span/2;
-            end
+            % 2. Apply limits with padding
+            pad = app.AutoFitPaddingFactor * span;
+            xlim(app.AxModel, [mins(1)-pad, maxs(1)+pad]);
+            ylim(app.AxModel, [mins(2)-pad, maxs(2)+pad]);
+            zlim(app.AxModel, [mins(3)-pad, maxs(3)+pad]);
 
-            pad = HotWireSTEPApp_v6_2.AutoFitPaddingFactor * span;
-            xlim(app.AxModel,[mins(1)-pad maxs(1)+pad]);
-            ylim(app.AxModel,[mins(2)-pad maxs(2)+pad]);
-            zlim(app.AxModel,[mins(3)-pad maxs(3)+pad]);
+            % --- RE-STABILIZE VIEWPORT (Fix for Reset button) ---
+            % Lock 1:1:1 internal scaling
+            app.AxModel.DataAspectRatio = [1 1 1];
+            app.AxModel.DataAspectRatioMode = 'manual';
 
-            daspect(app.AxModel,[1 1 1]);
-            pbaspect(app.AxModel,[1 1 1]);
+            % Allow the axes box to match model proportions (prevents squashing)
+            app.AxModel.PlotBoxAspectRatioMode = 'auto';
 
-            app.AxModel.CameraTarget   = center;
+            % Point camera at centroid
+            app.AxModel.CameraTarget = center;
             app.AxModel.CameraUpVector = [0 0 1];
 
+            % Move camera to comfortable distance based on model span
             camPos = app.AxModel.CameraPosition;
-            dir    = camPos - center;
-            dist   = norm(dir);
-            if dist == 0
-                dir = [1 1 1]/sqrt(3);
-            else
-                dir = dir / dist;
-            end
+            dirVec = (camPos - center) / norm(camPos - center);
+            if any(isnan(dirVec)), dirVec = [1 1 1]/sqrt(3); end
+            app.AxModel.CameraPosition = center + dirVec * (span * 2.5);
 
-            newDist = span * 2.2;
-            app.AxModel.CameraPosition = center + dir * newDist;
-
+            % Refresh lighting
             delete(findall(app.AxModel,'Type','light'));
             camlight(app.AxModel,'headlight');
             lighting(app.AxModel,'gouraud');
 
-            drawnow limitrate nocallbacks;
+            drawnow limitrate;
         end
 
         function captureHomeView(app)
-            if isempty(app.AxModel) || ~isvalid(app.AxModel)
-                return
-            end
-
+            if isempty(app.AxModel) || ~isvalid(app.AxModel), return; end
             ax = app.AxModel;
             app.DefaultXLim  = xlim(ax);
             app.DefaultYLim  = ylim(ax);
@@ -1953,34 +1946,25 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.DefaultCameraPosition     = ax.CameraPosition;
             app.DefaultCameraTarget       = ax.CameraTarget;
             app.DefaultCameraUpVector     = ax.CameraUpVector;
+            app.DefaultCameraViewAngle    = ax.CameraViewAngle; % Save zoom level
         end
 
         function resetPlotView(app)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
-
-            if isempty(app.DefaultXLim)
-                app.autoFitView();
-                return
-            end
-
+            if isempty(app.DefaultXLim), app.autoFitView(); return; end
             ax = app.AxModel;
-            xlim(ax, app.DefaultXLim);
-            ylim(ax, app.DefaultYLim);
-            zlim(ax, app.DefaultZLim);
 
+            % Restore viewing frustration
+            xlim(ax, app.DefaultXLim); ylim(ax, app.DefaultYLim); zlim(ax, app.DefaultZLim);
             ax.DataAspectRatio    = app.DefaultDataAspectRatio;
             ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
             ax.CameraPosition     = app.DefaultCameraPosition;
             ax.CameraTarget       = app.DefaultCameraTarget;
             ax.CameraUpVector     = app.DefaultCameraUpVector;
+            ax.CameraViewAngle    = app.DefaultCameraViewAngle; % Restore zoom
 
             delete(findall(ax,'Type','light'));
-            camlight(ax,'headlight');
-            lighting(ax,'gouraud');
-
-            drawnow limitrate nocallbacks;
+            camlight(ax,'headlight'); lighting(ax,'gouraud');
+            drawnow limitrate;
         end
 
         % ===========================================================
@@ -2135,37 +2119,24 @@ classdef HotWireSTEPApp_v6_2 < handle
         % PLANES
         % ===========================================================
         function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
-            % Compute model bounds in machine space and optionally reset
-            % the plane offsets so:
-            %   left plane offset  = 0 at left face
-            %   right plane offset = width at right face
-
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
-
+            if isempty(app.ModelPatch), return; end
             V = app.ModelPatch.Vertices;
-            % Store full bounding box
-            app.ModelXMin = min(V(:,1));
-            app.ModelXMax = max(V(:,1));
-            app.ModelYMin = min(V(:,2));
-            app.ModelYMax = max(V(:,2));
-            app.ModelZMin = min(V(:,3));
-            app.ModelZMax = max(V(:,3));
 
-            width = app.ModelXMax - app.ModelXMin;
-            if width <= 0
-                width = 1;
-            end
+            % Force SCALAR extraction (mins(1) instead of mins)
+            mins = min(V, [], 1);
+            maxs = max(V, [], 1);
 
-            if nargin < 2
-                resetOffsets = true;
-            end
+            app.ModelXMin = mins(1);
+            app.ModelXMax = maxs(1);
+            app.ModelYMin = mins(2);
+            app.ModelYMax = maxs(2);
+            app.ModelZMin = mins(3);
+            app.ModelZMax = maxs(3);
 
+            if nargin < 2, resetOffsets = true; end
             if resetOffsets
-                % Left plane at left face (0), right plane at right face (width)
                 app.NumLeftOffset.Value  = 0;
-                app.NumRightOffset.Value = width;
+                app.NumRightOffset.Value = app.ModelXMax - app.ModelXMin;
             end
         end
 
@@ -2178,7 +2149,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.invalidateKerf();
 
             app.updatePlanes();  % this will also call computeProfiles() in STATE 1
-            
+
             % Recompute billet based on the rotated model
             app.updateBilletDefaultsFromMesh();
 
@@ -2190,7 +2161,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.invalidateKerf();
-            
+
             app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
 
@@ -2200,109 +2171,33 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updatePlanes(app)
-            % Draw/update left/right Y–Z planes in machine X
-
-            % Always clear existing plane graphics first
             app.clearPlanes();
-
-            % No model? nothing to do.
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return
-            end
-
-            % In STATE 0 (pre-profile) we do *not* draw planes.
-            if app.AppState == 0
-                return;
-            end
+            if app.AppState == 0 || isempty(app.ModelPatch), return; end
 
             V = app.ModelPatch.Vertices;
-            mins = min(V,[],1);
-            maxs = max(V,[],1);
-            span = max(maxs - mins);
-            if span <= 0
-                span = 1;
-            end
-            pad = HotWireSTEPApp_v6_2.PlanePaddingFactor * span;
+            mins = min(V,[],1); maxs = max(V,[],1);
+            span = max(maxs - mins); if span <= 0, span = 1; end
+            pad  = app.PlanePaddingFactor * span;
 
-            yMin = mins(2) - pad;
-            yMax = maxs(2) + pad;
-            zMin = mins(3) - pad;
-            zMax = maxs(3) + pad;
+            % Force COLUMN vectors (4x1) with semicolons
+            yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
+            zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
 
-            width = app.ModelXMax - app.ModelXMin;
-            if width <= 0
-                width = 1;
-            end
+            % Protect X with (1) indexing
+            xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
+            xR = app.ModelXMin(1) + app.NumRightOffset.Value;
 
-            % Offsets are relative to ModelXMin
-            xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
-            xRight = app.ModelXMin + app.NumRightOffset.Value;
+            app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], ...
+                'YData', yLims, 'ZData', zLims, ...
+                'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, ...
+                'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0);
 
-            % Slight clamp to keep planes in a reasonable range
-            safeMinX = app.ModelXMin - 2*span;
-            safeMaxX = app.ModelXMax + 2*span;
+            app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], ...
+                'YData', yLims, 'ZData', zLims, ...
+                'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, ...
+                'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0);
 
-            % Colours (aviation-style port/starboard)
-            leftColor  = [0.96 0.06 0.06];  % saturated red
-            rightColor = [0.20 1.00 0.35];  % bright green
-
-            % ----- Left plane -----
-            if xLeft >= safeMinX && xLeft <= safeMaxX
-                XL = [xLeft; xLeft; xLeft; xLeft];
-                YL = [yMin;  yMax;  yMax;  yMin];
-                ZL = [zMin;  zMin;  zMax;  zMax];
-
-                app.LeftPlanePatch = patch(app.AxModel, ...
-                    'XData',XL,'YData',YL,'ZData',ZL, ...
-                    'FaceColor',leftColor, ...
-                    'FaceAlpha',0.4, ...
-                    'EdgeColor','none');
-
-                % Left label – top-left of plane (in camera-facing projection)
-                tY = yMax - 0.05*(yMax - yMin);   % slightly inside the top
-                tZ = zMax - 0.05*(zMax - zMin);    % slightly inside the top
-                app.LeftPlaneText = text(app.AxModel, ...
-                    xLeft, tY, tZ, 'Left', ...
-                    'HorizontalAlignment','left', ...
-                    'VerticalAlignment','top', ...
-                    'Color', leftColor * 0.8, ...
-                    'FontWeight','bold');
-            else
-                app.LeftPlanePatch = gobjects(0);
-                app.LeftPlaneText  = gobjects(0);
-            end
-
-            % ----- Right plane -----
-            if xRight >= safeMinX && xRight <= safeMaxX
-                XR = [xRight; xRight; xRight; xRight];
-                YR = [yMin;   yMax;   yMax;   yMin];
-                ZR = [zMin;   zMin;   zMax;   zMax];
-
-                app.RightPlanePatch = patch(app.AxModel, ...
-                    'XData',XR,'YData',YR,'ZData',ZR, ...
-                    'FaceColor',rightColor, ...
-                    'FaceAlpha',0.4, ...
-                    'EdgeColor','none');
-
-                % Right label – top-right of plane (in camera-facing projection)
-                tY = yMin + 0.05*(yMax - yMin);   % slightly inside the top
-                tZ = zMax - 0.05*(zMax - zMin);    % slightly inside the top
-                app.RightPlaneText = text(app.AxModel, ...
-                    xRight, tY, tZ, 'Right', ...
-                    'HorizontalAlignment','right', ...
-                    'VerticalAlignment','top', ...
-                    'Color', rightColor * 0.7, ...
-                    'FontWeight','bold');
-            else
-                app.RightPlanePatch = gobjects(0);
-                app.RightPlaneText  = gobjects(0);
-            end
-
-            % In STATE 1, ensure profiles track the latest plane positions
-            if app.AppState == 1
-                app.computeProfiles();
-            end
-            
+            app.computeProfiles();
         end
 
         % ===========================================================
@@ -2354,7 +2249,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % ===========================================================
         % BILLET TAB CALLBACKS
-        % ===========================================================  
+        % ===========================================================
 
         function updateBilletDefaultsFromMesh(app)
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
@@ -2460,28 +2355,26 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onAutoPositionModel(app)
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
-            % 1. Get current model minima
+            % 1. Get current model minima (currently relative to 0,0,0 stock corner)
             V = app.ModelPatch.Vertices;
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
             mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
 
-            % 2. Get targets from Helper constants
-            % X: 0.001 | Y: 5.0 | Z: 5.0
+            % 2. Targets from Helper
             h = HotWireSTEPApp_v6_helpers;
             targetMin = [h.BilletXBuffer, h.BilletYBuffer, h.BilletZMinClear];
 
             % 3. Calculate movement required
             deltas = targetMin - mMin;
 
-            % 4. Apply movements
+            % 4. Apply Virtual movements (will NOT move Model Tab vertices)
             for i = 1:3
                 app.moveModelInSpace(i, deltas(i));
             end
 
-            % Reset the "Current Offset" counter since we are at the Home position
-            app.BilletShift = [0 0 0];
-            app.syncBilletUI();
+            % DO NOT reset app.BilletShift = [0 0 0] here!
+            % The shift is now the source of truth for the position.
         end
 
         function onResetPosition(app)
@@ -2551,34 +2444,17 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function moveModelInSpace(app, axisIdx, delta)
-            % This physically moves the vertices and updates all reference properties
-            if delta == 0, return; end
+            % Update the virtual shift counter only
+            % (Supports the multi-model workflow where vertices stay put)
+            app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
 
-            V = app.ModelPatch.Vertices;
-            V(:, axisIdx) = V(:, axisIdx) + delta;
-            app.ModelPatch.Vertices = V;
-
-            % Update the reference bounds so the math stays correct
-            if axisIdx == 1
-                app.ModelXMin = app.ModelXMin + delta;
-                app.ModelXMax = app.ModelXMax + delta;
-            elseif axisIdx == 2
-                app.ModelYMin = app.ModelYMin + delta;
-                app.ModelYMax = app.ModelYMax + delta;
-            else
-                app.ModelZMin = app.ModelZMin + delta;
-                app.ModelZMax = app.ModelZMax + delta;
-            end
-
-            % Update the cumulative shift tracker
-            app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta;
-
+            % Update UI and Billet visuals
             app.syncBilletUI();
             app.refreshBilletPlots();
 
-            % If planes/profiles are live, redraw them at the new location
-            if app.AppState == 1
-                app.updatePlanes();
+            % Update Machine simulation if visible
+            if app.TabGroup.SelectedTab == app.TabMachine
+                app.refreshMachinePlot();
             end
         end
 
@@ -2591,42 +2467,36 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             V = app.ModelPatch.Vertices;
             F = app.ModelPatch.Faces;
-            bMax = app.BilletSize;
+            bMax  = app.BilletSize;
+            shift = app.BilletShift;
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight};
-            pair = {[1 2], [1 3], [2 3]}; % XY, XZ, YZ
+            pair = {[1 2], [1 3], [2 3]};
             labs = {{'X (mm)','Y (mm)'}, {'X (mm)','Z (mm)'}, {'Y (mm)','Z (mm)'}};
 
             for i = 1:3
                 ax = axs{i}; p = pair{i};
                 cla(ax); hold(ax,'on');
 
-                % Draw Billet Outline
+                % Draw Billet Outline (Dashed relative to stock origin 0,0,0)
                 bx = [0 bMax(p(1)) bMax(p(1)) 0 0];
                 by = [0 0 bMax(p(2)) bMax(p(2)) 0];
                 plot(ax, bx, by, 'w--', 'LineWidth', 1.5);
 
-                % Draw Model Silhouette
-                patch(ax, 'Vertices', V(:,p), 'Faces', F, ...
+                % SHIFT-CORRECTED Display: Apply shift only to visual data
+                Vplot = V(:,p) + shift(p);
+                patch(ax, 'Vertices', Vplot, 'Faces', F, ...
                     'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
-
-                % Viewport padding
-                all_x = [0, bMax(p(1)), min(V(:,p(1))), max(V(:,p(1)))];
-                all_y = [0, bMax(p(2)), min(V(:,p(2))), max(V(:,p(2)))];
-                xlim(ax, [min(all_x)-10, max(all_x)+10]);
-                ylim(ax, [min(all_y)-10, max(all_y)+10]);
 
                 axis(ax, 'equal'); grid(ax, 'on');
                 xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
             end
-
-            % Fixes slowness during movement
             drawnow limitrate;
         end
 
         % ===========================================================
         % MACHINE TAB CALLBACKS
-        % ===========================================================  
+        % ===========================================================
 
         function onMachinePosEdited(app, axisIdx, src)
             oldVal = app.MachineBilletPos(axisIdx);
@@ -2666,94 +2536,106 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onResetMachinePlotView(app)
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
-            
+
             % Reset to the isometric overview
             view(ax, 3);
-            
+
             % Re-apply the standard limits used in refreshMachinePlot
             offX = app.MachineBedPos(1);
             mSpan = app.MachineSpan;
             bs = app.MachineBedSize;
-            
+
             xlim(ax, [-offX - 50, mSpan(1)-offX + 50]);
             ylim(ax, [-50, mSpan(2) + 50]);
             zlim(ax, [-bs(3)-10, mSpan(3) + 20]);
-            
+
             % Force a redraw to fix any rotation artifacts
             drawnow limitrate;
         end
-        
+
         function refreshMachinePlot(app)
             ax = app.AxMachine;
-            cla(ax); hold(ax,'on');
+            if isempty(ax) || ~isgraphics(ax), return; end
 
-            % --- COORDINATE SYSTEM ---
-            offX = app.MachineBedPos(1); % Plot X=0 is Bed Left
-            mSpan = app.MachineSpan;     % Absolute machine limits
+            % --- 0. DEEP CLEAR (Fixes Ghosting) ---
+            % delete(allchild(ax)) removes everything, even objects with hidden handles
+            delete(allchild(ax));
+            hold(ax, 'on');
 
-            % 1. Draw Bed (X shifted, Y absolute)
-            bs = app.MachineBedSize;
-            bp = app.MachineBedPos;
+            % --- 1. THEME & GEOMETRY PREP ---
+            if app.UIFigure.Color(1) < 0.5
+                cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
+                planeAlpha = 0.15; wireCol = [0.8 0.8 0.8];
+            else
+                cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
+                planeAlpha = 0.08; wireCol = [0.2 0.2 0.2];
+            end
+
+            offX  = app.MachineBedPos(1);
+            mSpan = app.MachineSpan;
+            bs    = app.MachineBedSize;
+            bp    = app.MachineBedPos;
+
+            bPlotPos = [app.MachineBilletPos(1) - offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
+
+            % --- 2. PHYSICAL BED & CAGE ---
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.4, 'EdgeColor',[0.2 0.2 0.2]);
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
-            % 2. Draw Billet (Ghost Faces + Refined Dashes)
-           bPosPlot = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
-            bSize    = app.BilletSize;
-            [xm, ym, zm] = app.makeBoxVertices(bPosPlot(1), bPosPlot(2), bPosPlot(3), bSize(1), bSize(2), bSize(3));
-            
-            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor','w', 'FaceAlpha', 0.03, ...
-                'EdgeColor','w', 'LineStyle','--', 'LineWidth', 1.0, 'EdgeAlpha', 0.8);
-
-            % 3. Draw 3D Model (Shifted to Bed-Relative Plot Space)
-            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                V = app.ModelPatch.Vertices;
-                F = app.ModelPatch.Faces;
-                Vplot = [V(:,1)-offX, V(:,2), V(:,3)];
-                patch(ax, 'Vertices', Vplot, 'Faces', F, ...
-                    'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
-            end
-
-            % 4. Draw Cutting Planes (Anchored at Machine Towers X=0 and X=Max)
-            if app.AppState == 1
-                % Plane 1: Left Tower (Machine X=0)
-                % Plane 2: Right Tower (Machine X=mSpan(1))
-                xL_plot = 0 - offX;
-                xR_plot = mSpan(1) - offX;
-
-                pY = [0; mSpan(2); mSpan(2); 0];
-                pZ = [0; 0; mSpan(3); mSpan(3)];
-
-                lCol = [0.96 0.06 0.06]; rCol = [0.20 1.00 0.35];
-
-                % Left Plane (Tower 1)
-                patch(ax, 'XData',ones(4,1)*xL_plot, 'YData',pY, 'ZData',pZ, ...
-                    'FaceColor',lCol, 'FaceAlpha',0.08, 'EdgeColor',lCol, ...
-                    'LineStyle','--', 'LineWidth', 0.8, 'EdgeAlpha', 0.4);
-                % Right Plane (Tower 2)
-                patch(ax, 'XData',ones(4,1)*xR_plot, 'YData',pY, 'ZData',pZ, ...
-                    'FaceColor',rCol, 'FaceAlpha',0.08, 'EdgeColor',rCol, ...
-                    'LineStyle','--', 'LineWidth', 0.8, 'EdgeAlpha', 0.4);
-            end
-
-            % 5. Draw Machine Limits (Wireframe - Mid-tone dashes)
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan(1), mSpan(2), mSpan(3));
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor',[1 1 1], 'LineStyle',':', 'EdgeAlpha',0.35);
+                'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % --- Formatting ---
-            view(ax, 3); grid(ax, 'on'); axis(ax, 'equal');
-            xlabel(ax, 'X (Bed Relative) [mm]');
-            ylabel(ax, 'Y (Machine Absolute) [mm]');
-            zlabel(ax, 'Z [mm]');
+            % --- 3. TOWER HEAD PLANES ---
+            xL_edge = 0 - offX;
+            xR_edge = mSpan(1) - offX;
+            pY = [0; mSpan(2); mSpan(2); 0]; pZ = [0; 0; mSpan(3); mSpan(3)];
 
-            % Dynamic limits to show the full machine and bed
-            xlim(ax, [-offX - 50, mSpan(1)-offX + 50]);
+            patch(ax, 'XData',ones(4,1)*xL_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', [0.96 0.06 0.06], ...
+                'FaceAlpha', planeAlpha, 'EdgeColor',[0.96 0.06 0.06], 'LineStyle', '--');
+            patch(ax, 'XData',ones(4,1)*xR_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', [0.20 1.00 0.35], ...
+                'FaceAlpha', planeAlpha, 'EdgeColor',[0.20 1.00 0.35], 'LineStyle', '--');
+
+            % --- 4. BILLET & MODEL ---
+            [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
+                'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8);
+
+            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                V = app.ModelPatch.Vertices;
+                totalShift = bPlotPos + app.BilletShift;
+                Vplot = V + totalShift;
+                patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
+
+                % --- WIREFRAME PROFILE OVERLAYS ---
+                if ~isempty(app.LeftProfilePoints)
+                    LP = app.LeftProfilePoints + totalShift;
+                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', wireCol, 'LineWidth', 0.8);
+                end
+                if ~isempty(app.RightProfilePoints)
+                    RP = app.RightProfilePoints + totalShift;
+                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', wireCol, 'LineWidth', 0.8);
+                end
+            end
+
+            % --- 5. TOWER LABELS ---
+            hL = text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', [0.96 0.4 0.4], ...
+                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
+            hR = text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', [0.4 1.00 0.5], ...
+                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
+            uistack(hL, 'top'); uistack(hR, 'top');
+
+            % --- 6. FORMATTING ---
+            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
+            xlabel(ax, 'X (Bed Relative)'); ylabel(ax, 'Y (Machine)'); zlabel(ax, 'Z');
+            ax.BackgroundColor = bgCol;
+            set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
+
+            xlim(ax, [-offX - 100, mSpan(1)-offX + 100]);
             ylim(ax, [-50, mSpan(2) + 50]);
-            zlim(ax, [-bs(3)-10, mSpan(3) + 20]);
-            app.AxMachine.BackgroundColor = [0.1 0.1 0.1];
+            zlim(ax, [-bs(3)-20, mSpan(3) + 80]);
+
             drawnow limitrate;
         end
 
@@ -2764,7 +2646,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.MachinePosSpinners(2).Value = app.MachineBilletPos(2);
             app.MachinePosSpinners(3).Value = app.MachineBilletPos(3);
         end
-        
+
         function [vx, vy, vz] = makeBoxVertices(~, x, y, z, dx, dy, dz)
             % Returns the 8 vertices for a box at (x,y,z) with size (dx,dy,dz)
             vx = [x; x+dx; x+dx; x;    x;    x+dx; x+dx; x   ];
@@ -2775,11 +2657,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         function f = boxFaces(~)
             % Returns the face connectivity for a standard 8-vertex box
             f = [1 2 3 4; % Bottom
-                 5 6 7 8; % Top
-                 1 2 6 5; % Front
-                 2 3 7 6; % Right
-                 3 4 8 7; % Back
-                 4 1 5 8]; % Left
+                5 6 7 8; % Top
+                1 2 6 5; % Front
+                2 3 7 6; % Right
+                3 4 8 7; % Back
+                4 1 5 8]; % Left
         end
 
         % ===========================================================
