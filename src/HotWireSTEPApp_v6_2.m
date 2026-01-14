@@ -2499,36 +2499,37 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function onMachinePosEdited(app, axisIdx, src)
-            oldVal = app.MachineBilletPos(axisIdx);
             if axisIdx == 1
+                % Input is Bed-Relative -> Store Absolute
                 app.MachineBilletPos(1) = app.MachineBedPos(1) + src.Value;
             else
+                % Input is Machine Absolute -> Store Absolute
                 app.MachineBilletPos(axisIdx) = src.Value;
             end
-
-            % Move the model by the same delta
-            delta = app.MachineBilletPos(axisIdx) - oldVal;
-            app.moveModelInSpace(axisIdx, delta);
-
             app.refreshMachinePlot();
         end
 
         function onResetMachineBilletPosition(app)
-            % 1. Calculate the "Clever Default" target
-            offX = app.MachineBedPos(1);
-            idealUserX = (app.MachineBedSize(1) - app.BilletSize(1)) / 2;
-            roundedUserX = 50 * floor(idealUserX / 50);
+            % 1. Get Bed & Billet dimensions
+            bp = app.MachineBedPos;    % [50, 50, -20]
+            bs = app.MachineBedSize;   % [1000, 500, 20]
+            bSize = app.BilletSize;
 
-            targetPos = [offX + max(0, roundedUserX), 50.0, 0.0];
+            % 2. Calculate coordinates
+            % X: Bed-Relative, then converted to Machine Absolute
+            idealX_rel = (bs(1) - bSize(1)) / 2;
+            roundedX_rel = 50 * round(idealX_rel / 50);
+            targetX_abs = bp(1) + max(0, roundedX_rel);
 
-            % 2. Calculate delta and move model/billet
-            for i = 1:3
-                delta = targetPos(i) - app.MachineBilletPos(i);
-                app.moveModelInSpace(i, delta);
-            end
+            % Y: Machine Absolute centering on the bed
+            targetY_abs = bp(2) + (bs(2) - bSize(2)) / 2;
 
-            % 3. Update state and UI
-            app.MachineBilletPos = targetPos;
+            % Z: Machine Absolute (0.0 is top of bed)
+            targetZ_abs = 0.0;
+
+            app.MachineBilletPos = [targetX_abs, targetY_abs, targetZ_abs];
+
+            % 3. Update sidebars and 3D simulation
             app.syncMachineUI();
             app.refreshMachinePlot();
         end
@@ -2556,9 +2557,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         function refreshMachinePlot(app)
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
-
-            % --- 0. DEEP CLEAR (Fixes Ghosting) ---
-            % delete(allchild(ax)) removes everything, even objects with hidden handles
             delete(allchild(ax));
             hold(ax, 'on');
 
@@ -2576,7 +2574,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             bs    = app.MachineBedSize;
             bp    = app.MachineBedPos;
 
-            bPlotPos = [app.MachineBilletPos(1) - offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
+            % Billet Plot Position (Bed-Relative for X, Absolute for Y/Z)
+            bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
 
             % --- 2. PHYSICAL BED & CAGE ---
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
@@ -2604,6 +2603,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 V = app.ModelPatch.Vertices;
+                % SYNC FIX: Model follows Billet + User BilletShift
                 totalShift = bPlotPos + app.BilletShift;
                 Vplot = V + totalShift;
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
@@ -2631,11 +2631,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(ax, 'X (Bed Relative)'); ylabel(ax, 'Y (Machine)'); zlabel(ax, 'Z');
             ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
-
             xlim(ax, [-offX - 100, mSpan(1)-offX + 100]);
             ylim(ax, [-50, mSpan(2) + 50]);
             zlim(ax, [-bs(3)-20, mSpan(3) + 80]);
-
             drawnow limitrate;
         end
 
