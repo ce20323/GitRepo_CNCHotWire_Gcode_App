@@ -2618,10 +2618,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
                 planeAlpha = 0.15; vioCol = [1 0.8 0]; % Amber/Orange
                 successGreen = [0.4 1 0.4];
+                % "Half-way house" wire: Not stark white, but visible
+                wireBaseCol  = [0.80 0.80 0.80];
+                modelEdgeCol = [0.85 0.85 0.85]; % Blueprint Grey/White
+                modelAlpha   = 0.35;
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
                 planeAlpha = 0.08; vioCol = [0.8 0.4 0]; % Burnt Orange
                 successGreen = [0 0.6 0];
+                wireBaseCol  = [0.15 0.15 0.15];
+                modelEdgeCol = [0.55 0.55 0.55];
+                modelAlpha   = 0.30;
             end
 
             offX  = app.MachineBedPos(1);
@@ -2663,55 +2670,88 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 totalShift = bPlotPos + app.BilletShift;
                 Vplot = app.ModelPatch.Vertices + totalShift;
-                patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
 
-                % Outlines on the model
+                % Fainted Model Patch
+                patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none');
+
+                % 1. Reference Outlines (Ghost Profiles on model)
                 if ~isempty(app.LeftProfilePoints)
                     LP = app.LeftProfilePoints + totalShift;
-                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', t.wireNeutral, 'LineWidth', 1.0);
+                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', modelEdgeCol, 'LineWidth', 0.5);
                 end
                 if ~isempty(app.RightProfilePoints)
                     RP = app.RightProfilePoints + totalShift;
-                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', t.wireNeutral, 'LineWidth', 1.0);
+                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', modelEdgeCol, 'LineWidth', 0.5);
                 end
 
-                % Simulation and Tower Projection
+                % 2. Simulation and Tower Projection
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                    [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
-                    xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
-                    xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+                    % a. Kerf path generation
+                    yL_raw = app.LeftProfilePoints(:,2); zL_raw = app.LeftProfilePoints(:,3);
+                    yR_raw = app.RightProfilePoints(:,2); zR_raw = app.RightProfilePoints(:,3);
 
+                    yL_off = yL_raw; zL_off = zL_raw;
+                    yR_off = yR_raw; zR_off = zR_raw;
+                    if app.KerfEnabled && app.KerfValue > 0
+                        [yL_off, zL_off] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_raw, zL_raw, app.KerfValue);
+                        [yR_off, zR_off] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_raw, zR_raw, app.KerfValue);
+                    end
+
+                    % b. Sync and Map to World
+                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_off, zL_off, yR_off, zR_off);
+
+                    yL_world = ySyncL + totalShift(2); zL_world = zSyncL + totalShift(3);
+                    yR_world = ySyncR + totalShift(2); zR_world = zSyncR + totalShift(3);
+
+                    % FIX: Use the actual slice X from the profile data to prevent floating
+                    xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
+                    xR_world = app.RightProfilePoints(1,1) + totalShift(1);
+
+                    % c. Tower Projection (Machine Absolute for Y/Z)
+                    % Note: projectToTowers calculates absolute machine tower positions
                     [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                        yL + app.MachineBilletPos(2) + app.BilletShift(2), ...
-                        zL + app.MachineBilletPos(3) + app.BilletShift(3), xL_mach, ...
-                        yR + app.MachineBilletPos(2) + app.BilletShift(2), ...
-                        zR + app.MachineBilletPos(3) + app.BilletShift(3), xR_mach, mX);
+                        yL_world, zL_world, xL_world + offX, ...
+                        yR_world, zR_world, xR_world + offX, mX);
 
                     % Out of bounds check
                     badL = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ);
                     badR = (tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
                     if any(badL) || any(badR), isViolated = true; end
 
-                    % --- ADDED: THE CONTINUOUS PATHS ON THE TOWERS ---
-                    plot3(ax, ones(size(tL.y))*(0-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.2);
-                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.2);
+                    % --- THINNER CONTINUOUS PATHS ON TOWERS ---
+                    plot3(ax, ones(size(tL.y))*(0-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.8);
+                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.8);
 
-                    % Highlight bad points
-                    if any(badL), plot3(ax, ones(sum(badL),1)*(0-offX), tL.y(badL), tL.z(badL), '.', 'Color', vioCol, 'MarkerSize', 10); end
-                    if any(badR), plot3(ax, ones(sum(badR),1)*(mX-offX), tR.y(badR), tR.z(badR), '.', 'Color', vioCol, 'MarkerSize', 10); end
-
-                    % Wire segments
-                    for i = 1:floor(numel(tL.y)/15):numel(tL.y)
-                        wCol = [0.8 0.8 0.8 0.2]; if (badL(i) || badR(i)), wCol = [vioCol, 0.6]; end
-                        plot3(ax, [0-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol);
+                    % --- CORRECTED ORANGE KERF PATHS ---
+                    if app.KerfEnabled
+                        plot3(ax, ones(size(ySyncL))*xL_world, yL_world, zL_world, 'Color', t.wireKerf, 'LineWidth', 0.7);
+                        plot3(ax, ones(size(ySyncR))*xR_world, yR_world, zR_world, 'Color', t.wireKerf, 'LineWidth', 0.7);
                     end
+
+                    % --- CONTRASTING WIRE SEGMENTS ---
+                    step = max(1, floor(numel(tL.y)/15));
+                    for i = 1:step:numel(tL.y)
+                        wAlpha = 0.40; % Half-way house opacity
+                        wCol = [wireBaseCol, wAlpha];
+                        if (badL(i) || badR(i)), wCol = [vioCol, 0.7]; end
+                        plot3(ax, [0-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol, 'LineWidth', 0.5);
+                    end
+
+                    % --- BIGGER DOTS ON TOP (Rendered last) ---
+                    plot3(ax, xL_world * ones(size(yL_world(1:step:end))), yL_world(1:step:end), zL_world(1:step:end), ...
+                        '.', 'Color', t.planeRed, 'MarkerSize', 11);
+                    plot3(ax, xR_world * ones(size(yR_world(1:step:end))), yR_world(1:step:end), zR_world(1:step:end), ...
+                        '.', 'Color', t.planeGreen, 'MarkerSize', 11);
+
+                    % Highlight bad points (at towers)
+                    if any(badL), plot3(ax, ones(sum(badL),1)*(0-offX), tL.y(badL), tL.z(badL), '.', 'Color', vioCol, 'MarkerSize', 12); end
+                    if any(badR), plot3(ax, ones(sum(badR),1)*(mX-offX), tR.y(badR), tR.z(badR), '.', 'Color', vioCol, 'MarkerSize', 12); end
                 end
             end
 
-            % --- 5. FINALIZE & UPDATE MESSAGES ---
+            % --- 5. FINALIZE ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
             ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
