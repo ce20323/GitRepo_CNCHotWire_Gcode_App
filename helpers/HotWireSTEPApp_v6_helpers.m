@@ -2,7 +2,7 @@ classdef HotWireSTEPApp_v6_helpers
     % Helper utilities for HotWireSTEPApp_v6_2
     %
     % Contains:
-    %   - importSTEP_FreeCAD : STEP → STL → triangulation (V,F)
+    %   - importSTEP_FreeCAD : STEP -> STL -> triangulation (V,F)
     %   - sliceMeshAtX       : Triangle–plane intersection at X = const
     %
 
@@ -13,8 +13,8 @@ classdef HotWireSTEPApp_v6_helpers
         ProfileResampleMaxPoints = 20000;
 
         % --- FreeCAD Meshing ---
-        FreeCADLinearDeflection  = 0.5;
-        FreeCADAngularDeflection = 0.3;
+        FreeCADLinearDeflection  = 0.1;
+        FreeCADAngularDeflection = 0.1;
 
         % --- Billet Default Rules ---
         BilletXBuffer   = 0.001;  % mm (brief: +0.001 either side)
@@ -28,21 +28,15 @@ classdef HotWireSTEPApp_v6_helpers
     methods(Static)
 
         % ===============================================================
-        % STEP → STL → MESH IMPORT USING FREECAD
+        % STEP -> STL -> MESH IMPORT USING FREECAD
         % ===============================================================
         function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
 
-            V = [];
-            F = [];
-
-            if ~isfile(cadPath)
-                warning('STEP file not found: %s', cadPath);
-                return;
-            end
+            V = []; F = [];
+            if ~isfile(cadPath), warning('STEP file not found: %s', cadPath); return; end
 
             if nargin < 2 || ~isfile(freeCADExe)
-                warning('FreeCAD executable not found: %s', freeCADExe);
-                return;
+                warning('FreeCAD executable not found: %s', freeCADExe); return;
             end
 
             % Temporary files
@@ -52,103 +46,47 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Write FreeCAD python script
             fid = fopen(pyFile,'w');
-            if fid < 0
-                warning('Failed to create FreeCAD script: %s', pyFile);
-                return;
-            end
-
             fprintf(fid,"import FreeCAD, Part, Mesh, MeshPart\n");
             fprintf(fid,"doc = FreeCAD.newDocument()\n");
             fprintf(fid,"shape = Part.Shape()\n");
             fprintf(fid,"shape.read(r'%s')\n", cadPath);
-            fprintf(fid, ...
-                "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
-                HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, ...
-                HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
+            fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
+                HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
             fprintf(fid,"mesh.write(r'%s')\n", outSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
 
             % Run FreeCAD
-            cmd = sprintf('"%s" "%s"', freeCADExe, pyFile);
-            [status,~] = system(cmd);
-            if status ~= 0
-                warning('FreeCAD conversion failed.');
-                return;
-            end
+            [status,~] = system(sprintf('"%s" "%s"', freeCADExe, pyFile));
+            if status ~= 0, warning('FreeCAD conversion failed.'); return; end
 
             % Read STL
             if isfile(outSTL)
                 raw = stlread(outSTL);
-                if isa(raw,"triangulation")
-                    F = raw.ConnectivityList;
-                    V = raw.Points;
-                else
-                    [F,V] = stlread(outSTL);
-                end
-                V = double(V);
-                F = double(F);
-            else
-                warning('STL output not found: %s', outSTL);
-            end
+                F = double(raw.ConnectivityList); V = double(raw.Points);
+            else, warning('STL output not found: %s', outSTL); end
         end
 
         % ===============================================================
         % TRIANGLE–PLANE SLICER  (X = x0)
         % ===============================================================
         function [xs, ys, zs] = sliceMeshAtX(V, F, x0)
-            % Return NaN-separated line segments from intersecting a mesh
-            % with the plane X = x0.
-            %
-            % Inputs:
-            %   V : Nx3 vertices
-            %   F : Mx3 faces
-            %   x0: plane X coordinate
-            %
-            % Outputs:
-            %   xs, ys, zs : 1×K vectors (NaN separated for plot3)
-
-            xs = [];
-            ys = [];
-            zs = [];
-
-            % Loop through triangles
+            xs = []; ys = []; zs = [];
             for k = 1:size(F,1)
-                tri = F(k,:);
-                A = V(tri(1),:);
-                B = V(tri(2),:);
-                C = V(tri(3),:);
-
+                tri = F(k,:); A = V(tri(1),:); B = V(tri(2),:); C = V(tri(3),:);
                 X = [A(1), B(1), C(1)];
-
-                % Skip triangles fully on one side
-                if all(X < x0) || all(X > x0)
-                    continue;
-                end
-
-                pts = zeros(2,3);
-                count = 0;
-
-                % Check edges A→B, B→C, C→A
-                edges = [A;B;C;A];
+                if all(X < x0) || all(X > x0), continue; end
+                pts = zeros(2,3); count = 0; edges = [A;B;C;A];
                 for i = 1:3
-                    P1 = edges(i,:);
-                    P2 = edges(i+1,:);
-
-                    % Sign change or crossing?
+                    P1 = edges(i,:); P2 = edges(i+1,:);
                     if (P1(1)-x0)*(P2(1)-x0) <= 0 && P1(1) ~= P2(1)
                         t = (x0 - P1(1)) / (P2(1)-P1(1));
                         if t >= 0 && t <= 1
-                            count = count + 1;
-                            pts(count,:) = P1 + t*(P2-P1);
-                            if count == 2
-                                break;  % enough points for one segment
-                            end
+                            count = count + 1; pts(count,:) = P1 + t*(P2-P1);
+                            if count == 2, break; end
                         end
                     end
                 end
-
-                % If exactly 2 intersection points: record the segment
                 if count == 2
                     xs = [xs, pts(1,1), pts(2,1), NaN];
                     ys = [ys, pts(1,2), pts(2,2), NaN];
@@ -161,498 +99,131 @@ classdef HotWireSTEPApp_v6_helpers
         % PROFILE LOOP RECONSTRUCTION
         % ===============================================================
         function [yLoop, zLoop] = buildMainProfileLoop(xs, ys, zs)
-            % Build an ordered, closed loop from NaN-separated slice
-            % segments. Returns the largest closed loop in Y–Z.
-            %
-            % Inputs:
-            %   xs, ys, zs : 1×K vectors from sliceMeshAtX
-            %
-            % Outputs:
-            %   yLoop, zLoop : column vectors forming a closed loop
-            %                  (first point == last point), or [] if
-            %                  no closed loop could be built.
-
-            yLoop = [];
-            zLoop = [];
-
-            if isempty(xs) || all(isnan(xs))
-                return;
-            end
-
-            % Ensure row vectors
-            xs = xs(:).';
-            ys = ys(:).';
-            zs = zs(:).';
-
-            % Use only finite points
-            valid = ~(isnan(xs) | isnan(ys) | isnan(zs));
-            idx   = find(valid);
-            if numel(idx) < 4
-                return; % not enough data
-            end
-
-            % sliceMeshAtX emits 2 points per segment: [p1 p2 NaN ...]
-            % So idx should have even length; trim last one if needed
-            if mod(numel(idx),2) ~= 0
-                idx = idx(1:end-1);
-            end
-
+            yLoop = []; zLoop = []; if isempty(xs) || all(isnan(xs)), return; end
+            valid = ~(isnan(xs) | isnan(ys) | isnan(zs)); idx = find(valid);
+            if numel(idx) < 4, return; end
+            if mod(numel(idx),2) ~= 0, idx = idx(1:end-1); end
             nSeg = numel(idx)/2;
-            if nSeg < 2
-                return;
-            end
-
-            idx1 = idx(1:2:end);
-            idx2 = idx(2:2:end);
-
-            p1 = [ys(idx1).', zs(idx1).'];  % each row is [y z]
-            p2 = [ys(idx2).', zs(idx2).'];
-
-            % ---------- Build merged node set with tolerance ----------
-            allPts = [p1; p2];
-            mins   = min(allPts,[],1);
-            maxs   = max(allPts,[],1);
-            span   = max(maxs - mins);
-            if span <= 0
-                span = 1;
-            end
-            tol = 1e-3 * span;  % 0.1% of span
-
-            nodePos  = zeros(0,2);
-            nodeCount = 0;
-            mapIdx   = zeros(size(allPts,1),1);
-
+            p1 = [ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
+            p2 = [ys(idx(2:2:end)).', zs(idx(2:2:end)).'];
+            allPts = [p1; p2]; 
+            span = max(max(allPts)-min(allPts));
+            tol = 1e-3 * max(span, 1);
+            nodePos = zeros(0,2); nodeCount = 0; mapIdx = zeros(size(allPts,1),1);
             for k = 1:size(allPts,1)
-                p = allPts(k,:);
-                found = false;
+                p = allPts(k,:); found = false;
                 for n = 1:nodeCount
-                    if norm(p - nodePos(n,:)) <= tol
-                        mapIdx(k) = n;
-                        found = true;
-                        break;
-                    end
+                    if norm(p - nodePos(n,:)) <= tol, mapIdx(k) = n; found = true; break; end
                 end
                 if ~found
-                    nodeCount = nodeCount + 1;
-                    nodePos(nodeCount,:) = p;
-                    mapIdx(k) = nodeCount;
+                    nodeCount = nodeCount + 1; nodePos(nodeCount,:) = p; mapIdx(k) = nodeCount;
                 end
             end
-
-            % ---------- Build edges for each segment ----------
-            edges = zeros(nSeg,2);
-            for s = 1:nSeg
-                edges(s,1) = mapIdx(s);           % p1 index
-                edges(s,2) = mapIdx(s + nSeg);    % p2 index
-            end
-
-            % ---------- Walk edges to find closed loops ----------
-            used  = false(nSeg,1);
-            loops = {};
-
+            edges = [mapIdx(1:nSeg), mapIdx(nSeg+1:end)];
+            used = false(nSeg,1); loops = {};
             for s = 1:nSeg
                 if used(s), continue; end
-
-                used(s) = true;
-                n1 = edges(s,1);
-                n2 = edges(s,2);
-
-                path      = [n1 n2];
-                cur       = n2;
-                startNode = n1;
-
+                used(s) = true; cur = edges(s,2); path = [edges(s,1) cur]; startNode = path(1);
                 while true
-                    % Find an unused edge incident on current node
                     cand = find(~used & (edges(:,1) == cur | edges(:,2) == cur),1);
-                    if isempty(cand)
-                        break;  % open path
-                    end
-
-                    used(cand) = true;
-                    e = edges(cand,:);
-
-                    if e(1) == cur
-                        nxt = e(2);
-                    else
-                        nxt = e(1);
-                    end
-
-                    path(end+1) = nxt; %#ok<AGROW>
-                    cur = nxt;
-
-                    if cur == startNode
-                        break;  % closed loop
-                    end
+                    if isempty(cand), break; end
+                    used(cand) = true; e = edges(cand,:);
+                    if e(1) == cur, nxt = e(2); else, nxt = e(1); end
+                    path(end+1) = nxt; cur = nxt;
+                    if cur == startNode, break; end
                 end
-
-                if numel(path) >= 4 && path(1) == path(end)
-                    loops{end+1} = path; %#ok<AGROW>
-                end
+                if numel(path) >= 4 && path(1) == path(end), loops{end+1} = path; end
             end
-
-            if isempty(loops)
-                return;
-            end
-
-            % ---------- Select largest closed loop by perimeter ----------
-            bestPerim = -inf;
-            bestLoop  = [];
-
-            for i = 1:numel(loops)
-                path = loops{i};
-                pts  = nodePos(path,:);
-                d    = sqrt(sum(diff(pts,1,1).^2,2));
-                per  = sum(d);
-                if per > bestPerim
-                    bestPerim = per;
-                    bestLoop  = path;
-                end
-            end
-
-            if isempty(bestLoop)
-                return;
-            end
-
-            pts   = nodePos(bestLoop,:);
-            yLoop = pts(:,1);
-            zLoop = pts(:,2);
+            if isempty(loops), return; end
+            [~, bestIdx] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
+            pts = nodePos(loops{bestIdx},:); yLoop = pts(:,1); zLoop = pts(:,2);
         end
 
-        % ---------------------------------------------------------------
-        % RESAMPLEPROFILEBYTOLERANCE
-        % ---------------------------------------------------------------
-        function [yR, zR, info] = resampleProfileByTolerance(y, z, tol)
-            % RESAMPLEPROFILEBYTOLERANCE Resample a closed profile loop (y,z)
-            % so that successive points are spaced by ~tol [mm] in arc length.
-            %
-            %  INPUTS
-            %    y, z : profile coordinates (vectors, any orientation)
-            %    tol  : positive scalar [mm], target segment length
-            %
-            %  OUTPUTS
-            %    yR, zR : resampled profile loop (column vectors)
-            %
-            %  NOTES
-            %  - Treats the loop as closed (wraps last->first).
-            %  - Collapses any duplicate arc-length samples before interp1,
-            %    to avoid "Sample points must be unique" errors.
-            %  - Applies a safety clamp on the number of output points.
+        % ===============================================================
+        % RESAMPLING & SYNC HELPERS
+        % ===============================================================
+        function [yR, zR] = resampleProfileByTolerance(y, z, tol)
+            y = y(:); z = z(:); if numel(y) < 2, yR=y; zR=z; return; end
+            yExt = [y; y(1)]; zExt = [z; z(1)];
 
-            % --- Basic validation / normalisation ---
-            y = y(:);
-            z = z(:);
-            yR = y;
-            zR = z;
+            s = [0; cumsum(hypot(diff(yExt), diff(zExt)))];
+            % Ensure unique samples to avoid interp1 errors
+            [sU, idxU] = unique(s, 'stable');
+            if numel(sU) < 2, yR=y; zR=z; return; end
 
-            % Default info struct
-            info = struct('capHit',false, 'nPoints', numel(yR));
-
-            if numel(y) < 2 || numel(z) < 2 || ~isfinite(tol) || tol <= 0
-                return;
-            end
-
-            % --- Ensure closure by appending first point at the end ---
-            yExt = [y; y(1)];
-            zExt = [z; z(1)];
-
-            % --- Arc length along the loop ---
-            dSeg = hypot(diff(yExt), diff(zExt));
-            s    = [0; cumsum(dSeg)];
-
-            % Collapse duplicate arc-length samples (zero-length segments)
-            [sUnique, idxUnique] = unique(s, 'stable');
-            yExt = yExt(idxUnique);
-            zExt = zExt(idxUnique);
-
-            if numel(sUnique) < 2
-                % Not enough unique samples to resample meaningfully
-                yR = yExt;
-                zR = zExt;
-                return;
-            end
-
-            totalLen = sUnique(end);
-            if totalLen <= 0
-                yR = yExt;
-                zR = zExt;
-                info.nPoints = numel(yR);
-                return;
-            end
-
-            % --- Target point count from tolerance, with safety bounds ---
-            % --- Target point count from tolerance, with safety bounds ---
-            rawN    = totalLen / tol;
-            nTarget = round(rawN);
-
-            minPoints = HotWireSTEPApp_v6_helpers.ProfileResampleMinPoints;
-            maxPoints = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
-
-            nTarget = max(nTarget, minPoints);     % at least minPoints
-            capHit  = nTarget > maxPoints;         % requesting more than cap
-            nTarget = min(nTarget, maxPoints);     % enforce cap
-
-            if nTarget < 3
-                yR = yExt;
-                zR = zExt;
-                return;
-            end
-
-            sSamples = linspace(0, totalLen, nTarget).';
-
-            % --- Interpolate back onto the loop ---
-            yR = interp1(sUnique, yExt, sSamples, 'linear');
-            zR = interp1(sUnique, zExt, sSamples, 'linear');
-            info.capHit  = capHit;
-            info.nPoints = numel(yR);
-
+            totalLen = sU(end);
+            N = min(max(round(totalLen/tol), 50), 20000);
+            yR = interp1(sU, yExt(idxU), linspace(0, totalLen, N).', 'linear');
+            zR = interp1(sU, zExt(idxU), linspace(0, totalLen, N).', 'linear');
         end
 
-        function [yKerf, zKerf] = offsetProfileLoop(yLoop, zLoop, kerf)
-            %OFFSETPROFILELOOP Polygon offset via polybuffer for a closed Y–Z profile.
-            %
-            %   [yKerf,zKerf] = offsetProfileLoop(yLoop,zLoop,kerf)
-            %
-            % Inputs:
-            %   yLoop, zLoop : profile loop (row or column, same length)
-            %   kerf         : offset distance [mm]
-            %
-            %   NOTE: POSITIVE kerf expands the loop (wire centreline
-            %         moves OUTWARDS relative to the material).
-            %
-            % Outputs:
-            %   yKerf, zKerf : offset loop, same orientation as input.
-            %
-            % Implementation:
-            %   Uses polyshape + polybuffer in the Y–Z plane. If multiple
-            %   regions are produced, keeps the largest by area.
+        function [yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
+            % Forces both profiles to have the same point count for tapered cuts.
+            yLS = []; zLS = []; yRS = []; zRS = [];
+            if isempty(yL) || isempty(yR), return; end
 
-            % Default: echo input if nothing sensible can be done
-            yKerf = yLoop;
-            zKerf = zLoop;
+            % 1. Arc length calculations along each geometry (appending closure point)
+            yL_e = [yL(:); yL(1)]; zL_e = [zL(:); zL(1)];
+            yR_e = [yR(:); yR(1)]; zR_e = [zR(:); zR(1)];
 
-            % Trivial / invalid kerf → no change
-            if ~isfinite(kerf) || kerf == 0
-                return;
-            end
+            sL = [0; cumsum(hypot(diff(yL_e), diff(zL_e)))];
+            sR = [0; cumsum(hypot(diff(yR_e), diff(zR_e)))];
 
-            % Basic validation
-            y = yLoop(:);
-            z = zLoop(:);
+            % 2. Determine target count N
+            N = max([round(sL(end)/tol), round(sR(end)/tol), 50]);
+            N = min(N, 20000);
 
-            if numel(y) < 3 || numel(z) < 3 ...
-                    || any(~isfinite(y)) || any(~isfinite(z))
-                return;
-            end
+            % 3. Identify unique samples (prevents "Sample points must be unique" error)
+            [sLu, iL] = unique(sL, 'stable');
+            [sRu, iR] = unique(sR, 'stable');
 
-            % Remove NaNs
-            valid = isfinite(y) & isfinite(z);
-            y = y(valid);
-            z = z(valid);
-            if numel(y) < 3
-                return;
-            end
+            % 4. Interpolation to exactly N points
+            yLS = interp1(sLu, yL_e(iL), linspace(0, sL(end), N).', 'linear');
+            zLS = interp1(sLu, zL_e(iL), linspace(0, sL(end), N).', 'linear');
+            yRS = interp1(sRu, yR_e(iR), linspace(0, sR(end), N).', 'linear');
+            zRS = interp1(sRu, zR_e(iR), linspace(0, sR(end), N).', 'linear');
+        end
 
-            % Remove duplicate last vertex if it coincides with the first
-            spanYZ = max(max(abs([y; z])));
-            if spanYZ <= 0
-                spanYZ = 1;
-            end
-            if hypot(y(end) - y(1), z(end) - z(1)) < 1e-9 * spanYZ
-                y = y(1:end-1);
-                z = z(1:end-1);
-            end
+        function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
+            nL = numel(yL); nR = numel(yR); N = max(nL, nR);
+            if nL == nR, yLS = yL; zLS = zL; yRS = yR; zRS = zR; return; end
+            yLS = interp1(linspace(0,1,nL), yL(:), linspace(0,1,N), 'linear').';
+            zLS = interp1(linspace(0,1,nL), zL(:), linspace(0,1,N), 'linear').';
+            yRS = interp1(linspace(0,1,nR), yR(:), linspace(0,1,N), 'linear').';
+            zRS = interp1(linspace(0,1,nR), zR(:), linspace(0,1,N), 'linear').';
+        end
 
+        function [towerL, towerR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
+            towerL.y = yL + (0 - xL) .* (yR - yL) ./ (xR - xL);
+            towerL.z = zL + (0 - xL) .* (zR - zL) ./ (xR - xL);
+            towerR.y = yL + (spanX - xL) .* (yR - yL) ./ (xR - xL);
+            towerR.z = zL + (spanX - xL) .* (zR - zL) ./ (xR - xL);
+        end
+
+        function [yK, zK] = offsetProfileLoop(yL, zL, kerf)
+            yK = yL; zK = zL; if kerf == 0, return; end
             try
-                % Build polyshape in the Y–Z plane
-                p = polyshape(y, z, 'Simplify', true);
-
-                if isempty(p.Vertices)
-                    return;
-                end
-
-                % polybuffer with POSITIVE kerf = outward offset
+                p = polyshape(yL, zL, 'Simplify', true);
                 pb = polybuffer(p, kerf);
-
-                % No geometry after buffer (e.g. huge negative kerf)
-                if isempty(pb.Vertices)
-                    return;
-                end
-
-                % If multiple disjoint regions, keep the largest by area
-                regs = regions(pb);
-                if numel(regs) > 1
-                    a = area(regs);
-                    [~, idxMax] = max(a);
-                    pb = regs(idxMax);
-                end
-
-                % Get boundary of buffered polygon (closed loop)
-                [yB, zB] = boundary(pb);
-
-                % Preserve row/column orientation
-                if isrow(yLoop)
-                    yKerf = yB.';
-                    zKerf = zB.';
-                else
-                    yKerf = yB;
-                    zKerf = zB;
-                end
-
-            catch ME
-                % If polybuffer / polyshape fails (e.g. toolbox missing),
-                % just warn and return the original loop.
-                warning('offsetProfileLoop:PolybufferFailed', ...
-                    'Kerf offset via polybuffer failed (%s). Returning original profile.', ...
-                    ME.message);
-                yKerf = yLoop;
-                zKerf = zLoop;
-            end
+                regs = regions(pb); [~,idx] = max(area(regs));
+                [yK, zK] = boundary(regs(idx));
+            catch, end
         end
 
         function [yOut, zOut] = reorderLoopByMinY(yIn, zIn)
-            %REORDERLOOPBYMINY Rotate a closed loop so that the first
-            % vertex is the one with the minimum Y (then minimum Z).
-            %
-            %   [yOut, zOut] = reorderLoopByMinY(yIn, zIn)
-            %
-            % Inputs:
-            %   yIn, zIn : profile loop (row or column, same length)
-            %
-            % Outputs:
-            %   yOut, zOut : reordered loop, closed
-            %               (last point duplicates first).
-            %
-            % NOTE:
-            %   - If the loop is already (approximately) closed, we drop
-            %     the last duplicate vertex before rotating.
-            %   - If there are multiple vertices with the same minimum Y,
-            %     we choose the one with the smallest Z.
-
-            yOut = yIn;
-            zOut = zIn;
-
-            if isempty(yIn) || numel(yIn) < 2 || numel(zIn) ~= numel(yIn)
-                return;
-            end
-
-            y = yIn(:);
-            z = zIn(:);
-
-            if any(~isfinite(y)) || any(~isfinite(z))
-                return;
-            end
-
-            % Remove duplicate last vertex if it coincides with the first
-            spanYZ = max(max(abs([y; z])));
-            if spanYZ <= 0
-                spanYZ = 1;
-            end
-
-            if hypot(y(end) - y(1), z(end) - z(1)) < 1e-9 * spanYZ
-                y = y(1:end-1);
-                z = z(1:end-1);
-            end
-
-            if numel(y) < 2
-                yOut = y;
-                zOut = z;
-                return;
-            end
-
-            % Find index of minimum Y, break ties with minimum Z
-            yMin = min(y);
-            % Allow for floating-point fuzz on "same Y"
-            tolY = 1e-9 * max(abs(yMin), 1);
-            idxCandidates = find(abs(y - yMin) <= tolY);
-
-            if numel(idxCandidates) > 1
-                [~, k] = min(z(idxCandidates));
-                idxStart = idxCandidates(k);
-            else
-                idxStart = idxCandidates(1);
-            end
-
-            % Rotate so idxStart becomes the first point
-            yRot = [y(idxStart:end); y(1:idxStart-1)];
-            zRot = [z(idxStart:end); z(1:idxStart-1)];
-
-            % Re-close the loop explicitly
-            yRot = [yRot; yRot(1)];
-            zRot = [zRot; zRot(1)];
-
-            % Match input orientation (row vs column)
-            if isrow(yIn)
-                yOut = yRot.';
-                zOut = zRot.';
-            else
-                yOut = yRot;
-                zOut = zRot;
-            end
+            yIn = yIn(:); zIn = zIn(:);
+            if hypot(yIn(end)-yIn(1), zIn(end)-zIn(1)) < 1e-9, yIn=yIn(1:end-1); zIn=zIn(1:end-1); end
+            [~, idx] = min(yIn); 
+            yOut = [yIn(idx:end); yIn(1:idx-1); yIn(idx)];
+            zOut = [zIn(idx:end); zIn(1:idx-1); zIn(idx)];
         end
-
-        % ===============================================================
-        % BILLET DEFAULTS FROM MESH
-        % ===============================================================
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)
-            % Use fully qualified names for Constant properties
             mins = min(V,[],1); maxs = max(V,[],1);
-
-            % X: Planes + Buffer
-            billet.Xmin = min(xPlaneA, xPlaneB) - HotWireSTEPApp_v6_helpers.BilletXBuffer;
-            billet.Xmax = max(xPlaneA, xPlaneB) + HotWireSTEPApp_v6_helpers.BilletXBuffer;
-
-            % Y: Model + Buffer
-            billet.Ymin = mins(2) - HotWireSTEPApp_v6_helpers.BilletYBuffer;
-            billet.Ymax = maxs(2) + HotWireSTEPApp_v6_helpers.BilletYBuffer;
-
-            % Z: Rounded Height
-            modelH = maxs(3) - mins(3);
-            rawH   = modelH + HotWireSTEPApp_v6_helpers.BilletZBuffer;
-
-            % Snap to stock heights
-            idx = find(HotWireSTEPApp_v6_helpers.BilletStockHeights >= rawH - 1e-6, 1, 'first');
-            if ~isempty(idx)
-                finalH = HotWireSTEPApp_v6_helpers.BilletStockHeights(idx);
-            else
-                finalH = rawH;
-            end
-
-            billet.Zmin = mins(3) - HotWireSTEPApp_v6_helpers.BilletZMinClear;
-            billet.Zmax = billet.Zmin + finalH;
+            billet.Xmin = min(xPlaneA, xPlaneB) - 0.001; billet.Xmax = max(xPlaneA, xPlaneB) + 0.001;
+            billet.Ymin = mins(2) - 5; billet.Ymax = maxs(2) + 5;
+            modelH = maxs(3) - mins(3); rawH = modelH + 10;
+            billet.Zmin = mins(3) - 5; billet.Zmax = billet.Zmin + rawH;
         end
-
-        % ===============================================================
-        % 4-AXIS TOWER PROJECTION & SYNC
-        % ===============================================================
-        function [yLs, zLs, yRs, zRs] = syncPointCounts(yL, zL, yR, zR)
-            % Ensures both profiles have the same number of points for 1:1 projection
-            nL = numel(yL); nR = numel(yR);
-            N = max(nL, nR);
-            if N < 2, yLs=[]; zLs=[]; yRs=[]; zRs=[]; return; end
-
-            sL = linspace(0, 1, nL); sR = linspace(0, 1, nR); sNew = linspace(0, 1, N);
-
-            yLs = interp1(sL, yL, sNew, 'linear')';
-            zLs = interp1(sL, zL, sNew, 'linear')';
-            yRs = interp1(sR, yR, sNew, 'linear')';
-            zRs = interp1(sR, zR, sNew, 'linear')';
-        end
-
-        function [towL, towR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
-            % Projects model profiles to machine towers
-            denom = (xR - xL);
-            if abs(denom) < 1e-6, denom = 1e-6; end % Prevent div by zero
-
-            dy = (yR - yL) ./ denom;
-            dz = (zR - zL) ./ denom;
-
-            % Extrapolate to physical tower planes (X=0 and X=spanX)
-            towL.y = yL + (0 - xL) .* dy;
-            towL.z = zL + (0 - xL) .* dz;
-            towR.y = yL + (spanX - xL) .* dy;
-            towR.z = zL + (spanX - xL) .* dz;
-        end
-
     end
 end

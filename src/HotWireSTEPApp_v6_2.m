@@ -1230,159 +1230,72 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function computeProfiles(app)
             % Compute and plot intersection profiles for left/right planes.
-            %  - 3D curves in the Model tab (ordered main loop)
-            %  - 2D Y–Z curves in the Profiles tab (shared scaling)
+            if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
-            if app.AppState == 0 ...
-                    || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
-            % --- NEW: Get Unified Theme ---
             t = app.getTheme();
+            isTaper = strcmp(app.TaperToggle.Value,'Tapered');
+            app.clearProfiles(); app.clearProfiles2D();
 
-            % Determine cut mode from toggle: 'Straight' or 'Tapered'
-            isTaper = true;
-            if ~isempty(app.TaperToggle) && isgraphics(app.TaperToggle)
-                isTaper = strcmp(app.TaperToggle.Value,'Tapered');
-            end
+            V = app.ModelPatch.Vertices; F = app.ModelPatch.Faces;
+            spanX = max(V(:,1)) - min(V(:,1)); epsX = 1e-6 * max(spanX, 1);
 
-            % Clear previous graphics
-            app.clearProfiles();
-            app.clearProfiles2D();
-
-            % --- Current rotated mesh ---
-            V = app.ModelPatch.Vertices;
-            F = app.ModelPatch.Faces;
-
-            mins    = min(V,[],1);
-            maxs    = max(V,[],1);
-            spanVec = maxs - mins;
-            span    = max(spanVec);
-            if span <= 0, span = 1; end
-
-            epsX = 1e-6 * span;
-
-            % Plane positions
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
 
-            % -------------------------------------------------------
-            % LEFT PROFILE
-            % -------------------------------------------------------
-            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
-                V, F, xLeft + epsX);
+            % --- 2. EXTRACT RAW LOOPS ---
+            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
+            [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
 
-            % Raw mesh slice (for faint overlay in Profiles tab)
-            if ~isempty(ysL) && any(~isnan(ysL))
-                app.LeftProfileRawYZ = [ysL(:), zsL(:)];
-            else
-                app.LeftProfileRawYZ = [];
-            end
-
-            yLoopL = [];
-            zLoopL = [];
-            if ~isempty(xsL) && any(~isnan(xsL))
-                [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
-                    xsL, ysL, zsL);
-            end
-
-            % Resample left profile by tolerance (if available)
-            if ~isempty(yLoopL)
-                tol = app.ProfileTolerance;
-                if isfinite(tol) && tol > 0
-                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
-                        yLoopL, zLoopL, tol);
-                end
-
-                % --- RE-ORDER loop so it starts at minimum Y (then Z) ---
-                [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY( ...
-                    yLoopL, zLoopL);
-
-                xVecL = xLeft * ones(numel(yLoopL),1);
-                app.LeftProfileLine3D = plot3(app.AxModel, ...
-                    xVecL, yLoopL, zLoopL, ...
-                    'Color', t.planeRed, 'LineWidth', 1.4); % UPDATED COLOR
-
-                app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
-            else
-                app.LeftProfilePoints = [];
-            end
-
-            % -------------------------------------------------------
-            % RIGHT PROFILE
-            % -------------------------------------------------------
-            [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX( ...
-                V, F, xRight - epsX);
-
-            % Raw mesh slice (for faint overlay in Profiles tab)
-            if ~isempty(ysR) && any(~isnan(ysR))
-                app.RightProfileRawYZ = [ysR(:), zsR(:)];
-            else
-                app.RightProfileRawYZ = [];
-            end
-
-            yLoopR = [];
-            zLoopR = [];
-
+            yLoopR = []; zLoopR = [];
             if isTaper
-                % TAPERED MODE:
-                %   Right profile is a true slice at the right plane.
-                if ~isempty(xsR) && any(~isnan(xsR))
-                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop( ...
-                        xsR, ysR, zsR);
-                end
-
-                % Resample right profile by tolerance
-                if ~isempty(yLoopR)
-                    tol = app.ProfileTolerance;
-                    if isfinite(tol) && tol > 0
-                        [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance( ...
-                            yLoopR, zLoopR, tol);
-                    end
-
-                    % --- RE-ORDER loop so it starts at minimum Y (then Z) ---
-                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY( ...
-                        yLoopR, zLoopR);
-                end
-            else
-                % STRAIGHT MODE:
-                %   Force right cutting profile to match left profile
-                yLoopR = yLoopL;
-                zLoopR = zLoopL;
+                [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+                if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ = [ysR(:), zsR(:)]; end
+                [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
             end
 
-            % Draw right profile in 3D if we have something
+            % --- 3. RESAMPLING LOGIC ---
+            if ~isTaper
+                % STRAIGHT MODE identity
+                if ~isempty(yLoopL)
+                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance(yLoopL, zLoopL, app.ProfileTolerance);
+                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopL, zLoopL);
+                end
+                yLoopR = yLoopL; zLoopR = zLoopL;
+            else
+                % TAPERED MODE sync
+                if ~isempty(yLoopL) && ~isempty(yLoopR)
+                    [yLoopL, zLoopL, yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                        yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
+
+                    % Crucial: reorder both independently AFTER sync to align starting clock position
+                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopL, zLoopL);
+                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopR, zLoopR);
+                end
+            end
+
+            % --- 4. DATA STORAGE & PLOTTING ---
+            if ~isempty(yLoopL)
+                xVecL = xLeft * ones(numel(yLoopL),1);
+                app.LeftProfileLine3D = plot3(app.AxModel, xVecL, yLoopL, zLoopL, 'Color', t.planeRed, 'LineWidth', 1.4);
+                app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
+            else, app.LeftProfilePoints = []; end
+
             if ~isempty(yLoopR)
                 xVecR = xRight * ones(numel(yLoopR),1);
-                app.RightProfileLine3D = plot3(app.AxModel, ...
-                    xVecR, yLoopR, zLoopR, ...
-                    'Color', t.planeGreen, 'LineWidth', 1.4); % UPDATED COLOR
-
+                app.RightProfileLine3D = plot3(app.AxModel, xVecR, yLoopR, zLoopR, 'Color', t.planeGreen, 'LineWidth', 1.4);
                 app.RightProfilePoints = [xVecR, yLoopR, zLoopR];
-            else
-                app.RightProfilePoints = [];
-            end
+            else, app.RightProfilePoints = []; end
 
-            % -------------------------------------------------------
-            % Update "points (L/R)" read-out + simple cap indication
-            % -------------------------------------------------------
+            % Update UI Readouts
             nL = 0; nR = 0;
             if ~isempty(app.LeftProfilePoints), nL = size(app.LeftProfilePoints,1); end
             if ~isempty(app.RightProfilePoints), nR = size(app.RightProfilePoints,1); end
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
-                capN = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
-                if nL == 0 && nR == 0
-                    app.ProfilePointCountLabel.Text = 'Number of Points (L/R): -- / --';
-                else
-                    suffix = '';
-                    if (nL >= capN) || (nR >= capN), suffix = sprintf('  (cap at %d pts)', capN); end
-                    app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d%s', nL, nR, suffix);
-                end
+                app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL, nR);
             end
 
-            % 2D PROFILES TAB UPDATE
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
             drawnow limitrate nocallbacks;
         end
@@ -2605,8 +2518,13 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshMachinePlot(app)
+            % ===========================================================
+            % REFRESH MACHINE PLOT: Physical Bed, Cage, Towers and Wire Simulation
+            % ===========================================================
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
+
+            % Clear and start fresh
             delete(allchild(ax));
             hold(ax, 'on');
 
@@ -2616,34 +2534,38 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if isDark
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
-                planeAlpha = 0.15; vioCol = [1 0.8 0]; % Amber/Orange
+                planeAlpha = 0.15; vioCol = [1 0.8 0]; % Amber/Orange for violations
                 successGreen = [0.4 1 0.4];
-                % "Half-way house" wire: Not stark white, but visible
-                wireBaseCol  = [0.80 0.80 0.80];
-                modelEdgeCol = [0.85 0.85 0.85]; % Blueprint Grey/White
+                wireBaseCol  = [0.80 0.80 0.80]; % Half-way house wire color
+                modelEdgeCol = [0.85 0.85 0.85]; % Blueprint style edges
                 modelAlpha   = 0.35;
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
-                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; % Burnt Orange
+                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; % Burnt Orange for violations
                 successGreen = [0 0.6 0];
                 wireBaseCol  = [0.15 0.15 0.15];
                 modelEdgeCol = [0.55 0.55 0.55];
                 modelAlpha   = 0.30;
             end
 
+            % Constants for Machine workspace
             offX  = app.MachineBedPos(1);
             mX    = app.MachineSpanX;
             mLimY = app.MachineLimitY;
             mLimZ = app.MachineLimitZ;
             bs    = app.MachineBedSize;
             bp    = app.MachineBedPos;
+
+            % Map Billet origin to the Plot world
             bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
 
             % --- 2. PHYSICAL BED & CAGE ---
+            % The physical foam bed (solid grey block)
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
+            % The machine travel cage (dashed outline)
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
@@ -2651,16 +2573,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 3. TOWER HEAD PLANES & LABELS ---
             pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--');
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--', 'HandleVisibility','off');
             patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '--');
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '--', 'HandleVisibility','off');
 
             text(ax, (0-offX), mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
             text(ax, (mX-offX), mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
 
-            % --- 4. BILLET & MODEL ---
+            % --- 4. BILLET & MODEL VISUALISATION ---
+            % The Billet stock outline
             [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
                 'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8);
@@ -2668,97 +2591,85 @@ classdef HotWireSTEPApp_v6_2 < handle
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                % Model position combines Billet placement + Virtual shift
                 totalShift = bPlotPos + app.BilletShift;
                 Vplot = app.ModelPatch.Vertices + totalShift;
 
-                % Fainted Model Patch
+                % Draw the faded/blueprint model
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none');
+                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none', 'HandleVisibility','off');
 
-                % 1. Reference Outlines (Ghost Profiles on model)
-                if ~isempty(app.LeftProfilePoints)
-                    LP = app.LeftProfilePoints + totalShift;
-                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', modelEdgeCol, 'LineWidth', 0.5);
-                end
-                if ~isempty(app.RightProfilePoints)
-                    RP = app.RightProfilePoints + totalShift;
-                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', modelEdgeCol, 'LineWidth', 0.5);
-                end
-
-                % 2. Simulation and Tower Projection
+                % --- 5. WIRE SIMULATION AND TOWER PROJECTION ---
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % a. Kerf path generation
+                    % a. Extract local coordinates
                     yL_raw = app.LeftProfilePoints(:,2); zL_raw = app.LeftProfilePoints(:,3);
                     yR_raw = app.RightProfilePoints(:,2); zR_raw = app.RightProfilePoints(:,3);
 
-                    yL_off = yL_raw; zL_off = zL_raw;
-                    yR_off = yR_raw; zR_off = zR_raw;
+                    % b. APPLY KERF FIRST (Matches the 2D tab and keeps lengths predictable locally)
+                    yL_proc = yL_raw; zL_proc = zL_raw;
+                    yR_proc = yR_raw; zR_proc = zR_raw;
                     if app.KerfEnabled && app.KerfValue > 0
-                        [yL_off, zL_off] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_raw, zL_raw, app.KerfValue);
-                        [yR_off, zR_off] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_raw, zR_raw, app.KerfValue);
+                        [yL_proc, zL_proc] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_raw, zL_raw, app.KerfValue);
+                        [yR_proc, zR_proc] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_raw, zR_raw, app.KerfValue);
                     end
 
-                    % b. Sync and Map to World
-                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_off, zL_off, yR_off, zR_off);
+                    % c. SYNC POINT COUNTS NOW (Fixes the "Arrays have incompatible sizes" error)
+                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_proc, zL_proc, yR_proc, zR_proc);
 
+                    % d. Map to World (Shifted into machine space)
                     yL_world = ySyncL + totalShift(2); zL_world = zSyncL + totalShift(3);
                     yR_world = ySyncR + totalShift(2); zR_world = zSyncR + totalShift(3);
-
-                    % FIX: Use the actual slice X from the profile data to prevent floating
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
-                    % c. Tower Projection (Machine Absolute for Y/Z)
-                    % Note: projectToTowers calculates absolute machine tower positions
-                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                        yL_world, zL_world, xL_world + offX, ...
-                        yR_world, zR_world, xR_world + offX, mX);
+                    % e. Project to Machine Towers (Using absolute machine coordinates)
+                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
+                        yL_world, zL_world, xL_world + offX, ...\
+                        yR_world, zR_world, xR_world + offX, app.MachineSpanX);
 
-                    % Out of bounds check
+                    % Out of physical travel bounds check
                     badL = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ);
                     badR = (tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
-                    if any(badL) || any(badR), isViolated = true; end
+                    bad  = badL | badR; % combined violation
+                    if any(bad), isViolated = true; end
 
-                    % --- THINNER CONTINUOUS PATHS ON TOWERS ---
+                    % --- 6. RENDER SIMULATION ELEMENTS ---
+                    % Continuous paths on the tower planes
                     plot3(ax, ones(size(tL.y))*(0-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.8);
                     plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.8);
 
-                    % --- CORRECTED ORANGE KERF PATHS ---
-                    if app.KerfEnabled
-                        plot3(ax, ones(size(ySyncL))*xL_world, yL_world, zL_world, 'Color', t.wireKerf, 'LineWidth', 0.7);
-                        plot3(ax, ones(size(ySyncR))*xR_world, yR_world, zR_world, 'Color', t.wireKerf, 'LineWidth', 0.7);
-                    end
-
-                    % --- CONTRASTING WIRE SEGMENTS ---
+                    % Individual wire segments (step through to avoid clutter)
                     step = max(1, floor(numel(tL.y)/15));
                     for i = 1:step:numel(tL.y)
-                        wAlpha = 0.40; % Half-way house opacity
-                        wCol = [wireBaseCol, wAlpha];
-                        if (badL(i) || badR(i)), wCol = [vioCol, 0.7]; end
+                        wCol = [wireBaseCol, 0.40]; % default fainted wire
+                        if bad(i), wCol = [vioCol, 0.7]; end % violation color
                         plot3(ax, [0-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol, 'LineWidth', 0.5);
                     end
 
-                    % --- BIGGER DOTS ON TOP (Rendered last) ---
+                    % BIG DOTS ON THE MODEL PROFILES
                     plot3(ax, xL_world * ones(size(yL_world(1:step:end))), yL_world(1:step:end), zL_world(1:step:end), ...
                         '.', 'Color', t.planeRed, 'MarkerSize', 11);
                     plot3(ax, xR_world * ones(size(yR_world(1:step:end))), yR_world(1:step:end), zR_world(1:step:end), ...
                         '.', 'Color', t.planeGreen, 'MarkerSize', 11);
 
-                    % Highlight bad points (at towers)
+                    % Highlight Violation Points at Towers
                     if any(badL), plot3(ax, ones(sum(badL),1)*(0-offX), tL.y(badL), tL.z(badL), '.', 'Color', vioCol, 'MarkerSize', 12); end
                     if any(badR), plot3(ax, ones(sum(badR),1)*(mX-offX), tR.y(badR), tR.z(badR), '.', 'Color', vioCol, 'MarkerSize', 12); end
                 end
             end
 
-            % --- 5. FINALIZE ---
+            % --- 7. FINALIZE AXES ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
             ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
+
+            % Set canonical machine viewing frustum
             xlim(ax, [-offX - 100, mX - offX + 100]);
             ylim(ax, [-50, mLimY + 50]);
             zlim(ax, [-bs(3)-20, mLimZ + 80]);
 
+            % Final UI feedback
             if isViolated
                 app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
                 app.MachineMessageLabel.FontColor = [1 0.4 0.4];
@@ -2770,6 +2681,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineLeftPanel.BackgroundColor = t.sideBg;
                 app.BtnMachineContinue.Enable = 'on';
             end
+
             drawnow limitrate;
         end
 
