@@ -70,6 +70,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         GLModel
         GLLeft
+        profilesLeft
+
+        % Background panels for the toggle switch
+        cutPanel
+        cutGrid
 
         % ---------- File import controls ----------
         BtnImportSTEP
@@ -310,7 +315,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ================================
             % LEFT CONTROL COLUMN (Profiles tab)
             % ================================
-            profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
+            app.profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
+            profilesLeft = app.profilesLeft; % This one line makes all your "profilesLeft" code below it work!
             profilesLeft.Layout.Column   = 1;
             profilesLeft.RowHeight       = {'fit','fit','fit','fit','1x','fit'};  % row 5 = spacer, row 6 = button
             profilesLeft.Padding         = [10 10 10 10];
@@ -543,6 +549,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSizeMinusBtns  = gobjects(1,3);
             app.BilletSizePlusBtns   = gobjects(1,3);
             app.BilletModelDimLabels = gobjects(1,3);
+            
+            t_init = app.getTheme(); % Get the colors defined in getTheme
 
             for i = 1:3
                 r = i + 1;
@@ -563,7 +571,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
                 app.BilletModelDimLabels(i) = uilabel(sizeGrid, 'Text','(---)', 'HorizontalAlignment','center', ...
-                    'BackgroundColor',panelBg, 'FontColor',inputTxt);
+                    'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
                 app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
@@ -741,16 +749,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             sp.Layout.Row = 4;
 
             % -------------------------------------------------------
-            % STRAIGHT / TAPER SWITCH (just under file label)
+            % STRAIGHT / TAPER SWITCH (Fixed Background + Faint Border)
             % -------------------------------------------------------
             cutPanel = uipanel(app.GLLeft, ...
-                'BackgroundColor',sideBg, ...
-                'BorderType','none');
+                'BackgroundColor', sideBg, ... 
+                'BorderType', 'line', ... % Adds the faint border
+                'Title', ''); 
             cutPanel.Layout.Row = 5;
 
             cutGrid = uigridlayout(cutPanel,[1 3]);
             cutGrid.ColumnWidth = {'1x','fit','1x'};
             cutGrid.Padding     = [10 0 10 0];
+            cutGrid.RowSpacing  = 0;
+            cutGrid.ColumnSpacing = 0;
+            
+            % Match the panel color exactly to avoid the error
+            cutGrid.BackgroundColor = sideBg; 
 
             spL = uilabel(cutGrid,'Text',"");
             spL.Layout.Column = 1;
@@ -1057,7 +1071,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxMachine, 'X'); ylabel(app.AxMachine, 'Y'); zlabel(app.AxMachine, 'Z');
             grid(app.AxMachine, 'on'); view(app.AxMachine, 3);
             hold(app.AxMachine, 'on');
-
+            
+            app.applyTheme();
+        
         end
 
         % ===========================================================
@@ -1432,7 +1448,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
                     yKerfL, zKerfL, ...
-                    'Color', t.wireCol, ...
+                    'Color', t.wireKerf, ...
                     'LineWidth',0.75);
             end
 
@@ -1462,7 +1478,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     yR, zR, app.KerfValue);
                 app.RightKerf2DLine = plot(app.AxRightProfile, ...
                     yKerfR, zKerfR, ...
-                    'Color', t.wireCol, ...
+                    'Color', t.wireKerf, ...
                     'LineWidth',0.75);
             end
 
@@ -2566,7 +2582,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(ax, 'on');
 
             % --- 1. THEME & GEOMETRY PREP ---
-            t = app.getTheme(); % FETCH NEW THEME
+            t = app.getTheme();
 
             if app.UIFigure.Color(1) < 0.5
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
@@ -2580,8 +2596,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             mSpan = app.MachineSpan;
             bs    = app.MachineBedSize;
             bp    = app.MachineBedPos;
-
-            % Billet Plot Position (Bed-Relative for X, Absolute for Y/Z)
             bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
 
             % --- 2. PHYSICAL BED & CAGE ---
@@ -2593,7 +2607,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % --- 3. TOWER HEAD PLANES (UPDATED COLORS) ---
+            % --- 3. TOWER HEAD PLANES ---
             xL_edge = 0 - offX;
             xR_edge = mSpan(1) - offX;
             pY = [0; mSpan(2); mSpan(2); 0]; pZ = [0; 0; mSpan(3); mSpan(3)];
@@ -2610,28 +2624,26 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 V = app.ModelPatch.Vertices;
-                % SYNC FIX: Model follows Billet + User BilletShift
                 totalShift = bPlotPos + app.BilletShift;
                 Vplot = V + totalShift;
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
 
-                % --- PROFILE OVERLAYS (REVERTED TO THEME NEUTRAL) ---
+                % --- PROFILE OVERLAYS (NEUTRAL THEME) ---
                 if ~isempty(app.LeftProfilePoints)
                     LP = app.LeftProfilePoints + totalShift;
-                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', wireCol, 'LineWidth', 0.8);
+                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', t.wireNeutral, 'LineWidth', 0.8);
                 end
                 if ~isempty(app.RightProfilePoints)
                     RP = app.RightProfilePoints + totalShift;
-                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', wireCol, 'LineWidth', 0.8);
+                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', t.wireNeutral, 'LineWidth', 0.8);
                 end
             end
 
-            % --- 5. TOWER LABELS (UPDATED COLORS) ---
-            hL = text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
+            % --- 5. TOWER LABELS ---
+            text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
-            hR = text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
+            text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
-            uistack(hL, 'top'); uistack(hR, 'top');
 
             % --- 6. FORMATTING ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
@@ -2724,32 +2736,109 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LastMousePos = [NaN NaN];
         end
 
-        function th = getTheme(app)
-            % This function defines your palette in one place
-            if app.UIFigure.Color(1) < 0.5
-                % --- DARK MODE ---
-                th.sideBg      = [0.16 0.16 0.16];
-                th.panelBg     = [0.12 0.12 0.12];
-                th.labelCol    = [0.90 0.90 0.90];
-                th.inputBg     = [1.00 1.00 1.00];
-                th.inputTxt    = [0.00 0.00 0.00];
-                th.rawMeshCol  = [0.60 0.60 0.60]; % Soft grey dash
-            else
-                % --- LIGHT MODE ---
-                th.sideBg      = [0.96 0.96 0.96];
-                th.panelBg     = [0.90 0.90 0.90];
-                th.labelCol    = [0.15 0.15 0.15];
-                th.inputBg     = [1.00 1.00 1.00];
-                th.inputTxt    = [0.00 0.00 0.00];
-                th.rawMeshCol  = [0.00 0.00 0.00]; % Sharp black dash
+        function applyTheme(app)
+            t = app.getTheme();
+            app.UIFigure.Color = t.sideBg;
+
+            % All sidebar containers
+            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel};
+
+            for i = 1:numel(sidebars)
+                container = sidebars{i};
+                if isempty(container) || ~isgraphics(container), continue; end
+
+                % 1. Update the Main Grid background
+                container.BackgroundColor = t.sideBg;
+
+                % 2. Drill down to components
+                allObjs = findall(container);
+                for j = 1:numel(allObjs)
+                    obj = allObjs(j);
+
+                    % --- A. DETECT READOUTS ---
+                    isReadout = false;
+                    if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
+                        isReadout = true;
+                    end
+
+                    if isReadout
+                        obj.BackgroundColor = t.readoutBg;
+                        obj.FontColor       = t.readoutTxt;
+                        continue; % Move to next object
+                    end
+
+                    % --- B. DETECT CONTAINERS (Panels/Inner Grids) ---
+                    % These MUST match the sidebar background to stay "invisible"
+                    if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
+                        obj.BackgroundColor = t.sideBg;
+                        continue;
+                    end
+
+                    % --- C. DETECT LABELS ---
+                    if isa(obj, 'matlab.ui.control.Label')
+                        obj.FontColor = t.labelCol;
+                        % We make label backgrounds match the sidebar
+                        obj.BackgroundColor = t.sideBg;
+                        continue;
+                    end
+
+                    % --- D. INPUT FIELDS (Numeric, Text, etc.) ---
+                    % WE DO NOTHING HERE.
+                    % This allows them to keep the colors set in buildUI/getTheme.
+                end
             end
 
-            % --- SHARED COLORS (Planes & Wires) ---
-            th.planeRed      = [0.96 0.06 0.06];
-            th.planeGreen    = [0.20 1.00 0.35];
-            th.planeRedTxt   = [0.96 0.40 0.40];
-            th.planeGreenTxt = [0.40 1.00 0.50];
-            th.wireCol       = [1.00 0.75 0.00]; % "Hot" orange/amber
+            % Refresh machine plot for 3D background matching
+            if app.TabGroup.SelectedTab == app.TabMachine
+                app.refreshMachinePlot();
+            end
+        end
+
+        function th = getTheme(app)
+            % Central source for all App Colors
+            if app.UIFigure.Color(1) < 0.5
+                % DARK THEME
+                th.sideBg      = [0.16 0.16 0.16]; 
+                th.panelBg     = [0.12 0.12 0.12]; 
+                th.labelCol    = [0.90 0.90 0.90];
+                th.accentBg    = [0.30 0.35 0.45]; % Muted blue-grey for Dark
+                th.editBg      = [0.24 0.24 0.24]; % Darker box for inputs
+                th.editTxt     = [1.00 1.00 1.00]; % White text 
+                th.readoutBg   = [0.7 0.7 0.7]; % Fixed Pale Grey
+                th.readoutTxt  = [0.2 0.2 0.2];   
+                th.inputBg     = [1.00 1.00 1.00]; 
+                th.inputTxt    = [0.00 0.00 0.00]; 
+                
+                th.planeRed    = [0.96 0.06 0.06];
+                th.planeGreen  = [0.20 1.00 0.35];
+                th.planeRedTxt = [0.96 0.40 0.40];
+                th.planeGreenTxt = [0.40 1.00 0.50];
+                
+                th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
+                th.wireNeutral = [0.80 0.80 0.80]; % White/Grey for Machining View
+                th.rawMeshCol  = [0.50 0.50 0.50]; % Dull grey for mesh slices
+            else
+                % LIGHT THEME
+                th.sideBg      = [0.96 0.96 0.96]; 
+                th.panelBg     = [0.90 0.90 0.90]; 
+                th.labelCol    = [0.15 0.15 0.15];
+                th.accentBg    = [0.70 0.70 0.80]; % Classic blue-grey for Light
+                th.editBg      = [1.00 1.00 1.00]; % Pure white box for inputs
+                th.editTxt     = [0.00 0.00 0.00]; % Black text
+                th.readoutBg   = [0.4 0.4 0.4]; % Fixed Pale Grey
+                th.readoutTxt  = [0.7 0.7 0.7];    
+                th.inputBg     = [1.00 1.00 1.00];
+                th.inputTxt    = [0.00 0.00 0.00];
+                
+                th.planeRed    = [0.80 0.00 0.00];
+                th.planeGreen  = [0.00 0.60 0.00];
+                th.planeRedTxt = [0.60 0.00 0.00];
+                th.planeGreenTxt = [0.00 0.40 0.00];
+                
+                th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
+                th.wireNeutral = [0.20 0.20 0.20]; % Black/Dark Grey for Machining View
+                th.rawMeshCol  = [0.70 0.70 0.70];
+            end
         end
 
     end
