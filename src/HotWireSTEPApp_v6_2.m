@@ -563,7 +563,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
                 app.BilletModelDimLabels(i) = uilabel(sizeGrid, 'Text','(---)', 'HorizontalAlignment','center', ...
-                    'BackgroundColor',panelBg, 'FontColor',[0.7 0.7 0.7]);
+                    'BackgroundColor',panelBg, 'FontColor',inputTxt);
                 app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
@@ -744,7 +744,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % STRAIGHT / TAPER SWITCH (just under file label)
             % -------------------------------------------------------
             cutPanel = uipanel(app.GLLeft, ...
-                'BackgroundColor',[0.16 0.16 0.16], ...
+                'BackgroundColor',sideBg, ...
                 'BorderType','none');
             cutPanel.Layout.Row = 5;
 
@@ -930,6 +930,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Text','Generate Profiles', ...
                 'FontWeight','bold', ...
                 'BackgroundColor',[0.15 0.45 0.8], ...
+                'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
             app.BtnGenerateProfiles.Layout.Column = 1;
 
@@ -1213,6 +1214,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
+            % --- NEW: Get Unified Theme ---
+            t = app.getTheme();
+
             % Determine cut mode from toggle: 'Straight' or 'Tapered'
             isTaper = true;
             if ~isempty(app.TaperToggle) && isgraphics(app.TaperToggle)
@@ -1238,10 +1242,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Plane positions
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
-
-            % Colours matching planes
-            leftColor  = [0.96 0.06 0.06];
-            rightColor = [0.20 1.00 0.35];
 
             % -------------------------------------------------------
             % LEFT PROFILE
@@ -1271,14 +1271,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                         yLoopL, zLoopL, tol);
                 end
 
-                % --- NEW: re-order loop so it starts at minimum Y (then Z) ---
+                % --- RE-ORDER loop so it starts at minimum Y (then Z) ---
                 [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY( ...
                     yLoopL, zLoopL);
 
                 xVecL = xLeft * ones(numel(yLoopL),1);
                 app.LeftProfileLine3D = plot3(app.AxModel, ...
                     xVecL, yLoopL, zLoopL, ...
-                    'Color', leftColor, 'LineWidth',1.4);
+                    'Color', t.planeRed, 'LineWidth', 1.4); % UPDATED COLOR
 
                 app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
             else
@@ -1317,14 +1317,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                             yLoopR, zLoopR, tol);
                     end
 
-                    % --- NEW: re-order loop so it starts at minimum Y (then Z) ---
+                    % --- RE-ORDER loop so it starts at minimum Y (then Z) ---
                     [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY( ...
                         yLoopR, zLoopR);
                 end
             else
                 % STRAIGHT MODE:
                 %   Force right cutting profile to match left profile
-                %   (same Y–Z loop), but drawn at the right plane X.
                 yLoopR = yLoopL;
                 zLoopR = zLoopL;
             end
@@ -1334,7 +1333,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 xVecR = xRight * ones(numel(yLoopR),1);
                 app.RightProfileLine3D = plot3(app.AxModel, ...
                     xVecR, yLoopR, zLoopR, ...
-                    'Color', rightColor, 'LineWidth',1.4);
+                    'Color', t.planeGreen, 'LineWidth', 1.4); % UPDATED COLOR
 
                 app.RightProfilePoints = [xVecR, yLoopR, zLoopR];
             else
@@ -1344,37 +1343,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             % -------------------------------------------------------
             % Update "points (L/R)" read-out + simple cap indication
             % -------------------------------------------------------
-            nL = 0;
-            nR = 0;
-            if ~isempty(app.LeftProfilePoints)
-                nL = size(app.LeftProfilePoints,1);
-            end
-            if ~isempty(app.RightProfilePoints)
-                nR = size(app.RightProfilePoints,1);
-            end
+            nL = 0; nR = 0;
+            if ~isempty(app.LeftProfilePoints), nL = size(app.LeftProfilePoints,1); end
+            if ~isempty(app.RightProfilePoints), nR = size(app.RightProfilePoints,1); end
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
                 capN = HotWireSTEPApp_v6_helpers.ProfileResampleMaxPoints;
-
                 if nL == 0 && nR == 0
                     app.ProfilePointCountLabel.Text = 'Number of Points (L/R): -- / --';
                 else
-                    if (nL >= capN) || (nR >= capN)
-                        suffix = sprintf('  (cap at %d pts)', capN);
-                    else
-                        suffix = '';
-                    end
-                    app.ProfilePointCountLabel.Text = ...
-                        sprintf('Number of Points (L/R): %d / %d%s', nL, nR, suffix);
+                    suffix = '';
+                    if (nL >= capN) || (nR >= capN), suffix = sprintf('  (cap at %d pts)', capN); end
+                    app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d%s', nL, nR, suffix);
                 end
             end
 
-
-            % -------------------------------------------------------
-            % 2D PROFILES TAB UPDATE (shared Y/Z limits)
-            % -------------------------------------------------------
+            % 2D PROFILES TAB UPDATE
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
-
             drawnow limitrate nocallbacks;
         end
 
@@ -1413,12 +1398,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             yLim = [yMin - padY, yMax + padY];
             zLim = [zMin - padZ, zMax + padZ];
 
-            leftColor  = [0.96 0.06 0.06];
-            rightColor = [0.20 1.00 0.35];
-
-            % Faint "mesh slice" colours: grey with a hint of red/green
-            leftRawColor  = [0.80 0.80 0.80];
-            rightRawColor = [0.80 0.80 0.80];
+            % --- GET CENTRALIZED THEME ---
+            t = app.getTheme();
 
             % Clear only profile lines (labels/titles persist)
             app.clearProfiles2D();
@@ -1426,12 +1407,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ----- LEFT AXIS -----
             hold(app.AxLeftProfile,'on');
 
-            % Raw mesh slice (background)
+            % Raw mesh slice (background - turns Black in Light Mode)
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
                 app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, ...
                     rawL(:,1), rawL(:,2), ...
-                    'Color',leftRawColor, ...
+                    'Color', t.rawMeshCol, ...
                     'LineStyle',':', ...
                     'LineWidth',2.5);
             end
@@ -1440,7 +1421,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, ...
                     yL, zL, ...
-                    'Color', leftColor, ...
+                    'Color', t.planeRed, ...
                     'LineWidth',0.75);
             end
 
@@ -1451,7 +1432,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
                     yKerfL, zKerfL, ...
-                    'Color',[1.0 0.75 0.0], ...   % warm "wire" colour
+                    'Color', t.wireCol, ...
                     'LineWidth',0.75);
             end
 
@@ -1464,7 +1445,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 rawR = app.RightProfileRawYZ;
                 app.RightProfile2DMeshLine = plot(app.AxRightProfile, ...
                     rawR(:,1), rawR(:,2), ...
-                    'Color',rightRawColor, ...
+                    'Color', t.rawMeshCol, ...
                     'LineStyle',':', ...
                     'LineWidth',2.5);
             end
@@ -1472,7 +1453,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yR)
                 app.RightProfile2DLine = plot(app.AxRightProfile, ...
                     yR, zR, ...
-                    'Color', rightColor, ...
+                    'Color', t.planeGreen, ...
                     'LineWidth',0.75);
             end
 
@@ -1481,7 +1462,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     yR, zR, app.KerfValue);
                 app.RightKerf2DLine = plot(app.AxRightProfile, ...
                     yKerfR, zKerfR, ...
-                    'Color',[1.0 0.75 0.0], ...
+                    'Color', t.wireCol, ...
                     'LineWidth',0.75);
             end
 
@@ -2190,50 +2171,40 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.clearPlanes();
             if app.AppState == 0 || isempty(app.ModelPatch), return; end
 
+            % 1. Setup Theme and Geometry
+            t = app.getTheme();
             V = app.ModelPatch.Vertices;
             mins = min(V,[],1); maxs = max(V,[],1);
             span = max(maxs - mins); if span <= 0, span = 1; end
             pad  = app.PlanePaddingFactor * span;
 
-            % --- THE PLANE BOUNDARIES (The actual patch edges) ---
-            yMinP = mins(2) - pad;
-            yMaxP = maxs(2) + pad;
-            zMaxP = maxs(3) + pad;
-
-            % Patch Vertices (Standardized 4x1 columns)
-            yLims = [yMinP; yMaxP; yMaxP; yMinP];
-            zLims = [mins(3)-pad; mins(3)-pad; zMaxP; zMaxP];
+            yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
+            zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
 
             xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
-            xR = app.NumLeftOffset.Value + app.ModelXMin(1); % Using ModelXMin as static ref
             xR = app.ModelXMin(1) + app.NumRightOffset.Value;
 
-            % --- LEFT PLANE ---
+            % 2. Math for Label Positions
+            tY_L = (maxs(2)+pad) - 0.02*((maxs(2)+pad) - (mins(2)-pad));
+            tZ_L = (maxs(3)+pad) - 0.50*(maxs(3) - mins(3));
+            tY_R = (mins(2)-pad) + 0.02*((maxs(2)+pad) - (mins(2)-pad));
+            tZ_R = (maxs(3)+pad) - 0.10*(maxs(3) - mins(3));
+
+            % 3. Draw Left Plane
             app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', [0.96 0.06 0.06], 'FaceAlpha', 0.4, 'EdgeColor', [0.96 0.06 0.06], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
-
-            % RESTORE: Just inside the Top-Left corner of the PLANE
-            tY_L = yMaxP - 0.02*(yMaxP - yMinP);
-            tZ_L = zMaxP - 0.50*(maxs(3) - mins(3)); % Re-refined drop
+                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle','--', 'HandleVisibility','off');
             app.LeftPlaneText = text(app.AxModel, xL, tY_L, tZ_L, {'LEFT','PLANE'}, ...
-                'HorizontalAlignment','left', 'VerticalAlignment', 'top', ...
-                'Color', [0.96 0.4 0.4], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
+                'HorizontalAlignment','left', 'VerticalAlignment', 'top', 'Color', t.planeRedTxt, 'FontWeight','bold');
 
-            % --- RIGHT PLANE ---
+            % 4. Draw Right Plane
             app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', [0.20 1.00 0.35], 'FaceAlpha', 0.4, 'EdgeColor', [0.20 1.00 0.35], 'LineStyle','--', 'LineWidth', 1.0, 'HandleVisibility','off');
-
-            % RESTORE: Just inside the Top-Right corner of the PLANE
-            tY_R = yMinP + 0.02*(yMaxP - yMinP);
-            tZ_R = zMaxP - 0.10*(maxs(3) - mins(3)); % Re-refined top margin
+                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle','--', 'HandleVisibility','off');
             app.RightPlaneText = text(app.AxModel, xR, tY_R, tZ_R, {'RIGHT','PLANE '}, ...
-                'HorizontalAlignment','right', 'VerticalAlignment', 'top', ...
-                'Color', [0.4 1.00 0.5], 'FontWeight','bold', 'FontSize', 10, 'HandleVisibility','off');
+                'HorizontalAlignment','right', 'VerticalAlignment', 'top', 'Color', t.planeGreenTxt, 'FontWeight','bold');
 
-            % Keep labels on top of the transparent planes
-            if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
-            if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
-
+            % 5. Maintain Layers and Compute
+            if isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
+            if isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
             app.computeProfiles();
         end
 
@@ -2595,12 +2566,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(ax, 'on');
 
             % --- 1. THEME & GEOMETRY PREP ---
+            t = app.getTheme(); % FETCH NEW THEME
+
             if app.UIFigure.Color(1) < 0.5
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
-                planeAlpha = 0.15; wireCol = [0.8 0.8 0.8];
+                planeAlpha = 0.15;
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
-                planeAlpha = 0.08; wireCol = [0.2 0.2 0.2];
+                planeAlpha = 0.08;
             end
 
             offX  = app.MachineBedPos(1);
@@ -2620,15 +2593,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % --- 3. TOWER HEAD PLANES ---
+            % --- 3. TOWER HEAD PLANES (UPDATED COLORS) ---
             xL_edge = 0 - offX;
             xR_edge = mSpan(1) - offX;
             pY = [0; mSpan(2); mSpan(2); 0]; pZ = [0; 0; mSpan(3); mSpan(3)];
 
-            patch(ax, 'XData',ones(4,1)*xL_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', [0.96 0.06 0.06], ...
-                'FaceAlpha', planeAlpha, 'EdgeColor',[0.96 0.06 0.06], 'LineStyle', '--');
-            patch(ax, 'XData',ones(4,1)*xR_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', [0.20 1.00 0.35], ...
-                'FaceAlpha', planeAlpha, 'EdgeColor',[0.20 1.00 0.35], 'LineStyle', '--');
+            patch(ax, 'XData',ones(4,1)*xL_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--');
+            patch(ax, 'XData',ones(4,1)*xR_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '--');
 
             % --- 4. BILLET & MODEL ---
             [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
@@ -2642,7 +2615,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 Vplot = V + totalShift;
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
 
-                % --- WIREFRAME PROFILE OVERLAYS ---
+                % --- PROFILE OVERLAYS (REVERTED TO THEME NEUTRAL) ---
                 if ~isempty(app.LeftProfilePoints)
                     LP = app.LeftProfilePoints + totalShift;
                     plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', wireCol, 'LineWidth', 0.8);
@@ -2653,10 +2626,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % --- 5. TOWER LABELS ---
-            hL = text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', [0.96 0.4 0.4], ...
+            % --- 5. TOWER LABELS (UPDATED COLORS) ---
+            hL = text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
-            hR = text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', [0.4 1.00 0.5], ...
+            hR = text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
             uistack(hL, 'top'); uistack(hR, 'top');
 
@@ -2751,22 +2724,33 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LastMousePos = [NaN NaN];
         end
 
-
         function th = getTheme(app)
             % This function defines your palette in one place
             if app.UIFigure.Color(1) < 0.5
-                th.sideBg   = [0.16 0.16 0.16]; % Dark sidebar
-                th.panelBg  = [0.12 0.12 0.12]; % Dark panels
-                th.labelCol = [0.90 0.90 0.90]; % Light text
-                th.inputBg  = [1.00 1.00 1.00]; % White active inputs
-                th.inputTxt = [0.00 0.00 0.00]; % Black text
+                % --- DARK MODE ---
+                th.sideBg      = [0.16 0.16 0.16];
+                th.panelBg     = [0.12 0.12 0.12];
+                th.labelCol    = [0.90 0.90 0.90];
+                th.inputBg     = [1.00 1.00 1.00];
+                th.inputTxt    = [0.00 0.00 0.00];
+                th.rawMeshCol  = [0.60 0.60 0.60]; % Soft grey dash
             else
-                th.sideBg   = [0.96 0.96 0.96]; % Light sidebar
-                th.panelBg  = [0.90 0.90 0.90]; % Light panels
-                th.labelCol = [0.15 0.15 0.15]; % Dark text
-                th.inputBg  = [1.00 1.00 1.00];
-                th.inputTxt = [0.00 0.00 0.00];
+                % --- LIGHT MODE ---
+                th.sideBg      = [0.96 0.96 0.96];
+                th.panelBg     = [0.90 0.90 0.90];
+                th.labelCol    = [0.15 0.15 0.15];
+                th.inputBg     = [1.00 1.00 1.00];
+                th.inputTxt    = [0.00 0.00 0.00];
+                th.rawMeshCol  = [0.00 0.00 0.00]; % Sharp black dash
             end
+
+            % --- SHARED COLORS (Planes & Wires) ---
+            th.planeRed      = [0.96 0.06 0.06];
+            th.planeGreen    = [0.20 1.00 0.35];
+            th.planeRedTxt   = [0.96 0.40 0.40];
+            th.planeGreenTxt = [0.40 1.00 0.50];
+            th.wireCol       = [1.00 0.75 0.00]; % "Hot" orange/amber
         end
+
     end
 end
