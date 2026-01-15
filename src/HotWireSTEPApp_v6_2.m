@@ -38,15 +38,16 @@ classdef HotWireSTEPApp_v6_2 < handle
         BilletShiftStep = 0.5;  % mm
 
         % Machine Configuration Constants/State
-        MachineSpan      = [1100, 550, 400] % Tower movement range [X, Y, Z]
-        MachineBedSize   = [1000, 500, 20]  % Physical dimensions [L, W, H]
+        MachineSpanX   = 1180; % Distance between tower planes [mm]
+        MachineLimitY  = 750;  % Total Y travel [mm]
+        MachineLimitZ  = 500;  % Total Z travel [mm]
+        MachineBedSize   = [1000, 700, 20]  % Physical dimensions [L, W, H]
         MachineBedPos    = [50, 50, -20]      % Bed origin relative to machine 0,0,0
+        
+        % --- Placement Rules ---
+        BilletMinYBuffer = 50.0; % Distance from front/home
+        BilletRoundingY  = 10.0; % Round to nearest 10mm
 
-        % (Future)
-        % MachineSpanX (1,1) double = 2000;  % mm, for example
-        % MachineSpanY (1,1) double = 1000;
-        % MachineSpanZ (1,1) double = 600;
-        % etc...
     end
 
     properties
@@ -209,6 +210,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetMachineBillet
         BtnResetMachinePlot
         BtnMachineContinue
+        MachineMessageLabel
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -1055,6 +1057,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onResetMachinePlotView());
             app.BtnResetMachinePlot.Layout.Row = 4; % Adjust row index as needed
+
+            % Row 5: Message Label (Same style as Billet tab)
+            app.MachineMessageLabel = uilabel(app.MachineLeftPanel, ...
+                'Text','Machine configuration valid.', ...
+                'WordWrap','on', 'FontWeight','bold', 'FontColor', [1 1 1], 'VerticalAlignment','top');
+            app.MachineMessageLabel.Layout.Row = 5;
 
             % Row 6: Continue Button (Green)
             app.BtnMachineContinue = uibutton(app.MachineLeftPanel, ...
@@ -2534,23 +2542,43 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetMachineBilletPosition(app)
-            % 1. Get Bed Geometry
-            offX = app.MachineBedPos(1); % 50mm
-            bs   = app.MachineBedSize;   % 1000mm length
-            bS   = app.BilletSize;
+            if isempty(app.ModelPatch), return; end
 
-            % 2. Calculate Centered X (Bed-Relative rounded to 50mm)
-            idealX_rel   = (bs(1) - bS(1)) / 2;
-            roundedX_rel = 50 * round(idealX_rel / 50);
+            % 1. X-Position: Center the model in the machine to minimize tower lag
+            mSpanX = 1180;
+            app.MachineBilletPos(1) = (mSpanX - app.BilletSize(1)) / 2;
 
-            % 3. Set Y to Front Edge of Bed (Machine Absolute)
-            % This aligns the start of the billet with the bed's origin (50mm)
-            targetY_abs = app.MachineBedPos(2); % 50.0
+            % 2. Y-Position: 50mm from home rounded to 10mm
+            % (Accounts for any user-applied shift in the Billet Tab)
+            currentMinY = app.ModelYMin + app.BilletShift(2);
+            app.MachineBilletPos(2) = round((50 - currentMinY) / 10) * 10;
 
-            % 4. Store Absolute Machine Coordinates
-            app.MachineBilletPos = [offX + roundedX_rel, targetY_abs, 0.0];
+            % 3. Z-Position: Auto-Lift (0, 50, 75, 100) to clear negative projections
+            app.MachineBilletPos(3) = 0; % Start at bed
 
-            % 5. Update and Plot
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                % Check projection at Z=0
+                [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                    app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+                
+                xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
+                xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+                
+                % --- FIX: Added app.MachineSpanX as the 7th argument ---
+                [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                    yL + app.MachineBilletPos(2) + app.BilletShift(2), zL, xL_mach, ...
+                    yR + app.MachineBilletPos(2) + app.BilletShift(2), zR, xR_mach, ...
+                    app.MachineSpanX); 
+                
+                minProjZ = min([tL.z; tR.z]);
+                if minProjZ < 0
+                    lifts = [50, 75, 100];
+                    idx = find(lifts >= abs(minProjZ) + 5, 1, 'first'); 
+                    if ~isempty(idx), app.MachineBilletPos(3) = lifts(idx); end
+                end
+            end
+
             app.syncMachineUI();
             app.refreshMachinePlot();
         end
@@ -2559,19 +2587,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
 
-            % Reset to the isometric overview
+            % 1. Reset to Isometric
             view(ax, 3);
 
-            % Re-apply the standard limits used in refreshMachinePlot
-            offX = app.MachineBedPos(1);
-            mSpan = app.MachineSpan;
-            bs = app.MachineBedSize;
+            % 2. Re-apply Unified Limits using correct property names
+            offX  = app.MachineBedPos(1);
+            bs    = app.MachineBedSize;
+            mX    = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
 
-            xlim(ax, [-offX - 50, mSpan(1)-offX + 50]);
-            ylim(ax, [-50, mSpan(2) + 50]);
-            zlim(ax, [-bs(3)-10, mSpan(3) + 20]);
+            xlim(ax, [-offX - 100, mX - offX + 100]);
+            ylim(ax, [-50, mLimY + 50]);
+            zlim(ax, [-bs(3)-20, mLimZ + 80]);
 
-            % Force a redraw to fix any rotation artifacts
             drawnow limitrate;
         end
 
@@ -2583,17 +2612,22 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 1. THEME & GEOMETRY PREP ---
             t = app.getTheme();
+            isDark = app.UIFigure.Color(1) < 0.5;
 
-            if app.UIFigure.Color(1) < 0.5
+            if isDark
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
-                planeAlpha = 0.15;
+                planeAlpha = 0.15; vioCol = [1 0.8 0]; % Amber/Orange
+                successGreen = [0.4 1 0.4];
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
-                planeAlpha = 0.08;
+                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; % Burnt Orange
+                successGreen = [0 0.6 0];
             end
 
             offX  = app.MachineBedPos(1);
-            mSpan = app.MachineSpan;
+            mX    = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
             bs    = app.MachineBedSize;
             bp    = app.MachineBedPos;
             bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
@@ -2603,56 +2637,99 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
-            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan(1), mSpan(2), mSpan(3));
+            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % --- 3. TOWER HEAD PLANES ---
-            xL_edge = 0 - offX;
-            xR_edge = mSpan(1) - offX;
-            pY = [0; mSpan(2); mSpan(2); 0]; pZ = [0; 0; mSpan(3); mSpan(3)];
-
-            patch(ax, 'XData',ones(4,1)*xL_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
+            % --- 3. TOWER HEAD PLANES & LABELS ---
+            pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
+            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
                 'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--');
-            patch(ax, 'XData',ones(4,1)*xR_edge, 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
+            patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
                 'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '--');
+
+            text(ax, (0-offX), mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
+                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
+            text(ax, (mX-offX), mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
+                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
 
             % --- 4. BILLET & MODEL ---
             [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
                 'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8);
 
+            isViolated = false;
+
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                V = app.ModelPatch.Vertices;
                 totalShift = bPlotPos + app.BilletShift;
-                Vplot = V + totalShift;
+                Vplot = app.ModelPatch.Vertices + totalShift;
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, 'FaceColor',[0.6 0.6 0.7], 'FaceAlpha', 0.8, 'EdgeColor','none');
 
-                % --- PROFILE OVERLAYS (NEUTRAL THEME) ---
+                % Outlines on the model
                 if ~isempty(app.LeftProfilePoints)
                     LP = app.LeftProfilePoints + totalShift;
-                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', t.wireNeutral, 'LineWidth', 0.8);
+                    plot3(ax, LP(:,1), LP(:,2), LP(:,3), 'Color', t.wireNeutral, 'LineWidth', 1.0);
                 end
                 if ~isempty(app.RightProfilePoints)
                     RP = app.RightProfilePoints + totalShift;
-                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', t.wireNeutral, 'LineWidth', 0.8);
+                    plot3(ax, RP(:,1), RP(:,2), RP(:,3), 'Color', t.wireNeutral, 'LineWidth', 1.0);
+                end
+
+                % Simulation and Tower Projection
+                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                    [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+
+                    xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
+                    xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+
+                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                        yL + app.MachineBilletPos(2) + app.BilletShift(2), ...
+                        zL + app.MachineBilletPos(3) + app.BilletShift(3), xL_mach, ...
+                        yR + app.MachineBilletPos(2) + app.BilletShift(2), ...
+                        zR + app.MachineBilletPos(3) + app.BilletShift(3), xR_mach, mX);
+
+                    % Out of bounds check
+                    badL = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ);
+                    badR = (tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
+                    if any(badL) || any(badR), isViolated = true; end
+
+                    % --- ADDED: THE CONTINUOUS PATHS ON THE TOWERS ---
+                    plot3(ax, ones(size(tL.y))*(0-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.2);
+                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.2);
+
+                    % Highlight bad points
+                    if any(badL), plot3(ax, ones(sum(badL),1)*(0-offX), tL.y(badL), tL.z(badL), '.', 'Color', vioCol, 'MarkerSize', 10); end
+                    if any(badR), plot3(ax, ones(sum(badR),1)*(mX-offX), tR.y(badR), tR.z(badR), '.', 'Color', vioCol, 'MarkerSize', 10); end
+
+                    % Wire segments
+                    for i = 1:floor(numel(tL.y)/15):numel(tL.y)
+                        wCol = [0.8 0.8 0.8 0.2]; if (badL(i) || badR(i)), wCol = [vioCol, 0.6]; end
+                        plot3(ax, [0-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol);
+                    end
                 end
             end
 
-            % --- 5. TOWER LABELS ---
-            text(ax, xL_edge, mSpan(2)*0.98, mSpan(3)*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
-                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
-            text(ax, xR_edge, mSpan(2)*0.01, mSpan(3)*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
-                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
-
-            % --- 6. FORMATTING ---
+            % --- 5. FINALIZE & UPDATE MESSAGES ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
-            xlabel(ax, 'X (Bed Relative)'); ylabel(ax, 'Y (Machine)'); zlabel(ax, 'Z');
             ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
-            xlim(ax, [-offX - 100, mSpan(1)-offX + 100]);
-            ylim(ax, [-50, mSpan(2) + 50]);
-            zlim(ax, [-bs(3)-20, mSpan(3) + 80]);
+            xlim(ax, [-offX - 100, mX - offX + 100]);
+            ylim(ax, [-50, mLimY + 50]);
+            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+
+            if isViolated
+                app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
+                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
+                app.MachineLeftPanel.BackgroundColor = [0.4 0.16 0.16];
+                app.BtnMachineContinue.Enable = 'off';
+            else
+                app.MachineMessageLabel.Text = 'Machine configuration valid.';
+                app.MachineMessageLabel.FontColor = successGreen;
+                app.MachineLeftPanel.BackgroundColor = t.sideBg;
+                app.BtnMachineContinue.Enable = 'on';
+            end
             drawnow limitrate;
         end
 
@@ -2681,6 +2758,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 4 1 5 8]; % Left
         end
 
+        function [towerL, towerR] = projectToTowers(profileL, xL, profileR, xB, spanX)
+            % profileL: [y, z] at model-left-face (xL)
+            % profileR: [y, z] at model-right-face (xB)
+            % spanX: total machine width (1180)
+
+            % For each point i in the synced profiles:
+            % TowerL (at x=0)
+            towerL.y = profileL.y + (0 - xL) .* (profileR.y - profileL.y) ./ (xB - xL);
+            towerL.z = profileL.z + (0 - xL) .* (profileR.z - profileL.z) ./ (xB - xL);
+
+            % TowerR (at x=1180)
+            towerR.y = profileL.y + (spanX - xL) .* (profileR.y - profileL.y) ./ (xB - xL);
+            towerR.z = profileL.z + (spanX - xL) .* (profileR.z - profileL.z) ./ (xB - xL);
+        end
+        
         % ===========================================================
         % MOUSE-DRAG ROTATION FOR 3D AXES
         % ===========================================================

@@ -22,9 +22,9 @@ classdef HotWireSTEPApp_v6_helpers
         BilletZBuffer   = 10.0;   % mm (brief: model height + 10)
         BilletZMinClear = 5.0;    % mm (brief: min-Z raised 5mm from bottom)
         BilletStockHeights = [50 75 100]; % mm
-    
+
     end
-    
+
     methods(Static)
 
         % ===============================================================
@@ -156,7 +156,7 @@ classdef HotWireSTEPApp_v6_helpers
                 end
             end
         end
-        
+
         % ===============================================================
         % PROFILE LOOP RECONSTRUCTION
         % ===============================================================
@@ -317,7 +317,7 @@ classdef HotWireSTEPApp_v6_helpers
             yLoop = pts(:,1);
             zLoop = pts(:,2);
         end
-        
+
         % ---------------------------------------------------------------
         % RESAMPLEPROFILEBYTOLERANCE
         % ---------------------------------------------------------------
@@ -343,7 +343,7 @@ classdef HotWireSTEPApp_v6_helpers
             z = z(:);
             yR = y;
             zR = z;
-            
+
             % Default info struct
             info = struct('capHit',false, 'nPoints', numel(yR));
 
@@ -593,11 +593,11 @@ classdef HotWireSTEPApp_v6_helpers
         % ===============================================================
         % BILLET DEFAULTS FROM MESH
         % ===============================================================
-        
+
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)
             % Use fully qualified names for Constant properties
             mins = min(V,[],1); maxs = max(V,[],1);
-            
+
             % X: Planes + Buffer
             billet.Xmin = min(xPlaneA, xPlaneB) - HotWireSTEPApp_v6_helpers.BilletXBuffer;
             billet.Xmax = max(xPlaneA, xPlaneB) + HotWireSTEPApp_v6_helpers.BilletXBuffer;
@@ -609,17 +609,49 @@ classdef HotWireSTEPApp_v6_helpers
             % Z: Rounded Height
             modelH = maxs(3) - mins(3);
             rawH   = modelH + HotWireSTEPApp_v6_helpers.BilletZBuffer;
-            
+
             % Snap to stock heights
             idx = find(HotWireSTEPApp_v6_helpers.BilletStockHeights >= rawH - 1e-6, 1, 'first');
             if ~isempty(idx)
                 finalH = HotWireSTEPApp_v6_helpers.BilletStockHeights(idx);
             else
-                finalH = rawH; 
+                finalH = rawH;
             end
-            
+
             billet.Zmin = mins(3) - HotWireSTEPApp_v6_helpers.BilletZMinClear;
             billet.Zmax = billet.Zmin + finalH;
+        end
+
+        % ===============================================================
+        % 4-AXIS TOWER PROJECTION & SYNC
+        % ===============================================================
+        function [yLs, zLs, yRs, zRs] = syncPointCounts(yL, zL, yR, zR)
+            % Ensures both profiles have the same number of points for 1:1 projection
+            nL = numel(yL); nR = numel(yR);
+            N = max(nL, nR);
+            if N < 2, yLs=[]; zLs=[]; yRs=[]; zRs=[]; return; end
+
+            sL = linspace(0, 1, nL); sR = linspace(0, 1, nR); sNew = linspace(0, 1, N);
+
+            yLs = interp1(sL, yL, sNew, 'linear')';
+            zLs = interp1(sL, zL, sNew, 'linear')';
+            yRs = interp1(sR, yR, sNew, 'linear')';
+            zRs = interp1(sR, zR, sNew, 'linear')';
+        end
+
+        function [towL, towR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
+            % Projects model profiles to machine towers
+            denom = (xR - xL);
+            if abs(denom) < 1e-6, denom = 1e-6; end % Prevent div by zero
+
+            dy = (yR - yL) ./ denom;
+            dz = (zR - zL) ./ denom;
+
+            % Extrapolate to physical tower planes (X=0 and X=spanX)
+            towL.y = yL + (0 - xL) .* dy;
+            towL.z = zL + (0 - xL) .* dz;
+            towR.y = yL + (spanX - xL) .* dy;
+            towR.z = zL + (spanX - xL) .* dz;
         end
 
     end
