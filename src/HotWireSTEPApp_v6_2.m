@@ -2872,17 +2872,22 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updateCuttingPlots(app)
             % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % USES THEME COLORS correctly.
+            % Includes: View Persistence (Robust), Machine Bed, Ghost Profile,
+            % Billet/Machine Bounds, Gradient, Start/End Markers, Legends.
+            % Implements Direction Reversal (CW/CCW).
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
-            % 1. Get Theme
             t = app.getTheme();
 
-            % 2. View Persistence
-            preserveView = app.BtnPickStart.Value;
+            % --- 1. Robust View Persistence ---
+            % Heuristic: If X-limits are NOT [0 1], the axes are initialized
+            % and the user might have zoomed/panned. We should preserve this.
+            currentXL = xlim(app.AxCutLeft);
+            isInitialized = ~isequal(currentXL, [0 1]);
+
             limsL = []; limsR = [];
-            if preserveView
+            if isInitialized
                 limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
                 limsR = [xlim(app.AxCutRight); ylim(app.AxCutRight)];
             end
@@ -2891,44 +2896,38 @@ classdef HotWireSTEPApp_v6_2 < handle
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
-            % 3. Coordinate Setup
+            % --- 2. Coordinate Setup ---
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom First (CCW)');
 
-            % 4. Draw Machine Bed (Theme-Aware)
-            bedY = [50, 750, 750, 50];
-            bedZ = [-20, -20, 0, 0];
-
-            % Use a low-alpha version of the label color for the bed volume
+            % --- 3. Draw Machine Bed ---
+            bedY = [50, 750, 750, 50]; bedZ = [-20, -20, 0, 0];
             patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
             patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
 
-            % 5. Draw Machine Bounds (Faint Dotted)
+            % --- 4. Draw Machine Bounds ---
             mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
             mBoxY = [0, mLimY, mLimY, 0, 0]; mBoxZ = [0, 0, mLimZ, mLimZ, 0];
-
             hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
             hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
 
-            % 6. Draw Billet Outline (Dashed)
+            % --- 5. Draw Billet Outline ---
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2); bH = app.BilletSize(3);
             boxY = [bY, bY+bW, bY+bW, bY, bY]; boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
-
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
 
-            % 7. Prepare Data & Ghost Profiles
+            % --- 6. Prepare Data & Ghost Profiles ---
             yL = []; zL = []; yR = []; zR = [];
             useKerf = app.KerfEnabled && app.KerfValue > 0;
-
             hGhostL = gobjects(0); hGhostR = gobjects(0);
 
             % --- LEFT SIDE ---
             if ~isempty(app.LeftProfilePoints)
                 rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
                 gY = rawY + offsetY; gZ = rawZ + offsetZ;
-                % Ghost uses 'rawMeshCol' from theme
                 hGhostL = plot(app.AxCutLeft, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
 
                 if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
@@ -2938,6 +2937,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if abs(yL(1)-yL(end)) < 1e-6 && abs(zL(1)-zL(end)) < 1e-6, yL(end)=[]; zL(end)=[]; end
                     idx = app.SelectedStartIdxL; if idx > numel(yL), idx = 1; end
                     yL = circshift(yL, -(idx - 1)); zL = circshift(zL, -(idx - 1));
+                    if isCCW, yL(2:end) = flipud(yL(2:end)); zL(2:end) = flipud(zL(2:end)); end
                     yL(end+1) = yL(1); zL(end+1) = zL(1);
                 end
             end
@@ -2955,11 +2955,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if abs(yR(1)-yR(end)) < 1e-6 && abs(zR(1)-zR(end)) < 1e-6, yR(end)=[]; zR(end)=[]; end
                     idx = app.SelectedStartIdxR; if idx > numel(yR), idx = 1; end
                     yR = circshift(yR, -(idx - 1)); zR = circshift(zR, -(idx - 1));
+                    if isCCW, yR(2:end) = flipud(yR(2:end)); zR(2:end) = flipud(zR(2:end)); end
                     yR(end+1) = yR(1); zR(end+1) = zR(1);
                 end
             end
 
-            % 8. Plot Profiles
+            % --- 7. Plot Profiles ---
             hStartL = gobjects(0);
             if ~isempty(yL)
                 c = (1:numel(yL))';
@@ -2978,7 +2979,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
-            % 9. Legends (Use Theme Text Color)
+            % --- 8. Legends ---
             handlesL = [hStartL, hBilletL, hMachL, hGhostL]; labelsL = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
             validL = isgraphics(handlesL);
             if any(validL)
@@ -2993,23 +2994,29 @@ classdef HotWireSTEPApp_v6_2 < handle
                 lgd.Box = 'off'; lgd.TextColor = t.labelCol;
             end
 
-            % 10. Formatting
+            % --- 9. Formatting & View Restore ---
             title(app.AxCutLeft, 'Left Tower (Machine Coords)');
             title(app.AxCutRight, 'Right Tower (Machine Coords)');
             colormap(app.AxCutLeft, 'turbo'); colormap(app.AxCutRight, 'turbo');
 
-            if preserveView
+            if isInitialized
+                % RESTORE SAVED LIMITS
                 xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
                 xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
+                % Force square aspect ratio without resetting limits
+                daspect(app.AxCutLeft, [1 1 1]);
+                daspect(app.AxCutRight, [1 1 1]);
             else
-                axis(app.AxCutLeft, 'equal'); axis(app.AxCutRight, 'equal');
+                % FIRST RUN: Auto-fit with equal aspect ratio
+                axis(app.AxCutLeft, 'equal');
+                axis(app.AxCutRight, 'equal');
             end
         end
 
         function onCutDirectionChanged(app)
-            % Placeholder for Phase 2/3
-            % Will trigger re-ordering of the coordinate arrays
+            % Triggered when switching between CW (Top First) and CCW (Bottom First)
             disp(['Direction changed to: ' app.SwitchCutDir.Value]);
+            app.updateCuttingPlots();
         end
 
         function onInteractionStatsChanged(app, src)
