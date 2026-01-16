@@ -293,10 +293,37 @@ classdef HotWireSTEPApp_v6_helpers
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)
             mins = min(V,[],1); maxs = max(V,[],1);
-            billet.Xmin = min(xPlaneA, xPlaneB) - 0.001; billet.Xmax = max(xPlaneA, xPlaneB) + 0.001;
-            billet.Ymin = mins(2) - 5; billet.Ymax = maxs(2) + 5;
-            modelH = maxs(3) - mins(3); rawH = modelH + 10;
-            billet.Zmin = mins(3) - 5; billet.Zmax = billet.Zmin + rawH;
+
+            % X Logic: Fit to cutting planes + buffer
+            billet.Xmin = min(xPlaneA, xPlaneB) - 0.001;
+            billet.Xmax = max(xPlaneA, xPlaneB) + 0.001;
+
+            % Y Logic: Fit to model + 5mm
+            billet.Ymin = mins(2) - 5;
+            billet.Ymax = maxs(2) + 5;
+
+            % Z Logic: Stock Selection
+            modelH = maxs(3) - mins(3);
+            requiredH = modelH + 10; % Minimum requirement
+
+            % Get standard stocks
+            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights; % [50 75 100]
+
+            % Default to custom height
+            stockH = requiredH;
+
+            % Attempt to snap to standard stock
+            for i = 1:numel(stocks)
+                if requiredH <= stocks(i)
+                    stockH = stocks(i);
+                    break;
+                end
+            end
+
+            % Apply Z (raising min-Z by 5mm as per original logic)
+            billet.Zmin = mins(3) - 5;
+            billet.Zmax = billet.Zmin + stockH;
         end
+
     end
 end

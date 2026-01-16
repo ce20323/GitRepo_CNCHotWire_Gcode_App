@@ -2872,13 +2872,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updateCuttingPlots(app)
             % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % Includes: View Persistence, Machine Bed, Ghost Profile,
-            % Billet/Machine Bounds, Gradient, Start/End Markers, and Legends.
+            % USES THEME COLORS correctly.
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
-            % --- 1. View Persistence (Fix for resizing on click) ---
-            % If "Set Start" (Pick) mode is active, we preserve the current zoom/pan.
+            % 1. Get Theme
+            t = app.getTheme();
+
+            % 2. View Persistence
             preserveView = app.BtnPickStart.Value;
             limsL = []; limsR = [];
             if preserveView
@@ -2890,34 +2891,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
-            % --- 2. Coordinate Setup ---
+            % 3. Coordinate Setup
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % --- 3. Draw Machine Bed (New) ---
-            % Bed is fixed: Y=50..750, Z=-20..0 (matches Machine Tab geometry)
+            % 4. Draw Machine Bed (Theme-Aware)
             bedY = [50, 750, 750, 50];
             bedZ = [-20, -20, 0, 0];
 
-            patch(app.AxCutLeft, bedY, bedZ, [0.3 0.3 0.3], 'FaceAlpha', 0.5, 'EdgeColor', 'none', 'HitTest','off');
-            patch(app.AxCutRight, bedY, bedZ, [0.3 0.3 0.3], 'FaceAlpha', 0.5, 'EdgeColor', 'none', 'HitTest','off');
+            % Use a low-alpha version of the label color for the bed volume
+            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
+            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
 
-            % --- 4. Draw Machine Bounds (Faint Dotted) ---
+            % 5. Draw Machine Bounds (Faint Dotted)
             mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
             mBoxY = [0, mLimY, mLimY, 0, 0]; mBoxZ = [0, 0, mLimZ, mLimZ, 0];
 
-            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.5 0.5 0.5], 'LineWidth', 1, 'HitTest','off');
-            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.5 0.5 0.5], 'LineWidth', 1, 'HitTest','off');
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
 
-            % --- 5. Draw Billet Outline (Dashed) ---
+            % 6. Draw Billet Outline (Dashed)
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2); bH = app.BilletSize(3);
             boxY = [bY, bY+bW, bY+bW, bY, bY]; boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
 
-            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
-            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
+            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
+            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
 
-            % --- 6. Prepare Data & Ghost Profiles ---
+            % 7. Prepare Data & Ghost Profiles
             yL = []; zL = []; yR = []; zR = [];
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
@@ -2925,58 +2926,40 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEFT SIDE ---
             if ~isempty(app.LeftProfilePoints)
-                % A. Ghost (Raw Profile before Kerf)
                 rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
-                % Shift Ghost to Machine Coords
                 gY = rawY + offsetY; gZ = rawZ + offsetZ;
-                hGhostL = plot(app.AxCutLeft, gY, gZ, ':', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.5, 'HitTest','off');
+                % Ghost uses 'rawMeshCol' from theme
+                hGhostL = plot(app.AxCutLeft, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
 
-                % B. Kerf (Cooked Profile)
-                if useKerf
-                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
-                end
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
                 yL = rawY + offsetY; zL = rawZ + offsetZ;
 
-                % Gap Fix & Shift Logic
                 if numel(yL) > 2
-                    if abs(yL(1)-yL(end)) < 1e-6 && abs(zL(1)-zL(end)) < 1e-6
-                        yL(end) = []; zL(end) = [];
-                    end
-                    idx = app.SelectedStartIdxL;
-                    if idx > numel(yL), idx = 1; end
-                    yL = circshift(yL, -(idx - 1));
-                    zL = circshift(zL, -(idx - 1));
+                    if abs(yL(1)-yL(end)) < 1e-6 && abs(zL(1)-zL(end)) < 1e-6, yL(end)=[]; zL(end)=[]; end
+                    idx = app.SelectedStartIdxL; if idx > numel(yL), idx = 1; end
+                    yL = circshift(yL, -(idx - 1)); zL = circshift(zL, -(idx - 1));
                     yL(end+1) = yL(1); zL(end+1) = zL(1);
                 end
             end
 
             % --- RIGHT SIDE ---
             if ~isempty(app.RightProfilePoints)
-                % A. Ghost
                 rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
                 gY = rawY + offsetY; gZ = rawZ + offsetZ;
-                hGhostR = plot(app.AxCutRight, gY, gZ, ':', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.5, 'HitTest','off');
+                hGhostR = plot(app.AxCutRight, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
 
-                % B. Kerf
-                if useKerf
-                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
-                end
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
                 yR = rawY + offsetY; zR = rawZ + offsetZ;
 
-                % Gap Fix & Shift Logic
                 if numel(yR) > 2
-                    if abs(yR(1)-yR(end)) < 1e-6 && abs(zR(1)-zR(end)) < 1e-6
-                        yR(end) = []; zR(end) = [];
-                    end
-                    idx = app.SelectedStartIdxR;
-                    if idx > numel(yR), idx = 1; end
-                    yR = circshift(yR, -(idx - 1));
-                    zR = circshift(zR, -(idx - 1));
+                    if abs(yR(1)-yR(end)) < 1e-6 && abs(zR(1)-zR(end)) < 1e-6, yR(end)=[]; zR(end)=[]; end
+                    idx = app.SelectedStartIdxR; if idx > numel(yR), idx = 1; end
+                    yR = circshift(yR, -(idx - 1)); zR = circshift(zR, -(idx - 1));
                     yR(end+1) = yR(1); zR(end+1) = zR(1);
                 end
             end
 
-            % --- 7. Plot Profiles (Gradient + Markers) ---
+            % 8. Plot Profiles
             hStartL = gobjects(0);
             if ~isempty(yL)
                 c = (1:numel(yL))';
@@ -2995,37 +2978,31 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
-            % --- 8. Legends ---
-            handlesL = [hStartL, hBilletL, hMachL, hGhostL];
-            labelsL  = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
+            % 9. Legends (Use Theme Text Color)
+            handlesL = [hStartL, hBilletL, hMachL, hGhostL]; labelsL = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
             validL = isgraphics(handlesL);
             if any(validL)
                 lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
             end
 
-            handlesR = [hStartR, hBilletR, hMachR, hGhostR];
-            labelsR  = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
+            handlesR = [hStartR, hBilletR, hMachR, hGhostR]; labelsR = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
             validR = isgraphics(handlesR);
             if any(validR)
                 lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
             end
 
-            % --- 9. Final Formatting & Restore View ---
+            % 10. Formatting
             title(app.AxCutLeft, 'Left Tower (Machine Coords)');
             title(app.AxCutRight, 'Right Tower (Machine Coords)');
-            colormap(app.AxCutLeft, 'turbo');
-            colormap(app.AxCutRight, 'turbo');
+            colormap(app.AxCutLeft, 'turbo'); colormap(app.AxCutRight, 'turbo');
 
             if preserveView
-                % Restore previous limits
                 xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
                 xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
             else
-                % Default fit
-                axis(app.AxCutLeft, 'equal');
-                axis(app.AxCutRight, 'equal');
+                axis(app.AxCutLeft, 'equal'); axis(app.AxCutRight, 'equal');
             end
         end
 
