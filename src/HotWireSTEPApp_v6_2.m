@@ -211,7 +211,25 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetMachinePlot
         BtnMachineContinue
         MachineMessageLabel
+        
+        % ---------- Cutting / Passes Tab ----------
+        TabCutting
+        GLCutting
+        CuttingLeftPanel
+        AxCutLeft
+        AxCutRight
 
+        % Interaction Controls
+        SwitchCutDir           % Toggle: Top-First (CW) vs Bottom-First (CCW)
+        BtnInteractionGroup    % Button Group for mouse mode
+        BtnPickStart           % Button: "Set Start Point"
+        BtnPickEntry           % Button: "Set Entry Point" (Future)
+
+        % State
+        SelectedStartIdxL = 1  % Index in the profile array
+        SelectedStartIdxR = 1
+        CutDirection = 'CW'    % 'CW' or 'CCW'
+        
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -1080,6 +1098,111 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(app.AxMachine, 'on'); view(app.AxMachine, 3);
             hold(app.AxMachine, 'on');
             
+            % ===========================================================
+            % CUTTING TAB
+            % ===========================================================
+            app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
+
+            app.GLCutting = uigridlayout(app.TabCutting, [1 2]);
+            app.GLCutting.ColumnWidth = {320, '1x'};
+            app.GLCutting.Padding = [10 10 10 10];
+            app.GLCutting.ColumnSpacing = 10;
+
+            % --- Left Control Column ---
+            app.CuttingLeftPanel = uigridlayout(app.GLCutting, [6 1]);
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','1x','fit','fit'};
+            app.CuttingLeftPanel.Padding = [10 10 10 10];
+            app.CuttingLeftPanel.BackgroundColor = sideBg;
+
+            % 1. Direction Strategy Panel
+            dirPanel = uipanel(app.CuttingLeftPanel, 'Title','Cutting Direction', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            dirPanel.Layout.Row = 1;
+
+            dirGrid = uigridlayout(dirPanel, [2 1]);
+            dirGrid.RowHeight = {'fit','fit'};
+            dirGrid.Padding = [10 5 10 5];
+
+            lblDir = uilabel(dirGrid, 'Text','Winding Order:', 'FontColor',labelCol);
+            lblDir.Layout.Row = 1;
+
+            app.SwitchCutDir = uiswitch(dirGrid, 'slider', ...
+                'Items', {'Top First (CW)', 'Bottom First (CCW)'}, ...
+                'Value', 'Top First (CW)', ...
+                'ValueChangedFcn', @(~,~)app.onCutDirectionChanged());
+            app.SwitchCutDir.Layout.Row = 2;
+
+            % 2. Interaction Mode Panel (FIXED)
+            interPanel = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            interPanel.Layout.Row = 2;
+
+            interGrid = uigridlayout(interPanel, [2 1]);
+            interGrid.RowHeight = {'fit','fit'};
+            interGrid.Padding = [10 5 10 5];
+
+            lblInter = uilabel(interGrid, 'Text','Click on plot to:', 'FontColor',labelCol);
+            lblInter.Layout.Row = 1;
+
+            % Interaction Buttons Grid
+            btnGrid = uigridlayout(interGrid, [1 2]);
+            btnGrid.Layout.Row = 2;
+            btnGrid.ColumnWidth = {'1x','1x'};
+            btnGrid.Padding = [0 0 0 0];
+            btnGrid.ColumnSpacing = 5;
+
+            % Button 1: Set Start (State Button)
+            app.BtnPickStart = uibutton(btnGrid, 'state', ...
+                'Text', 'Set Start', ...
+                'FontWeight', 'bold', ...
+                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickStart.Layout.Column = 1;
+
+            % Button 2: Set Entry (Disabled for now)
+            app.BtnPickEntry = uibutton(btnGrid, 'state', ...
+                'Text', 'Set Entry', ...
+                'FontWeight', 'bold', ...
+                'Enable', 'off', ...
+                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickEntry.Layout.Column = 2;
+
+            % Spacer
+            spCut = uilabel(app.CuttingLeftPanel, 'Text','');
+            spCut.Layout.Row = 4;
+
+            % Generate G-Code Button (Placeholder)
+            btnGenG = uibutton(app.CuttingLeftPanel, ...
+                'Text','Generate G-Code', ...
+                'FontWeight','bold', ...
+                'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn', @(~,~)app.onGenerateGCode());
+            btnGenG.Layout.Row = 6;
+
+            % --- Right Column: 2D Plots ---
+            rightCol = uigridlayout(app.GLCutting, [2 1]);
+            rightCol.Layout.Column = 2;
+            rightCol.RowHeight = {'1x','1x'};
+            rightCol.Padding = [0 0 0 0];
+            rightCol.RowSpacing = 10;
+
+            % Left Profile Plot
+            app.AxCutLeft = uiaxes(rightCol);
+            app.AxCutLeft.Layout.Row = 1;
+            app.AxCutLeft.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxCutLeft, 'Left Profile Cut Path');
+            xlabel(app.AxCutLeft,'Y'); ylabel(app.AxCutLeft,'Z');
+            grid(app.AxCutLeft,'on');
+            app.AxCutLeft.DataAspectRatio = [1 1 1];
+
+            % Right Profile Plot
+            app.AxCutRight = uiaxes(rightCol);
+            app.AxCutRight.Layout.Row = 2;
+            app.AxCutRight.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxCutRight, 'Right Profile Cut Path');
+            xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
+            grid(app.AxCutRight,'on');
+            app.AxCutRight.DataAspectRatio = [1 1 1];
+
             app.applyTheme();
         
         end
@@ -2196,10 +2319,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.refreshMachinePlot();
 
             elseif currTab == app.TabMachine
-                % Final Step: Transition to G-Code Export (Placeholder)
-                uialert(app.UIFigure, 'Setup Complete! Proceeding to G-code Generation...', ...
-                    'Success', 'Icon', 'success');
-                % app.TabGroup.SelectedTab = app.TabExport;
+                % Transition Machine -> Cutting
+                app.TabGroup.SelectedTab = app.TabCutting;
+                app.updateCuttingPlots();
+
+            elseif currTab == app.TabCutting
+                % Final Step
+                app.onGenerateGCode();
             end
         end
 
@@ -2716,6 +2842,96 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
         
         % ===========================================================
+        % CUTTING TAB LOGIC
+        % ===========================================================
+
+        function updateCuttingPlots(app)
+            % Visualizes the data on the Cutting Tab.
+            % Note: This relies on the Profiles Tab having generated data.
+
+            if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
+
+            % Clear Axes
+            cla(app.AxCutLeft); cla(app.AxCutRight);
+            hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
+
+            t = app.getTheme();
+
+            % 1. Get Data (Prefer Kerf compensated if available, else raw)
+            yL = []; zL = []; yR = []; zR = [];
+
+            % Check if kerf enabled and valid
+            useKerf = app.KerfEnabled && app.KerfValue > 0;
+
+            if ~isempty(app.LeftProfilePoints)
+                yL = app.LeftProfilePoints(:,2);
+                zL = app.LeftProfilePoints(:,3);
+                if useKerf
+                    [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
+                end
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                yR = app.RightProfilePoints(:,2);
+                zR = app.RightProfilePoints(:,3);
+                if useKerf
+                    [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
+                end
+            end
+
+            % 2. Plot Left
+            if ~isempty(yL)
+                plot(app.AxCutLeft, yL, zL, 'Color', t.planeRed, 'LineWidth', 1.5, 'Marker','.');
+                % Highlight Start Point (Index 1)
+                plot(app.AxCutLeft, yL(1), zL(1), 'go', 'MarkerSize',10, 'LineWidth',2);
+            end
+
+            % 3. Plot Right
+            if ~isempty(yR)
+                plot(app.AxCutRight, yR, zR, 'Color', t.planeGreen, 'LineWidth', 1.5, 'Marker','.');
+                % Highlight Start Point (Index 1)
+                plot(app.AxCutRight, yR(1), zR(1), 'go', 'MarkerSize',10, 'LineWidth',2);
+            end
+
+            % 4. Formatting
+            axis(app.AxCutLeft, 'equal'); axis(app.AxCutRight, 'equal');
+        end
+
+        function onCutDirectionChanged(app)
+            % Placeholder for Phase 2/3
+            % Will trigger re-ordering of the coordinate arrays
+            disp(['Direction changed to: ' app.SwitchCutDir.Value]);
+        end
+
+        function onInteractionStatsChanged(app, src)
+            % Handle mutual exclusivity manually for State Buttons
+
+            if src == app.BtnPickStart
+                if app.BtnPickStart.Value == true
+                    % Start Mode ON
+                    app.BtnPickEntry.Value = false; % Turn off the other
+                    disp('Interaction Mode: Set Start Point');
+                    app.BtnPickStart.BackgroundColor = [0.6 1 0.6]; % Visual cue (Light Green)
+                else
+                    % Start Mode OFF
+                    disp('Interaction Mode: None');
+                    app.BtnPickStart.BackgroundColor = [0.96 0.96 0.96]; % Default gray (simplified)
+                end
+
+            elseif src == app.BtnPickEntry
+                if app.BtnPickEntry.Value == true
+                    % Entry Mode ON
+                    app.BtnPickStart.Value = false; % Turn off the other
+                    disp('Interaction Mode: Set Entry Point');
+                end
+            end
+        end
+
+        function onGenerateGCode(app)
+            uialert(app.UIFigure, 'G-Code Generation not yet implemented.', 'Info');
+        end
+
+        % ===========================================================
         % MOUSE-DRAG ROTATION FOR 3D AXES
         % ===========================================================
         function onMouseDown(app,~,~)
@@ -2775,7 +2991,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.UIFigure.Color = t.sideBg;
 
             % All sidebar containers
-            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel};
+            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel};
 
             for i = 1:numel(sidebars)
                 container = sidebars{i};
