@@ -2519,7 +2519,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function refreshMachinePlot(app)
             % ===========================================================
-            % REFRESH MACHINE PLOT: Physical Bed, Cage, Towers and Wire Simulation
+            % REFRESH MACHINE PLOT: High-Fidelity Simulation
             % ===========================================================
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
@@ -2534,18 +2534,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if isDark
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
-                planeAlpha = 0.15; vioCol = [1 0.8 0]; % Amber/Orange for violations
-                successGreen = [0.4 1 0.4];
-                wireBaseCol  = [0.80 0.80 0.80]; % Half-way house wire color
-                modelEdgeCol = [0.85 0.85 0.85]; % Blueprint style edges
-                modelAlpha   = 0.35;
+                planeAlpha = 0.15; vioCol = [1 0.8 0]; successGreen = [0.4 1 0.4];
+                wireBaseCol  = [0.80 0.80 0.80]; modelAlpha = 0.35;
+                offWhite = [0.9 0.9 0.9]; % THE FOAM BOUNDARY COLOR
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
-                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; % Burnt Orange for violations
-                successGreen = [0 0.6 0];
-                wireBaseCol  = [0.15 0.15 0.15];
-                modelEdgeCol = [0.55 0.55 0.55];
-                modelAlpha   = 0.30;
+                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; successGreen = [0 0.6 0];
+                wireBaseCol  = [0.15 0.15 0.15]; modelAlpha = 0.30;
+                offWhite = [0.2 0.2 0.2]; % Dark grey for light mode target
             end
 
             % Constants for Machine workspace
@@ -2560,17 +2556,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
 
             % --- 2. PHYSICAL BED & CAGE ---
-            % The physical foam bed (solid grey block)
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2], 'HandleVisibility','off');
 
-            % The machine travel cage (dashed outline)
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+                'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3, 'HandleVisibility','off');
 
-            % --- 3. TOWER HEAD PLANES & LABELS ---
+            % --- 3. TOWER HEAD PLANES & LABELS (RESTORED) ---
             pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
                 'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--', 'HandleVisibility','off');
@@ -2582,94 +2576,81 @@ classdef HotWireSTEPApp_v6_2 < handle
             text(ax, (mX-offX), mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
                 'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
 
-            % --- 4. BILLET & MODEL VISUALISATION ---
-            % The Billet stock outline
+            % --- 4. BILLET & GHOST MODEL ---
             [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
-                'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8);
+                'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8, 'HandleVisibility','off');
 
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                % Model position combines Billet placement + Virtual shift
                 totalShift = bPlotPos + app.BilletShift;
                 Vplot = app.ModelPatch.Vertices + totalShift;
-
-                % Draw the faded/blueprint model
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
                     'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none', 'HandleVisibility','off');
 
-                % --- 5. WIRE SIMULATION AND TOWER PROJECTION ---
+                % --- 5. WIRE SIMULATION ---
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % a. Extract local coordinates
-                    yL_raw = app.LeftProfilePoints(:,2); zL_raw = app.LeftProfilePoints(:,3);
-                    yR_raw = app.RightProfilePoints(:,2); zR_raw = app.RightProfilePoints(:,3);
+                    % A. RAW OFF-WHITE PROFILES (The Foam Boundary)
+                    [ySyncL_raw, zSyncL_raw, ySyncR_raw, zSyncR_raw] = HotWireSTEPApp_v6_helpers.syncPointCounts(...\
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
-                    % b. APPLY KERF FIRST (Matches the 2D tab and keeps lengths predictable locally)
-                    yL_proc = yL_raw; zL_proc = zL_raw;
-                    yR_proc = yR_raw; zR_proc = zR_raw;
-                    if app.KerfEnabled && app.KerfValue > 0
-                        [yL_proc, zL_proc] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_raw, zL_raw, app.KerfValue);
-                        [yR_proc, zR_proc] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_raw, zR_raw, app.KerfValue);
-                    end
-
-                    % c. SYNC POINT COUNTS NOW (Fixes the "Arrays have incompatible sizes" error)
-                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_proc, zL_proc, yR_proc, zR_proc);
-
-                    % d. Map to World (Shifted into machine space)
-                    yL_world = ySyncL + totalShift(2); zL_world = zSyncL + totalShift(3);
-                    yR_world = ySyncR + totalShift(2); zR_world = zSyncR + totalShift(3);
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
-                    % e. Project to Machine Towers (Using absolute machine coordinates)
-                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
-                        yL_world, zL_world, xL_world + offX, ...\
-                        yR_world, zR_world, xR_world + offX, app.MachineSpanX);
+                    plot3(ax, xL_world * ones(size(ySyncL_raw)), ySyncL_raw + totalShift(2), zSyncL_raw + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
+                    plot3(ax, xR_world * ones(size(ySyncR_raw)), ySyncR_raw + totalShift(2), zSyncR_raw + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
 
-                    % Out of physical travel bounds check
-                    badL = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ);
-                    badR = (tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
-                    bad  = badL | badR; % combined violation
-                    if any(bad), isViolated = true; end
-
-                    % --- 6. RENDER SIMULATION ELEMENTS ---
-                    % Continuous paths on the tower planes
-                    plot3(ax, ones(size(tL.y))*(0-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.8);
-                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.8);
-
-                    % Individual wire segments (step through to avoid clutter)
-                    step = max(1, floor(numel(tL.y)/15));
-                    for i = 1:step:numel(tL.y)
-                        wCol = [wireBaseCol, 0.40]; % default fainted wire
-                        if bad(i), wCol = [vioCol, 0.7]; end % violation color
-                        plot3(ax, [0-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol, 'LineWidth', 0.5);
+                    % B. ORANGE KERF PROFILES (The Wire Path)
+                    yL_k = app.LeftProfilePoints(:,2); zL_k = app.LeftProfilePoints(:,3);
+                    yR_k = app.RightProfilePoints(:,2); zR_k = app.RightProfilePoints(:,3);
+                    if app.KerfEnabled && app.KerfValue > 0
+                        [yL_k, zL_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfValue);
+                        [yR_k, zR_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfValue);
                     end
 
-                    % BIG DOTS ON THE MODEL PROFILES
-                    plot3(ax, xL_world * ones(size(yL_world(1:step:end))), yL_world(1:step:end), zL_world(1:step:end), ...
-                        '.', 'Color', t.planeRed, 'MarkerSize', 11);
-                    plot3(ax, xR_world * ones(size(yR_world(1:step:end))), yR_world(1:step:end), zR_world(1:step:end), ...
-                        '.', 'Color', t.planeGreen, 'MarkerSize', 11);
+                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
 
-                    % Highlight Violation Points at Towers
-                    if any(badL), plot3(ax, ones(sum(badL),1)*(0-offX), tL.y(badL), tL.z(badL), '.', 'Color', vioCol, 'MarkerSize', 12); end
-                    if any(badR), plot3(ax, ones(sum(badR),1)*(mX-offX), tR.y(badR), tR.z(badR), '.', 'Color', vioCol, 'MarkerSize', 12); end
+                    plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
+                    plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
+
+                    % C. TOWER PROJECTION
+                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
+                        ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...\
+                        ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
+
+                    % Bounds check
+                    bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
+                    if any(bad), isViolated = true; end
+
+                    % Tower paths
+                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.8);
+                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.8);
+
+                    % Wire segments
+                    step = max(1, floor(numel(tL.y)/15));
+                    for i = 1:step:numel(tL.y)
+                        wCol = [wireBaseCol, 0.40]; if bad(i), wCol = [vioCol, 0.7]; end
+                        plot3(ax, [-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol, 'LineWidth', 0.5);
+                    end
+
+                    % D. RED/GREEN SYNC DOTS (RESTORED)
+                    plot3(ax, xL_world * ones(size(ySyncL(1:step:end))), ySyncL(1:step:end) + totalShift(2), zSyncL(1:step:end) + totalShift(3), ...
+                        '.', 'Color', t.planeRed, 'MarkerSize', 11);
+                    plot3(ax, xR_world * ones(size(ySyncR(1:step:end))), ySyncR(1:step:end) + totalShift(2), zSyncR(1:step:end) + totalShift(3), ...
+                        '.', 'Color', t.planeGreen, 'MarkerSize', 11);
                 end
             end
 
-            % --- 7. FINALIZE AXES ---
-            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
-            ax.BackgroundColor = bgCol;
+            % --- 6. FINALIZE AXES ---
+            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on'); ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
-
-            % Set canonical machine viewing frustum
             xlim(ax, [-offX - 100, mX - offX + 100]);
             ylim(ax, [-50, mLimY + 50]);
             zlim(ax, [-bs(3)-20, mLimZ + 80]);
 
-            % Final UI feedback
             if isViolated
                 app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
                 app.MachineMessageLabel.FontColor = [1 0.4 0.4];
@@ -2681,7 +2662,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineLeftPanel.BackgroundColor = t.sideBg;
                 app.BtnMachineContinue.Enable = 'on';
             end
-
             drawnow limitrate;
         end
 
