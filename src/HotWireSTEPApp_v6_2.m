@@ -2863,55 +2863,103 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function updateCuttingPlots(app)
-            % Visualizes the data on the Cutting Tab.
-            % Note: This relies on the Profiles Tab having generated data.
+            % Visualizes the data on the Cutting Tab in Machine Coordinates.
+            % Includes Billet outline and directional gradient.
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
-            % Clear Axes
+            % Clear Axes but preserve hold state for efficiency if needed
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
             t = app.getTheme();
 
-            % 1. Get Data (Prefer Kerf compensated if available, else raw)
+            % --- 1. Coordinate Transform Setup ---
+            % Calculate offset from Model-Local to Machine-Absolute
+            % P_machine = P_model_local + BilletShift + MachineBilletPos
+
+            % Note: LeftProfilePoints are already in Model Space (including X-plane offset)
+            % We only care about Y and Z for these 2D plots.
+
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+
+            % --- 2. Draw Billet Outline (Dashed) ---
+            % Billet Origin in Machine Space
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2);
+            bH = app.BilletSize(3);
+
+            % Rectangle points (Clockwise)
+            boxY = [bY, bY+bW, bY+bW, bY, bY];
+            boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
+
+            % Plot on both axes
+            plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
+            plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
+
+            % --- 3. Prepare Profile Data ---
             yL = []; zL = []; yR = []; zR = [];
 
             % Check if kerf enabled and valid
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
             if ~isempty(app.LeftProfilePoints)
-                yL = app.LeftProfilePoints(:,2);
-                zL = app.LeftProfilePoints(:,3);
+                rawY = app.LeftProfilePoints(:,2);
+                rawZ = app.LeftProfilePoints(:,3);
                 if useKerf
-                    [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
+                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
                 end
+                % Apply Machine Offset
+                yL = rawY + offsetY;
+                zL = rawZ + offsetZ;
             end
 
             if ~isempty(app.RightProfilePoints)
-                yR = app.RightProfilePoints(:,2);
-                zR = app.RightProfilePoints(:,3);
+                rawY = app.RightProfilePoints(:,2);
+                rawZ = app.RightProfilePoints(:,3);
                 if useKerf
-                    [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
+                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
                 end
+                % Apply Machine Offset
+                yR = rawY + offsetY;
+                zR = rawZ + offsetZ;
             end
 
-            % 2. Plot Left
-            if ~isempty(yL)
-                plot(app.AxCutLeft, yL, zL, 'Color', t.planeRed, 'LineWidth', 1.5, 'Marker','.');
-                % Highlight Start Point (Index 1)
-                plot(app.AxCutLeft, yL(1), zL(1), 'go', 'MarkerSize',10, 'LineWidth',2);
+            % --- 4. Plot Profiles with Gradient ---
+            % Helper function to plot gradient line
+            function plotGradient(ax, y, z)
+                if isempty(y), return; end
+                % Create color data (1 to N)
+                c = (1:numel(y))';
+                % Patch line with interpolated edge color
+                patch(ax, 'XData', [y; NaN], 'YData', [z; NaN], ...
+                    'CData', [c; NaN], ...
+                    'FaceColor', 'none', ...
+                    'EdgeColor', 'interp', ...
+                    'LineWidth', 2);
+
+                % Mark Start (Green) and End (Red x)
+                plot(ax, y(1), z(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
+                plot(ax, y(end), z(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
             end
 
-            % 3. Plot Right
-            if ~isempty(yR)
-                plot(app.AxCutRight, yR, zR, 'Color', t.planeGreen, 'LineWidth', 1.5, 'Marker','.');
-                % Highlight Start Point (Index 1)
-                plot(app.AxCutRight, yR(1), zR(1), 'go', 'MarkerSize',10, 'LineWidth',2);
-            end
+            plotGradient(app.AxCutLeft, yL, zL);
+            plotGradient(app.AxCutRight, yR, zR);
 
-            % 4. Formatting
-            axis(app.AxCutLeft, 'equal'); axis(app.AxCutRight, 'equal');
+            % --- 5. Formatting ---
+            % Titles need to indicate coordinates
+            title(app.AxCutLeft, 'Left Tower (Machine Coords)');
+            title(app.AxCutRight, 'Right Tower (Machine Coords)');
+
+            % Default view to Billet if first run, or maintain aspect
+            axis(app.AxCutLeft, 'equal');
+            axis(app.AxCutRight, 'equal');
+
+            % Add colormap for the gradient (Jet or Parula works well for flow)
+            colormap(app.AxCutLeft, 'turbo');
+            colormap(app.AxCutRight, 'turbo');
         end
 
         function onCutDirectionChanged(app)
@@ -2949,13 +2997,32 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetCuttingViewMachine(app)
-            % Placeholder: Will implement logic in next step
-            disp('Reset to Machine View');
+            % View 1: Machine Origin (0,0) at bottom left
+            % Fixed scale covering typical machine bed
+
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+
+            limits = [-50, mLimY+50, -50, mLimZ+50];
+
+            axis(app.AxCutLeft, limits);
+            axis(app.AxCutRight, limits);
         end
 
         function onResetCuttingViewBillet(app)
-            % Placeholder: Will implement logic in next step
-            disp('Reset to Billet View');
+            % View 2: Fit to Billet + Buffer
+
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2);
+            bH = app.BilletSize(3);
+
+            buffer = 50; % mm
+
+            limits = [bY-buffer, bY+bW+buffer, bZ-buffer, bZ+bH+buffer];
+
+            axis(app.AxCutLeft, limits);
+            axis(app.AxCutRight, limits);
         end
 
         % ===========================================================
