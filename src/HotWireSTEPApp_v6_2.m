@@ -1207,7 +1207,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutLeft.Layout.Row = 1;
             app.AxCutLeft.BackgroundColor = [0.11 0.11 0.11];
             % NEW: Attach Mouse Click Callback
-            app.AxCutLeft.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
             title(app.AxCutLeft, 'Left Profile Cut Path');
             xlabel(app.AxCutLeft,'Y'); ylabel(app.AxCutLeft,'Z');
             grid(app.AxCutLeft,'on');
@@ -1218,7 +1217,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutRight.Layout.Row = 2;
             app.AxCutRight.BackgroundColor = [0.11 0.11 0.11];
             % NEW: Attach Mouse Click Callback
-            app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
             title(app.AxCutRight, 'Right Profile Cut Path');
             xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
             grid(app.AxCutRight,'on');
@@ -2874,24 +2872,44 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updateCuttingPlots(app)
             % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % Applies Circular Shift based on Selected Start Point.
+            % Includes: View Persistence, Machine Bed, Ghost Profile,
+            % Billet/Machine Bounds, Gradient, Start/End Markers, and Legends.
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
+            % --- 1. View Persistence (Fix for resizing on click) ---
+            % If "Set Start" (Pick) mode is active, we preserve the current zoom/pan.
+            preserveView = app.BtnPickStart.Value;
+            limsL = []; limsR = [];
+            if preserveView
+                limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
+                limsR = [xlim(app.AxCutRight); ylim(app.AxCutRight)];
+            end
+
+            % Clear Axes
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
-            % --- 1. Coordinate Setup ---
+            % --- 2. Coordinate Setup ---
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % --- 2. Draw Bounds (HitTest off) ---
+            % --- 3. Draw Machine Bed (New) ---
+            % Bed is fixed: Y=50..750, Z=-20..0 (matches Machine Tab geometry)
+            bedY = [50, 750, 750, 50];
+            bedZ = [-20, -20, 0, 0];
+
+            patch(app.AxCutLeft, bedY, bedZ, [0.3 0.3 0.3], 'FaceAlpha', 0.5, 'EdgeColor', 'none', 'HitTest','off');
+            patch(app.AxCutRight, bedY, bedZ, [0.3 0.3 0.3], 'FaceAlpha', 0.5, 'EdgeColor', 'none', 'HitTest','off');
+
+            % --- 4. Draw Machine Bounds (Faint Dotted) ---
             mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
             mBoxY = [0, mLimY, mLimY, 0, 0]; mBoxZ = [0, 0, mLimZ, mLimZ, 0];
 
-            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1, 'HitTest','off');
-            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1, 'HitTest','off');
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.5 0.5 0.5], 'LineWidth', 1, 'HitTest','off');
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.5 0.5 0.5], 'LineWidth', 1, 'HitTest','off');
 
+            % --- 5. Draw Billet Outline (Dashed) ---
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2); bH = app.BilletSize(3);
             boxY = [bY, bY+bW, bY+bW, bY, bY]; boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
@@ -2899,36 +2917,67 @@ classdef HotWireSTEPApp_v6_2 < handle
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
 
-            % --- 3. Prepare Data ---
+            % --- 6. Prepare Data & Ghost Profiles ---
             yL = []; zL = []; yR = []; zR = [];
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
+            hGhostL = gobjects(0); hGhostR = gobjects(0);
+
+            % --- LEFT SIDE ---
             if ~isempty(app.LeftProfilePoints)
+                % A. Ghost (Raw Profile before Kerf)
                 rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
-                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                % Shift Ghost to Machine Coords
+                gY = rawY + offsetY; gZ = rawZ + offsetZ;
+                hGhostL = plot(app.AxCutLeft, gY, gZ, ':', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.5, 'HitTest','off');
+
+                % B. Kerf (Cooked Profile)
+                if useKerf
+                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
+                end
                 yL = rawY + offsetY; zL = rawZ + offsetZ;
 
-                % SHIFT LEFT (Wrap index if out of bounds)
-                if app.SelectedStartIdxL > numel(yL), app.SelectedStartIdxL = 1; end
-                % Shift so the selected index becomes index 1
-                yL = circshift(yL, -app.SelectedStartIdxL + 1);
-                zL = circshift(zL, -app.SelectedStartIdxL + 1);
+                % Gap Fix & Shift Logic
+                if numel(yL) > 2
+                    if abs(yL(1)-yL(end)) < 1e-6 && abs(zL(1)-zL(end)) < 1e-6
+                        yL(end) = []; zL(end) = [];
+                    end
+                    idx = app.SelectedStartIdxL;
+                    if idx > numel(yL), idx = 1; end
+                    yL = circshift(yL, -(idx - 1));
+                    zL = circshift(zL, -(idx - 1));
+                    yL(end+1) = yL(1); zL(end+1) = zL(1);
+                end
             end
 
+            % --- RIGHT SIDE ---
             if ~isempty(app.RightProfilePoints)
+                % A. Ghost
                 rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
-                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                gY = rawY + offsetY; gZ = rawZ + offsetZ;
+                hGhostR = plot(app.AxCutRight, gY, gZ, ':', 'Color', [0.7 0.7 0.7], 'LineWidth', 0.5, 'HitTest','off');
+
+                % B. Kerf
+                if useKerf
+                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
+                end
                 yR = rawY + offsetY; zR = rawZ + offsetZ;
 
-                % SHIFT RIGHT
-                if app.SelectedStartIdxR > numel(yR), app.SelectedStartIdxR = 1; end
-                yR = circshift(yR, -app.SelectedStartIdxR + 1);
-                zR = circshift(zR, -app.SelectedStartIdxR + 1);
+                % Gap Fix & Shift Logic
+                if numel(yR) > 2
+                    if abs(yR(1)-yR(end)) < 1e-6 && abs(zR(1)-zR(end)) < 1e-6
+                        yR(end) = []; zR(end) = [];
+                    end
+                    idx = app.SelectedStartIdxR;
+                    if idx > numel(yR), idx = 1; end
+                    yR = circshift(yR, -(idx - 1));
+                    zR = circshift(zR, -(idx - 1));
+                    yR(end+1) = yR(1); zR(end+1) = zR(1);
+                end
             end
 
-            % --- 4. Plot Profiles (HitTest off) ---
-            hStartL = gobjects(0); hStartR = gobjects(0);
-
+            % --- 7. Plot Profiles (Gradient + Markers) ---
+            hStartL = gobjects(0);
             if ~isempty(yL)
                 c = (1:numel(yL))';
                 patch(app.AxCutLeft, 'XData', [yL; NaN], 'YData', [zL; NaN], 'CData', [c; NaN], ...
@@ -2937,6 +2986,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot(app.AxCutLeft, yL(end), zL(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
+            hStartR = gobjects(0);
             if ~isempty(yR)
                 c = (1:numel(yR))';
                 patch(app.AxCutRight, 'XData', [yR; NaN], 'YData', [zR; NaN], 'CData', [c; NaN], ...
@@ -2945,19 +2995,38 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
-            % --- 5. Legends ---
-            handlesL = [hStartL, hBilletL, hMachL]; labelsL = {'Start Point', 'Billet', 'Limits'};
+            % --- 8. Legends ---
+            handlesL = [hStartL, hBilletL, hMachL, hGhostL];
+            labelsL  = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
             validL = isgraphics(handlesL);
-            if any(validL), lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast'); lgd.Box='off'; lgd.TextColor=[0.9 0.9 0.9]; end
+            if any(validL)
+                lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast');
+                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+            end
 
-            handlesR = [hStartR, hBilletR, hMachR]; labelsR = {'Start Point', 'Billet', 'Limits'};
+            handlesR = [hStartR, hBilletR, hMachR, hGhostR];
+            labelsR  = {'Start Point', 'Billet', 'Limits', 'Raw Profile'};
             validR = isgraphics(handlesR);
-            if any(validR), lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast'); lgd.Box='off'; lgd.TextColor=[0.9 0.9 0.9]; end
+            if any(validR)
+                lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast');
+                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+            end
 
-            % --- 6. Formatting ---
+            % --- 9. Final Formatting & Restore View ---
             title(app.AxCutLeft, 'Left Tower (Machine Coords)');
             title(app.AxCutRight, 'Right Tower (Machine Coords)');
-            colormap(app.AxCutLeft, 'turbo'); colormap(app.AxCutRight, 'turbo');
+            colormap(app.AxCutLeft, 'turbo');
+            colormap(app.AxCutRight, 'turbo');
+
+            if preserveView
+                % Restore previous limits
+                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
+                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
+            else
+                % Default fit
+                axis(app.AxCutLeft, 'equal');
+                axis(app.AxCutRight, 'equal');
+            end
         end
 
         function onCutDirectionChanged(app)
@@ -2967,25 +3036,41 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onInteractionStatsChanged(app, src)
-            % Handle mutual exclusivity manually for State Buttons
+            % Handle mutual exclusivity and Toggle Interaction Mode
 
             if src == app.BtnPickStart
                 if app.BtnPickStart.Value == true
-                    % Start Mode ON
-                    app.BtnPickEntry.Value = false; % Turn off the other
-                    disp('Interaction Mode: Set Start Point');
-                    app.BtnPickStart.BackgroundColor = [0.6 1 0.6]; % Visual cue (Light Green)
+                    % --- START MODE ON ---
+                    app.BtnPickEntry.Value = false;
+                    app.BtnPickStart.BackgroundColor = [0.6 1 0.6];
+
+                    % ENABLE CLICKING (Disables Pan/Zoom temporarily)
+                    app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
+                    app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
+
+                    % Change cursor to indicate picking
+                    app.UIFigure.Pointer = 'crosshair';
+                    disp('Interaction: Pick Start Point Enabled');
                 else
-                    % Start Mode OFF
-                    disp('Interaction Mode: None');
-                    app.BtnPickStart.BackgroundColor = [0.96 0.96 0.96]; % Default gray (simplified)
+                    % --- START MODE OFF ---
+                    app.BtnPickStart.BackgroundColor = [0.96 0.96 0.96];
+
+                    % RESTORE DEFAULT INTERACTIVITY (Pan/Zoom/Scroll)
+                    app.AxCutLeft.ButtonDownFcn  = [];
+                    app.AxCutRight.ButtonDownFcn = [];
+
+                    app.UIFigure.Pointer = 'arrow';
+                    disp('Interaction: None (Pan/Zoom Restored)');
                 end
 
             elseif src == app.BtnPickEntry
+                % (Placeholder for Entry logic - ensure Start is off)
                 if app.BtnPickEntry.Value == true
-                    % Entry Mode ON
-                    app.BtnPickStart.Value = false; % Turn off the other
-                    disp('Interaction Mode: Set Entry Point');
+                    app.BtnPickStart.Value = false;
+                    app.AxCutLeft.ButtonDownFcn  = []; % Reset for now
+                    app.AxCutRight.ButtonDownFcn = [];
+                    app.BtnPickStart.BackgroundColor = [0.96 0.96 0.96];
+                    app.UIFigure.Pointer = 'arrow';
                 end
             end
         end
@@ -3023,56 +3108,58 @@ classdef HotWireSTEPApp_v6_2 < handle
             axis(app.AxCutRight, limits);
         end
 
-        function onCutAxesClick(app, ax, evt, side)
+        function onCutAxesClick(app, ax, ~, side)
             % Handles clicks on the Cutting axes to set Start Points
 
-            % 1. Check if "Set Start" mode is active
-            if ~app.BtnPickStart.Value
-                return;
-            end
+            % 1. Get Click Coordinates (Machine Space)
+            cp = ax.CurrentPoint(1, 1:2);
+            clickY = cp(1); clickZ = cp(2);
 
-            % 2. Get Click Coordinates (Machine Space)
-            cp = ax.CurrentPoint(1, 1:2); % [y, z]
-            clickY = cp(1);
-            clickZ = cp(2);
-
-            % 3. Regenerate the plotted data (Machine Coordinates) to match click
-            %    (We must replicate the logic from updateCuttingPlots exactly)
+            % 2. Reconstruct Data for distance check
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
             yData = []; zData = [];
 
+            % Check side
             if strcmp(side, 'Left') && ~isempty(app.LeftProfilePoints)
                 rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
                 if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
-                yData = rawY + offsetY;
-                zData = rawZ + offsetZ;
+                yData = rawY + offsetY; zData = rawZ + offsetZ;
 
             elseif strcmp(side, 'Right') && ~isempty(app.RightProfilePoints)
                 rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
                 if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
-                yData = rawY + offsetY;
-                zData = rawZ + offsetZ;
+                yData = rawY + offsetY; zData = rawZ + offsetZ;
             end
 
             if isempty(yData), return; end
 
-            % 4. Find Nearest Point Index
+            % 3. Find Nearest Index
             distances = (yData - clickY).^2 + (zData - clickZ).^2;
             [~, minIdx] = min(distances);
 
-            % 5. Update State
-            if strcmp(side, 'Left')
+            % 4. Update State (With Straight Mode Logic)
+            isStraight = strcmp(app.TaperToggle.Value, 'Straight');
+
+            if isStraight
+                % Sync BOTH to the clicked index
                 app.SelectedStartIdxL = minIdx;
-                disp(['Left Start Point set to index: ' num2str(minIdx)]);
-            else
                 app.SelectedStartIdxR = minIdx;
-                disp(['Right Start Point set to index: ' num2str(minIdx)]);
+                disp(['Straight Mode: Both Start Points set to index ' num2str(minIdx)]);
+            else
+                % Independent
+                if strcmp(side, 'Left')
+                    app.SelectedStartIdxL = minIdx;
+                    disp(['Left Start Point set to index: ' num2str(minIdx)]);
+                else
+                    app.SelectedStartIdxR = minIdx;
+                    disp(['Right Start Point set to index: ' num2str(minIdx)]);
+                end
             end
 
-            % 6. Refresh Plot
+            % 5. Refresh
             app.updateCuttingPlots();
         end
 
