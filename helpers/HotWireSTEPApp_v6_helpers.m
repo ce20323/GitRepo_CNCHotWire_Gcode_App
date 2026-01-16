@@ -158,32 +158,32 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function [yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
-            % --- STEP 1: Geometric Alignment ---
-            % Ensure both loops start at the same relative physical "Nose" (Min Y)
+            % Align start points
             [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
             [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
-            % --- STEP 2: Calculate Normalized Arc Length ---
-            % We match points by % distance around the shape, NOT by point index.
+            % --- FIX: ENFORCE MATCHING WINDING ORDER ---
+            % We calculate the 'Signed Area'. If L is positive and R is negative,
+            % the wires will cross. We force both to be CCW.
+            areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
+            areaR = sum((yR(1:end-1).*zR(2:end)) - (yR(2:end).*zR(1:end-1)));
+
+            if sign(areaL) ~= sign(areaR)
+                yR = flipud(yR); zR = flipud(zR);
+                % Re-align nose after flip
+                [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+            end
+
+            % --- Standard Arc-Length Mapping ---
             distL = [0; cumsum(sqrt(diff(yL).^2 + diff(zL).^2))];
             distR = [0; cumsum(sqrt(diff(yR).^2 + diff(zR).^2))];
+            sL = distL / distL(end); sR = distR / distR(end);
 
-            totalL = distL(end);
-            totalR = distR(end);
-
-            sL = distL / totalL; % 0 to 1
-            sR = distR / totalR; % 0 to 1
-
-            % Determine how many points we need based on the larger profile
-            N = ceil(max(totalL, totalR) / tol);
-            N = max(N, 50); % Minimum resolution
+            N = ceil(max(distL(end), distR(end)) / tol);
+            N = max(N, 100);
             sTarget = linspace(0, 1, N)';
 
-            % --- STEP 3: Resample using Arc-Length Mapping ---
-            % This forces Point 10% on Left to meet Point 10% on Right
-            [sLu, iL] = unique(sL, 'stable');
-            [sRu, iR] = unique(sR, 'stable');
-
+            [sLu, iL] = unique(sL, 'stable'); [sRu, iR] = unique(sR, 'stable');
             yLS = interp1(sLu, yL(iL), sTarget, 'linear');
             zLS = interp1(sLu, zL(iL), sTarget, 'linear');
             yRS = interp1(sRu, yR(iR), sTarget, 'linear');
@@ -206,32 +206,89 @@ classdef HotWireSTEPApp_v6_helpers
             towerR.z = zL + (spanX - xL) .* (zR - zL) ./ (xR - xL);
         end
 
-        function [yK, zK] = offsetProfileLoop(yL, zL, kerf)
-            yK = yL; zK = zL; if kerf == 0, return; end
+        function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf)
+            % ===========================================================
+            % OFFSET PROFILE LOOP: Kerf compensation via polybuffer
+            % ===========================================================
+            % Default fallback to input
+            yo = yIn; zo = zIn;
+
+            % 1. Validation & Input Prep
+            if ~isfinite(kerf) || kerf == 0, return; end
+            y = yIn(:); z = zIn(:);
+
+            % Remove non-finite data
+            valid = isfinite(y) & isfinite(z);
+            y = y(valid); z = z(valid);
+            if numel(y) < 3, return; end
+
+            % 2. Pre-clean (Remove Mesh artifacts)
+            % Mesh slicing often creates tiny duplicate points.
+            % 'Unique' prevents the "Duplicate Vertices" warning at the source.
+            inputPoints = round([y, z], 8);
+            [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
+            y = y(uniqueIdx);
+            z = z(uniqueIdx);
+
+            % 3. Targeted Warning Suppression
+            % We silence 'all' inside this scope to ensure silence.
+            % onCleanup ensures warnings are restored even if the function crashes.
+            originalState = warning('off', 'all');
+            cleanupObj = onCleanup(@() warning(originalState));
+
             try
-                p = polyshape(yL, zL, 'Simplify', true);
-                pb = polybuffer(p, kerf);
-                regs = regions(pb); [~,idx] = max(area(regs));
-                [yK, zK] = boundary(regs(idx));
-            catch, end
+                % 4. Create Polyshape
+                pgon = polyshape(y, z, 'Simplify', true);
+                if pgon.NumRegions == 0, return; end
+
+                % 5. Perform Buffer (The Kerf Offset)
+                % polybuffer is the standard core MATLAB method
+                pgonOut = polybuffer(pgon, kerf);
+                if pgonOut.NumRegions == 0, return; end
+
+                % 6. Handle Multi-Region Results
+                % In case of complex kerf artifacts, keep the largest shape
+                if pgonOut.NumRegions > 1
+                    areaList = area(pgonOut.regions);
+                    [~, maxIdx] = max(areaList);
+                    pgonOut = pgonOut.regions(maxIdx);
+                end
+
+                % 7. Extract Final Boundary
+                % 'boundary' returns a closed loop [N+1 x 1]
+                [yo, zo] = boundary(pgonOut);
+
+            catch
+                % Silently fall back to input on failure
+                return;
+            end
+
+            % 8. Transpose back if necessary to match input
+            if isrow(yIn), yo = yo.'; zo = zo.'; end
         end
 
         function [y, z] = reorderLoopByMinY(y, z)
-            % Robustly finds the "Leading Edge" pole
-            % If multiple points have the same Min Y, it picks the mid-Z one
-            minY = min(y);
-            idxAll = find(abs(y - minY) < 1e-6);
-            if numel(idxAll) > 1
-                % Pick the point in the middle of the nose curve
-                [~, subIdx] = min(abs(z(idxAll) - mean(z(idxAll))));
-                idx = idxAll(subIdx);
+            % 1. Force to Column Vectors
+            y = y(:); z = z(:);
+
+            % 2. Remove tailing point duplicate for math
+            if numel(y) > 1 && abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
+                ytemp = y(1:end-1); ztemp = z(1:end-1);
             else
-                idx = idxAll(1);
+                ytemp = y; ztemp = z;
             end
-            y = [y(idx:end); y(1:idx-1)];
-            z = [z(idx:end); z(1:idx-1)];
-            % Close loop
-            y(end+1) = y(1); z(end+1) = z(1);
+
+            % 3. Find Geometric Centroid
+            cy = mean(ytemp);
+            [~, startIdx] = min(ytemp - cy);
+
+            % 4. Reorder (Using SEMICOLON for vertical concatenation)
+            y = [ytemp(startIdx:end); ytemp(1:startIdx-1)];
+            z = [ztemp(startIdx:end); ztemp(1:startIdx-1)];
+
+            % 5. Force exact closure
+            y(end+1) = y(1);
+            z(end+1) = z(1);
         end
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)

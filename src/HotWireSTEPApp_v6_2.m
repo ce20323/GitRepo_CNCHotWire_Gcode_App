@@ -2528,7 +2528,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function refreshMachinePlot(app)
             % ===========================================================
-            % REFRESH MACHINE PLOT: High-Fidelity Simulation
+            % REFRESH MACHINE PLOT: Spectrum Sync & High-Fidelity Sim
             % ===========================================================
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
@@ -2545,26 +2545,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
                 planeAlpha = 0.15; vioCol = [1 0.8 0]; successGreen = [0.4 1 0.4];
                 wireBaseCol  = [0.80 0.80 0.80]; modelAlpha = 0.35;
-                offWhite = [0.9 0.9 0.9]; % THE FOAM BOUNDARY COLOR
+                offWhite = [0.9 0.9 0.9];
             else
                 cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
                 planeAlpha = 0.08; vioCol = [0.8 0.4 0]; successGreen = [0 0.6 0];
                 wireBaseCol  = [0.15 0.15 0.15]; modelAlpha = 0.30;
-                offWhite = [0.2 0.2 0.2]; % Dark grey for light mode target
+                offWhite = [0.2 0.2 0.2];
             end
 
-            % Constants for Machine workspace
-            offX  = app.MachineBedPos(1);
-            mX    = app.MachineSpanX;
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-            bs    = app.MachineBedSize;
-            bp    = app.MachineBedPos;
+            offX = app.MachineBedPos(1); mX = app.MachineSpanX;
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize; bp = app.MachineBedPos;
 
-            % Map Billet origin to the Plot world
-            bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
-
-            % --- 2. PHYSICAL BED & CAGE ---
+            % --- 2. PHYSICAL BED & WORKSPACE CAGE ---
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2], 'HandleVisibility','off');
@@ -2573,92 +2566,100 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3, 'HandleVisibility','off');
 
-            % --- 3. TOWER HEAD PLANES & LABELS (RESTORED) ---
+            % --- 3. TOWER HEAD PLANES & LABELS ---
             pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '--', 'HandleVisibility','off');
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '-', 'HandleVisibility','off');
             patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '--', 'HandleVisibility','off');
+                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '-', 'HandleVisibility','off');
 
-            text(ax, (0-offX), mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, ...
-                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left');
-            text(ax, (mX-offX), mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, ...
-                'FontWeight', 'bold', 'FontSize', 10, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'right');
-
-            % --- 4. BILLET & GHOST MODEL ---
-            [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
-                'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8, 'HandleVisibility','off');
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold');
+            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right');
 
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
                 totalShift = bPlotPos + app.BilletShift;
+
+                % Draw Billet Outline
+                [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+                patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
+                    'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8, 'HandleVisibility','off');
+
+                % Draw Ghost Model
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
                     'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none', 'HandleVisibility','off');
 
-                % --- 5. WIRE SIMULATION ---
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % A. RAW OFF-WHITE PROFILES (The Foam Boundary)
-                    [ySyncL_raw, zSyncL_raw, ySyncR_raw, zSyncR_raw] = HotWireSTEPApp_v6_helpers.syncPointCounts(...\
-                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                    % 1. FOAM BOUNDARY (Dashed Off-white)
+                    [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...\
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...\
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
-                    plot3(ax, xL_world * ones(size(ySyncL_raw)), ySyncL_raw + totalShift(2), zSyncL_raw + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
-                    plot3(ax, xR_world * ones(size(ySyncR_raw)), ySyncR_raw + totalShift(2), zSyncR_raw + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
+                    plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
+                    plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
 
-                    % B. ORANGE KERF PROFILES (The Wire Path)
+                    % 2. KERF PATH (Actual wire movement - Solid Orange)
                     yL_k = app.LeftProfilePoints(:,2); zL_k = app.LeftProfilePoints(:,3);
                     yR_k = app.RightProfilePoints(:,2); zR_k = app.RightProfilePoints(:,3);
                     if app.KerfEnabled && app.KerfValue > 0
                         [yL_k, zL_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfValue);
                         [yR_k, zR_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfValue);
                     end
-
                     [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
 
                     plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
                     plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
 
-                    % C. TOWER PROJECTION
+                    % 3. TOWER HEAD PATHS (Solid Red/Green on the tower planes)
                     [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
                         ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...\
                         ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
-                    % Bounds check
+                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.2);
+                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.2);
+
+                    % --- 4. SPECTRUM SYNC DOTS & WIRE SEGMENTS ---
+                    % Generate colormap for the length of the sample
+                    step = max(1, floor(numel(tL.y)/20)); % Show ~20 wire segments
+                    idx = 1:step:numel(tL.y);
+                    if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
+
+                    % Use 'hsv' for high contrast start/end identification
+                    dotCMap = hsv(numel(idx));
+
                     bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
                     if any(bad), isViolated = true; end
 
-                    % Tower paths
-                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.8);
-                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.8);
+                    for k = 1:numel(idx)
+                        currIdx = idx(k);
+                        wCol = [wireBaseCol, 0.40]; if bad(currIdx), wCol = [vioCol, 0.7]; end
 
-                    % Wire segments
-                    step = max(1, floor(numel(tL.y)/15));
-                    for i = 1:step:numel(tL.y)
-                        wCol = [wireBaseCol, 0.40]; if bad(i), wCol = [vioCol, 0.7]; end
-                        plot3(ax, [-offX, mX-offX], [tL.y(i), tR.y(i)], [tL.z(i), tR.z(i)], 'Color', wCol, 'LineWidth', 0.5);
+                        % Draw the wire connecting Left Tower Head to Right Tower Head
+                        plot3(ax, [-offX, mX-offX], [tL.y(currIdx), tR.y(currIdx)], [tL.z(currIdx), tR.z(currIdx)], 'Color', wCol, 'LineWidth', 0.5);
+
+                        % Draw the Spectrum Dots (Paired by color to show indexing/sync)
+                        plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
+                        plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
                     end
 
-                    % D. RED/GREEN SYNC DOTS (RESTORED)
-                    plot3(ax, xL_world * ones(size(ySyncL(1:step:end))), ySyncL(1:step:end) + totalShift(2), zSyncL(1:step:end) + totalShift(3), ...
-                        '.', 'Color', t.planeRed, 'MarkerSize', 11);
-                    plot3(ax, xR_world * ones(size(ySyncR(1:step:end))), ySyncR(1:step:end) + totalShift(2), zSyncR(1:step:end) + totalShift(3), ...
-                        '.', 'Color', t.planeGreen, 'MarkerSize', 11);
+                    % --- 5. SYNC DEBUGGER ---
+                    vK = [ySyncR - ySyncL, zSyncR - zSyncL];
+                    kDrift = max(vK) - min(vK);
+                    fprintf('Machine Sync Debug: Y-Drift=%.4fmm, Z-Drift=%.4fmm\n', kDrift(1), kDrift(2));
                 end
             end
 
             % --- 6. FINALIZE AXES ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on'); ax.BackgroundColor = bgCol;
             set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
-            xlim(ax, [-offX - 100, mX - offX + 100]);
-            ylim(ax, [-50, mLimY + 50]);
-            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+            xlim(ax, [-offX - 100, mX - offX + 100]); ylim(ax, [-50, mLimY + 50]); zlim(ax, [-bs(3)-20, mLimZ + 80]);
 
             if isViolated
                 app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
