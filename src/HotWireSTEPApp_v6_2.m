@@ -1201,11 +1201,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             rightCol.RowHeight = {'1x','1x'};
             rightCol.Padding = [0 0 0 0];
             rightCol.RowSpacing = 10;
-
+            
             % Left Profile Plot
             app.AxCutLeft = uiaxes(rightCol);
             app.AxCutLeft.Layout.Row = 1;
             app.AxCutLeft.BackgroundColor = [0.11 0.11 0.11];
+            % NEW: Attach Mouse Click Callback
+            app.AxCutLeft.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
             title(app.AxCutLeft, 'Left Profile Cut Path');
             xlabel(app.AxCutLeft,'Y'); ylabel(app.AxCutLeft,'Z');
             grid(app.AxCutLeft,'on');
@@ -1215,6 +1217,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutRight = uiaxes(rightCol);
             app.AxCutRight.Layout.Row = 2;
             app.AxCutRight.BackgroundColor = [0.11 0.11 0.11];
+            % NEW: Attach Mouse Click Callback
+            app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
             title(app.AxCutRight, 'Right Profile Cut Path');
             xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
             grid(app.AxCutRight,'on');
@@ -1374,8 +1378,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value,'Tapered');
-            app.clearProfiles(); app.clearProfiles2D();
-
+            app.clearProfiles(); app.clearProfiles2D(); 
+            app.SelectedStartIdxL = 1; app.SelectedStartIdxR = 1;
             V = app.ModelPatch.Vertices; F = app.ModelPatch.Faces;
             spanX = max(V(:,1)) - min(V(:,1)); epsX = 1e-6 * max(spanX, 1);
 
@@ -2870,11 +2874,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updateCuttingPlots(app)
             % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % Includes Billet outline, Machine Bounds, Gradient, and Legend.
+            % Applies Circular Shift based on Selected Start Point.
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
-            % Clear Axes
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
@@ -2882,28 +2885,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % --- 2. Draw Machine Bounds ---
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-            mBoxY = [0, mLimY, mLimY, 0, 0];
-            mBoxZ = [0, 0, mLimZ, mLimZ, 0];
+            % --- 2. Draw Bounds (HitTest off) ---
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            mBoxY = [0, mLimY, mLimY, 0, 0]; mBoxZ = [0, 0, mLimZ, mLimZ, 0];
 
-            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
-            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1, 'HitTest','off');
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1, 'HitTest','off');
 
-            % --- 3. Draw Billet Outline ---
-            bY = app.MachineBilletPos(2);
-            bZ = app.MachineBilletPos(3);
-            bW = app.BilletSize(2);
-            bH = app.BilletSize(3);
+            bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2); bH = app.BilletSize(3);
+            boxY = [bY, bY+bW, bY+bW, bY, bY]; boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
 
-            boxY = [bY, bY+bW, bY+bW, bY, bY];
-            boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
+            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
+            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5, 'HitTest','off');
 
-            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5);
-            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5);
-
-            % --- 4. Prepare Data ---
+            % --- 3. Prepare Data ---
             yL = []; zL = []; yR = []; zR = [];
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
@@ -2911,57 +2907,57 @@ classdef HotWireSTEPApp_v6_2 < handle
                 rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
                 if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
                 yL = rawY + offsetY; zL = rawZ + offsetZ;
+
+                % SHIFT LEFT (Wrap index if out of bounds)
+                if app.SelectedStartIdxL > numel(yL), app.SelectedStartIdxL = 1; end
+                % Shift so the selected index becomes index 1
+                yL = circshift(yL, -app.SelectedStartIdxL + 1);
+                zL = circshift(zL, -app.SelectedStartIdxL + 1);
             end
 
             if ~isempty(app.RightProfilePoints)
                 rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
                 if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
                 yR = rawY + offsetY; zR = rawZ + offsetZ;
+
+                % SHIFT RIGHT
+                if app.SelectedStartIdxR > numel(yR), app.SelectedStartIdxR = 1; end
+                yR = circshift(yR, -app.SelectedStartIdxR + 1);
+                zR = circshift(zR, -app.SelectedStartIdxR + 1);
             end
 
-            % --- 5. Plot LEFT Tower ---
-            hStartL = gobjects(0);
+            % --- 4. Plot Profiles (HitTest off) ---
+            hStartL = gobjects(0); hStartR = gobjects(0);
+
             if ~isempty(yL)
                 c = (1:numel(yL))';
                 patch(app.AxCutLeft, 'XData', [yL; NaN], 'YData', [zL; NaN], 'CData', [c; NaN], ...
-                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2);
-                hStartL = plot(app.AxCutLeft, yL(1), zL(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
-                plot(app.AxCutLeft, yL(end), zL(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
+                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2, 'HitTest','off');
+                hStartL = plot(app.AxCutLeft, yL(1), zL(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g', 'HitTest','off');
+                plot(app.AxCutLeft, yL(end), zL(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
-            % --- 6. Plot RIGHT Tower ---
-            hStartR = gobjects(0);
             if ~isempty(yR)
                 c = (1:numel(yR))';
                 patch(app.AxCutRight, 'XData', [yR; NaN], 'YData', [zR; NaN], 'CData', [c; NaN], ...
-                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2);
-                hStartR = plot(app.AxCutRight, yR(1), zR(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
-                plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
+                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2, 'HitTest','off');
+                hStartR = plot(app.AxCutRight, yR(1), zR(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g', 'HitTest','off');
+                plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2, 'HitTest','off');
             end
 
-            % --- 7. Legends ---
-            handlesL = [hStartL, hBilletL, hMachL];
-            labelsL  = {'Cut Profile (Start)', 'Billet Bounds', 'Machine Limits'};
+            % --- 5. Legends ---
+            handlesL = [hStartL, hBilletL, hMachL]; labelsL = {'Start Point', 'Billet', 'Limits'};
             validL = isgraphics(handlesL);
-            if any(validL)
-                lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
-            end
+            if any(validL), lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast'); lgd.Box='off'; lgd.TextColor=[0.9 0.9 0.9]; end
 
-            handlesR = [hStartR, hBilletR, hMachR];
-            labelsR  = {'Cut Profile (Start)', 'Billet Bounds', 'Machine Limits'};
+            handlesR = [hStartR, hBilletR, hMachR]; labelsR = {'Start Point', 'Billet', 'Limits'};
             validR = isgraphics(handlesR);
-            if any(validR)
-                lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
-            end
+            if any(validR), lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast'); lgd.Box='off'; lgd.TextColor=[0.9 0.9 0.9]; end
 
-            % --- 8. Formatting ---
+            % --- 6. Formatting ---
             title(app.AxCutLeft, 'Left Tower (Machine Coords)');
             title(app.AxCutRight, 'Right Tower (Machine Coords)');
-            colormap(app.AxCutLeft, 'turbo');
-            colormap(app.AxCutRight, 'turbo');
-
+            colormap(app.AxCutLeft, 'turbo'); colormap(app.AxCutRight, 'turbo');
         end
 
         function onCutDirectionChanged(app)
@@ -3025,6 +3021,59 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             axis(app.AxCutLeft, limits);
             axis(app.AxCutRight, limits);
+        end
+
+        function onCutAxesClick(app, ax, evt, side)
+            % Handles clicks on the Cutting axes to set Start Points
+
+            % 1. Check if "Set Start" mode is active
+            if ~app.BtnPickStart.Value
+                return;
+            end
+
+            % 2. Get Click Coordinates (Machine Space)
+            cp = ax.CurrentPoint(1, 1:2); % [y, z]
+            clickY = cp(1);
+            clickZ = cp(2);
+
+            % 3. Regenerate the plotted data (Machine Coordinates) to match click
+            %    (We must replicate the logic from updateCuttingPlots exactly)
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            useKerf = app.KerfEnabled && app.KerfValue > 0;
+
+            yData = []; zData = [];
+
+            if strcmp(side, 'Left') && ~isempty(app.LeftProfilePoints)
+                rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                yData = rawY + offsetY;
+                zData = rawZ + offsetZ;
+
+            elseif strcmp(side, 'Right') && ~isempty(app.RightProfilePoints)
+                rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                yData = rawY + offsetY;
+                zData = rawZ + offsetZ;
+            end
+
+            if isempty(yData), return; end
+
+            % 4. Find Nearest Point Index
+            distances = (yData - clickY).^2 + (zData - clickZ).^2;
+            [~, minIdx] = min(distances);
+
+            % 5. Update State
+            if strcmp(side, 'Left')
+                app.SelectedStartIdxL = minIdx;
+                disp(['Left Start Point set to index: ' num2str(minIdx)]);
+            else
+                app.SelectedStartIdxR = minIdx;
+                disp(['Right Start Point set to index: ' num2str(minIdx)]);
+            end
+
+            % 6. Refresh Plot
+            app.updateCuttingPlots();
         end
 
         % ===========================================================
