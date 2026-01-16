@@ -43,7 +43,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MachineLimitZ  = 500;  % Total Z travel [mm]
         MachineBedSize   = [1000, 700, 20]  % Physical dimensions [L, W, H]
         MachineBedPos    = [50, 50, -20]      % Bed origin relative to machine 0,0,0
-        
+
         % --- Placement Rules ---
         BilletMinYBuffer = 50.0; % Distance from front/home
         BilletRoundingY  = 10.0; % Round to nearest 10mm
@@ -211,7 +211,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetMachinePlot
         BtnMachineContinue
         MachineMessageLabel
-        
+
         % ---------- Cutting / Passes Tab ----------
         TabCutting
         GLCutting
@@ -229,7 +229,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         SelectedStartIdxL = 1  % Index in the profile array
         SelectedStartIdxR = 1
         CutDirection = 'CW'    % 'CW' or 'CCW'
-        
+
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -569,7 +569,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSizeMinusBtns  = gobjects(1,3);
             app.BilletSizePlusBtns   = gobjects(1,3);
             app.BilletModelDimLabels = gobjects(1,3);
-            
+
             t_init = app.getTheme(); % Get the colors defined in getTheme
 
             for i = 1:3
@@ -772,9 +772,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % STRAIGHT / TAPER SWITCH (Fixed Background + Faint Border)
             % -------------------------------------------------------
             cutPanel = uipanel(app.GLLeft, ...
-                'BackgroundColor', sideBg, ... 
+                'BackgroundColor', sideBg, ...
                 'BorderType', 'line', ... % Adds the faint border
-                'Title', ''); 
+                'Title', '');
             cutPanel.Layout.Row = 5;
 
             cutGrid = uigridlayout(cutPanel,[1 3]);
@@ -782,9 +782,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             cutGrid.Padding     = [10 0 10 0];
             cutGrid.RowSpacing  = 0;
             cutGrid.ColumnSpacing = 0;
-            
+
             % Match the panel color exactly to avoid the error
-            cutGrid.BackgroundColor = sideBg; 
+            cutGrid.BackgroundColor = sideBg;
 
             spL = uilabel(cutGrid,'Text',"");
             spL.Layout.Column = 1;
@@ -1097,7 +1097,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxMachine, 'X'); ylabel(app.AxMachine, 'Y'); zlabel(app.AxMachine, 'Z');
             grid(app.AxMachine, 'on'); view(app.AxMachine, 3);
             hold(app.AxMachine, 'on');
-            
+
             % ===========================================================
             % CUTTING TAB
             % ===========================================================
@@ -1221,7 +1221,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutRight.DataAspectRatio = [1 1 1];
 
             app.applyTheme();
-        
+
         end
 
         % ===========================================================
@@ -1728,15 +1728,18 @@ classdef HotWireSTEPApp_v6_2 < handle
         %         app.UIFigure.WindowButtonUpFcn     = [];
         %     end
         % end
-        
+
         function onTabChanged(app, ~, evt)
             % Standard tab house-keeping
             if evt.NewValue == app.TabBillet
                 app.syncBilletUI();
                 app.refreshBilletPlots();
             elseif evt.NewValue == app.TabMachine
-                % Force auto-refresh of machine placement on entry
                 app.onResetMachineBilletPosition();
+            elseif evt.NewValue == app.TabCutting
+                % NEW: Handle Cutting Tab entry
+                app.updateCuttingPlots();
+                app.onResetCuttingViewBillet();
             end
         end
 
@@ -2338,10 +2341,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif currTab == app.TabMachine
                 % Transition Machine -> Cutting
                 app.TabGroup.SelectedTab = app.TabCutting;
+
+                % Update plots and Force Default View (Billet)
                 app.updateCuttingPlots();
+                app.onResetCuttingViewBillet();
 
             elseif currTab == app.TabCutting
-                % Final Step
+                % Final Step: Generate G-Code (Placeholder)
                 app.onGenerateGCode();
             end
         end
@@ -2626,20 +2632,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                 [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
                     app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
-                
+
                 xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
                 xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
-                
+
                 % --- FIX: Added app.MachineSpanX as the 7th argument ---
                 [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                     yL + app.MachineBilletPos(2) + app.BilletShift(2), zL, xL_mach, ...
                     yR + app.MachineBilletPos(2) + app.BilletShift(2), zR, xR_mach, ...
-                    app.MachineSpanX); 
-                
+                    app.MachineSpanX);
+
                 minProjZ = min([tL.z; tR.z]);
                 if minProjZ < 0
                     lifts = [50, 75, 100];
-                    idx = find(lifts >= abs(minProjZ) + 5, 1, 'first'); 
+                    idx = find(lifts >= abs(minProjZ) + 5, 1, 'first');
                     if ~isempty(idx), app.MachineBilletPos(3) = lifts(idx); end
                 end
             end
@@ -2857,109 +2863,105 @@ classdef HotWireSTEPApp_v6_2 < handle
             towerR.y = profileL.y + (spanX - xL) .* (profileR.y - profileL.y) ./ (xB - xL);
             towerR.z = profileL.z + (spanX - xL) .* (profileR.z - profileL.z) ./ (xB - xL);
         end
-        
+
         % ===========================================================
         % CUTTING TAB LOGIC
         % ===========================================================
 
         function updateCuttingPlots(app)
             % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % Includes Billet outline and directional gradient.
+            % Includes Billet outline, Machine Bounds, Gradient, and Legend.
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
 
-            % Clear Axes but preserve hold state for efficiency if needed
+            % Clear Axes
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
-            t = app.getTheme();
-
-            % --- 1. Coordinate Transform Setup ---
-            % Calculate offset from Model-Local to Machine-Absolute
-            % P_machine = P_model_local + BilletShift + MachineBilletPos
-
-            % Note: LeftProfilePoints are already in Model Space (including X-plane offset)
-            % We only care about Y and Z for these 2D plots.
-
+            % --- 1. Coordinate Setup ---
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % --- 2. Draw Billet Outline (Dashed) ---
-            % Billet Origin in Machine Space
+            % --- 2. Draw Machine Bounds ---
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            mBoxY = [0, mLimY, mLimY, 0, 0];
+            mBoxZ = [0, 0, mLimZ, mLimZ, 0];
+
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', 1);
+
+            % --- 3. Draw Billet Outline ---
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
 
-            % Rectangle points (Clockwise)
             boxY = [bY, bY+bW, bY+bW, bY, bY];
             boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
 
-            % Plot on both axes
-            plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
-            plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
+            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5);
+            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.5);
 
-            % --- 3. Prepare Profile Data ---
+            % --- 4. Prepare Data ---
             yL = []; zL = []; yR = []; zR = [];
-
-            % Check if kerf enabled and valid
             useKerf = app.KerfEnabled && app.KerfValue > 0;
 
             if ~isempty(app.LeftProfilePoints)
-                rawY = app.LeftProfilePoints(:,2);
-                rawZ = app.LeftProfilePoints(:,3);
-                if useKerf
-                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
-                end
-                % Apply Machine Offset
-                yL = rawY + offsetY;
-                zL = rawZ + offsetZ;
+                rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                yL = rawY + offsetY; zL = rawZ + offsetZ;
             end
 
             if ~isempty(app.RightProfilePoints)
-                rawY = app.RightProfilePoints(:,2);
-                rawZ = app.RightProfilePoints(:,3);
-                if useKerf
-                    [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
-                end
-                % Apply Machine Offset
-                yR = rawY + offsetY;
-                zR = rawZ + offsetZ;
+                rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
+                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
+                yR = rawY + offsetY; zR = rawZ + offsetZ;
             end
 
-            % --- 4. Plot Profiles with Gradient ---
-            % Helper function to plot gradient line
-            function plotGradient(ax, y, z)
-                if isempty(y), return; end
-                % Create color data (1 to N)
-                c = (1:numel(y))';
-                % Patch line with interpolated edge color
-                patch(ax, 'XData', [y; NaN], 'YData', [z; NaN], ...
-                    'CData', [c; NaN], ...
-                    'FaceColor', 'none', ...
-                    'EdgeColor', 'interp', ...
-                    'LineWidth', 2);
-
-                % Mark Start (Green) and End (Red x)
-                plot(ax, y(1), z(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
-                plot(ax, y(end), z(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
+            % --- 5. Plot LEFT Tower ---
+            hStartL = gobjects(0);
+            if ~isempty(yL)
+                c = (1:numel(yL))';
+                patch(app.AxCutLeft, 'XData', [yL; NaN], 'YData', [zL; NaN], 'CData', [c; NaN], ...
+                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2);
+                hStartL = plot(app.AxCutLeft, yL(1), zL(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
+                plot(app.AxCutLeft, yL(end), zL(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
             end
 
-            plotGradient(app.AxCutLeft, yL, zL);
-            plotGradient(app.AxCutRight, yR, zR);
+            % --- 6. Plot RIGHT Tower ---
+            hStartR = gobjects(0);
+            if ~isempty(yR)
+                c = (1:numel(yR))';
+                patch(app.AxCutRight, 'XData', [yR; NaN], 'YData', [zR; NaN], 'CData', [c; NaN], ...
+                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2);
+                hStartR = plot(app.AxCutRight, yR(1), zR(1), 'go', 'MarkerSize', 8, 'LineWidth', 2, 'MarkerFaceColor','g');
+                plot(app.AxCutRight, yR(end), zR(end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
+            end
 
-            % --- 5. Formatting ---
-            % Titles need to indicate coordinates
+            % --- 7. Legends ---
+            handlesL = [hStartL, hBilletL, hMachL];
+            labelsL  = {'Cut Profile (Start)', 'Billet Bounds', 'Machine Limits'};
+            validL = isgraphics(handlesL);
+            if any(validL)
+                lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast');
+                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+            end
+
+            handlesR = [hStartR, hBilletR, hMachR];
+            labelsR  = {'Cut Profile (Start)', 'Billet Bounds', 'Machine Limits'};
+            validR = isgraphics(handlesR);
+            if any(validR)
+                lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast');
+                lgd.Box = 'off'; lgd.TextColor = [0.9 0.9 0.9];
+            end
+
+            % --- 8. Formatting ---
             title(app.AxCutLeft, 'Left Tower (Machine Coords)');
             title(app.AxCutRight, 'Right Tower (Machine Coords)');
-
-            % Default view to Billet if first run, or maintain aspect
-            axis(app.AxCutLeft, 'equal');
-            axis(app.AxCutRight, 'equal');
-
-            % Add colormap for the gradient (Jet or Parula works well for flow)
             colormap(app.AxCutLeft, 'turbo');
             colormap(app.AxCutRight, 'turbo');
+
         end
 
         function onCutDirectionChanged(app)
@@ -3142,43 +3144,43 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Central source for all App Colors
             if app.UIFigure.Color(1) < 0.5
                 % DARK THEME
-                th.sideBg      = [0.16 0.16 0.16]; 
-                th.panelBg     = [0.12 0.12 0.12]; 
+                th.sideBg      = [0.16 0.16 0.16];
+                th.panelBg     = [0.12 0.12 0.12];
                 th.labelCol    = [0.90 0.90 0.90];
                 th.accentBg    = [0.30 0.35 0.45]; % Muted blue-grey for Dark
                 th.editBg      = [0.24 0.24 0.24]; % Darker box for inputs
-                th.editTxt     = [1.00 1.00 1.00]; % White text 
+                th.editTxt     = [1.00 1.00 1.00]; % White text
                 th.readoutBg   = [0.7 0.7 0.7]; % Fixed Pale Grey
-                th.readoutTxt  = [0.2 0.2 0.2];   
-                th.inputBg     = [1.00 1.00 1.00]; 
-                th.inputTxt    = [0.00 0.00 0.00]; 
-                
+                th.readoutTxt  = [0.2 0.2 0.2];
+                th.inputBg     = [1.00 1.00 1.00];
+                th.inputTxt    = [0.00 0.00 0.00];
+
                 th.planeRed    = [0.96 0.06 0.06];
                 th.planeGreen  = [0.20 1.00 0.35];
                 th.planeRedTxt = [0.96 0.40 0.40];
                 th.planeGreenTxt = [0.40 1.00 0.50];
-                
+
                 th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
                 th.wireNeutral = [0.80 0.80 0.80]; % White/Grey for Machining View
                 th.rawMeshCol  = [0.50 0.50 0.50]; % Dull grey for mesh slices
             else
                 % LIGHT THEME
-                th.sideBg      = [0.96 0.96 0.96]; 
-                th.panelBg     = [0.90 0.90 0.90]; 
+                th.sideBg      = [0.96 0.96 0.96];
+                th.panelBg     = [0.90 0.90 0.90];
                 th.labelCol    = [0.15 0.15 0.15];
                 th.accentBg    = [0.70 0.70 0.80]; % Classic blue-grey for Light
                 th.editBg      = [1.00 1.00 1.00]; % Pure white box for inputs
                 th.editTxt     = [0.00 0.00 0.00]; % Black text
                 th.readoutBg   = [0.4 0.4 0.4]; % Fixed Pale Grey
-                th.readoutTxt  = [0.7 0.7 0.7];    
+                th.readoutTxt  = [0.7 0.7 0.7];
                 th.inputBg     = [1.00 1.00 1.00];
                 th.inputTxt    = [0.00 0.00 0.00];
-                
+
                 th.planeRed    = [0.80 0.00 0.00];
                 th.planeGreen  = [0.00 0.60 0.00];
                 th.planeRedTxt = [0.60 0.00 0.00];
                 th.planeGreenTxt = [0.00 0.40 0.00];
-                
+
                 th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
                 th.wireNeutral = [0.20 0.20 0.20]; % Black/Dark Grey for Machining View
                 th.rawMeshCol  = [0.70 0.70 0.70];
