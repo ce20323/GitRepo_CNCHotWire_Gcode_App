@@ -158,30 +158,36 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function [yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
-            % Forces both profiles to have the same point count for tapered cuts.
-            yLS = []; zLS = []; yRS = []; zRS = [];
-            if isempty(yL) || isempty(yR), return; end
+            % --- STEP 1: Geometric Alignment ---
+            % Ensure both loops start at the same relative physical "Nose" (Min Y)
+            [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+            [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
-            % 1. Arc length calculations along each geometry (appending closure point)
-            yL_e = [yL(:); yL(1)]; zL_e = [zL(:); zL(1)];
-            yR_e = [yR(:); yR(1)]; zR_e = [zR(:); zR(1)];
+            % --- STEP 2: Calculate Normalized Arc Length ---
+            % We match points by % distance around the shape, NOT by point index.
+            distL = [0; cumsum(sqrt(diff(yL).^2 + diff(zL).^2))];
+            distR = [0; cumsum(sqrt(diff(yR).^2 + diff(zR).^2))];
 
-            sL = [0; cumsum(hypot(diff(yL_e), diff(zL_e)))];
-            sR = [0; cumsum(hypot(diff(yR_e), diff(zR_e)))];
+            totalL = distL(end);
+            totalR = distR(end);
 
-            % 2. Determine target count N
-            N = max([round(sL(end)/tol), round(sR(end)/tol), 50]);
-            N = min(N, 20000);
+            sL = distL / totalL; % 0 to 1
+            sR = distR / totalR; % 0 to 1
 
-            % 3. Identify unique samples (prevents "Sample points must be unique" error)
+            % Determine how many points we need based on the larger profile
+            N = ceil(max(totalL, totalR) / tol);
+            N = max(N, 50); % Minimum resolution
+            sTarget = linspace(0, 1, N)';
+
+            % --- STEP 3: Resample using Arc-Length Mapping ---
+            % This forces Point 10% on Left to meet Point 10% on Right
             [sLu, iL] = unique(sL, 'stable');
             [sRu, iR] = unique(sR, 'stable');
 
-            % 4. Interpolation to exactly N points
-            yLS = interp1(sLu, yL_e(iL), linspace(0, sL(end), N).', 'linear');
-            zLS = interp1(sLu, zL_e(iL), linspace(0, sL(end), N).', 'linear');
-            yRS = interp1(sRu, yR_e(iR), linspace(0, sR(end), N).', 'linear');
-            zRS = interp1(sRu, zR_e(iR), linspace(0, sR(end), N).', 'linear');
+            yLS = interp1(sLu, yL(iL), sTarget, 'linear');
+            zLS = interp1(sLu, zL(iL), sTarget, 'linear');
+            yRS = interp1(sRu, yR(iR), sTarget, 'linear');
+            zRS = interp1(sRu, zR(iR), sTarget, 'linear');
         end
 
         function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
@@ -210,12 +216,22 @@ classdef HotWireSTEPApp_v6_helpers
             catch, end
         end
 
-        function [yOut, zOut] = reorderLoopByMinY(yIn, zIn)
-            yIn = yIn(:); zIn = zIn(:);
-            if hypot(yIn(end)-yIn(1), zIn(end)-zIn(1)) < 1e-9, yIn=yIn(1:end-1); zIn=zIn(1:end-1); end
-            [~, idx] = min(yIn); 
-            yOut = [yIn(idx:end); yIn(1:idx-1); yIn(idx)];
-            zOut = [zIn(idx:end); zIn(1:idx-1); zIn(idx)];
+        function [y, z] = reorderLoopByMinY(y, z)
+            % Robustly finds the "Leading Edge" pole
+            % If multiple points have the same Min Y, it picks the mid-Z one
+            minY = min(y);
+            idxAll = find(abs(y - minY) < 1e-6);
+            if numel(idxAll) > 1
+                % Pick the point in the middle of the nose curve
+                [~, subIdx] = min(abs(z(idxAll) - mean(z(idxAll))));
+                idx = idxAll(subIdx);
+            else
+                idx = idxAll(1);
+            end
+            y = [y(idx:end); y(1:idx-1)];
+            z = [z(idx:end); z(1:idx-1)];
+            % Close loop
+            y(end+1) = y(1); z(end+1) = z(1);
         end
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB)

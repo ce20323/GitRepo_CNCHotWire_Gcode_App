@@ -25,7 +25,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MaxProfileTolerance     (1,1) double = 5.0;   % [mm]
 
         % -------- Kerf / wire offset defaults --------
-        DefaultKerf (1,1) double = 0.5;   % [mm]
+        DefaultKerf (1,1) double = 0.8;   % [mm]
         MinKerf     (1,1) double = 0.0;   % [mm]
         MaxKerf     (1,1) double = 5.0;   % [mm]
 
@@ -1298,6 +1298,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
             drawnow limitrate nocallbacks;
+
+            % --- FINAL SYNC DIAGNOSTIC ---
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                v = app.RightProfilePoints(:,2:3) - app.LeftProfilePoints(:,2:3);
+                % On a straight model, the variance in this vector should be near ZERO
+                drift = max(v) - min(v);
+                fprintf('Sync Debug: Points=%d, Y-Drift=%.4fmm, Z-Drift=%.4fmm\n', ...
+                    size(v,1), drift(1), drift(2));
+            end
         end
 
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
