@@ -1109,33 +1109,48 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLCutting.ColumnSpacing = 10;
 
             % --- Left Control Column ---
-            app.CuttingLeftPanel = uigridlayout(app.GLCutting, [6 1]);
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','1x','fit','fit'};
+            % INCREASED ROWS: 6 -> 7 to accommodate the new top panel
+            app.CuttingLeftPanel = uigridlayout(app.GLCutting, [7 1]);
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit'};
             app.CuttingLeftPanel.Padding = [10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
 
-            % 1. Direction Strategy Panel
+            % 1. View Controls (NEW)
+            viewPanel = uipanel(app.CuttingLeftPanel, 'Title','Plot View', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            viewPanel.Layout.Row = 1;
+
+            viewGrid = uigridlayout(viewPanel, [1 2]);
+            viewGrid.Padding = [5 5 5 5];
+            viewGrid.ColumnSpacing = 5;
+
+            uibutton(viewGrid, 'Text','Machine View', ...
+                'ButtonPushedFcn', @(~,~)app.onResetCuttingViewMachine());
+
+            uibutton(viewGrid, 'Text','Billet View', ...
+                'ButtonPushedFcn', @(~,~)app.onResetCuttingViewBillet());
+
+            % 2. Direction Strategy Panel (Shifted to Row 2)
             dirPanel = uipanel(app.CuttingLeftPanel, 'Title','Cutting Direction', ...
                 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            dirPanel.Layout.Row = 1;
+            dirPanel.Layout.Row = 2;
 
-            dirGrid = uigridlayout(dirPanel, [2 1]);
-            dirGrid.RowHeight = {'fit','fit'};
-            dirGrid.Padding = [10 5 10 5];
+            dirGrid = uigridlayout(dirPanel, [1 1]); % Removed extra row for label
+            dirGrid.RowHeight = {'fit'};
+            dirGrid.Padding = [10 10 10 10];
 
-            lblDir = uilabel(dirGrid, 'Text','Winding Order:', 'FontColor',labelCol);
-            lblDir.Layout.Row = 1;
+            % Removed 'lblDir' (Winding Order label) as requested
 
             app.SwitchCutDir = uiswitch(dirGrid, 'slider', ...
                 'Items', {'Top First (CW)', 'Bottom First (CCW)'}, ...
                 'Value', 'Top First (CW)', ...
                 'ValueChangedFcn', @(~,~)app.onCutDirectionChanged());
-            app.SwitchCutDir.Layout.Row = 2;
+            % app.SwitchCutDir.Layout.Row no longer needed if grid is [1 1]
 
-            % 2. Interaction Mode Panel (FIXED)
+            % 3. Interaction Mode Panel (Shifted to Row 3)
             interPanel = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', ...
                 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            interPanel.Layout.Row = 2;
+            interPanel.Layout.Row = 3;
 
             interGrid = uigridlayout(interPanel, [2 1]);
             interGrid.RowHeight = {'fit','fit'};
@@ -1166,17 +1181,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Column = 2;
 
-            % Spacer
+            % Spacer (Row 4)
             spCut = uilabel(app.CuttingLeftPanel, 'Text','');
             spCut.Layout.Row = 4;
 
-            % Generate G-Code Button (Placeholder)
+            % Spacer (Row 5 is the '1x' spring)
+
+            % Generate G-Code Button (Shifted to Bottom)
             btnGenG = uibutton(app.CuttingLeftPanel, ...
                 'Text','Generate G-Code', ...
                 'FontWeight','bold', ...
                 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn', @(~,~)app.onGenerateGCode());
-            btnGenG.Layout.Row = 6;
+            btnGenG.Layout.Row = 7;
 
             % --- Right Column: 2D Plots ---
             rightCol = uigridlayout(app.GLCutting, [2 1]);
@@ -2929,6 +2946,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onGenerateGCode(app)
             uialert(app.UIFigure, 'G-Code Generation not yet implemented.', 'Info');
+        end
+
+        function onResetCuttingViewMachine(app)
+            % Placeholder: Will implement logic in next step
+            disp('Reset to Machine View');
+        end
+
+        function onResetCuttingViewBillet(app)
+            % Placeholder: Will implement logic in next step
+            disp('Reset to Billet View');
         end
 
         % ===========================================================
