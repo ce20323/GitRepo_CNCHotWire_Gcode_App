@@ -236,7 +236,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         EntryPointR = []
 
         % UI Elements
-        cbSyncStart
+        SwitchSyncStart  % Toggle: Coupled / Independent
         btnAutoStart
         btnAutoEntry
 
@@ -1116,138 +1116,175 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxMachine, 'on');
 
             % ===========================================================
-            % CUTTING TAB
+            % CUTTING STRATEGY TAB
             % ===========================================================
             app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
-
+            
             app.GLCutting = uigridlayout(app.TabCutting, [1 2]);
-            app.GLCutting.ColumnWidth = {320, '1x'};
-            app.GLCutting.Padding = [10 10 10 10];
+            app.GLCutting.ColumnWidth   = {320, '1x'};
+            app.GLCutting.Padding       = [10 10 10 10];
             app.GLCutting.ColumnSpacing = 10;
-
+            
             % --- Left Control Column ---
-            % INCREASED ROWS: 6 -> 7 to accommodate the new top panel
             app.CuttingLeftPanel = uigridlayout(app.GLCutting, [7 1]);
+            % Rows: View(1), Auto(2), Modes(3), Interaction(4), Spacer(5), Msg(6), Generate(7)
             app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit'};
-            app.CuttingLeftPanel.Padding = [10 10 10 10];
+            app.CuttingLeftPanel.Padding   = [10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
-
-            % 1. View Controls (NEW)
-            viewPanel = uipanel(app.CuttingLeftPanel, 'Title','Plot View', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            
+            % -------------------------------------------------------
+            % 1. VIEW CONTROLS PANEL
+            % -------------------------------------------------------
+            viewPanel = uipanel(app.CuttingLeftPanel, ...
+                'Title','View', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, ...
+                'FontWeight', 'bold', ...
+                'BorderType', 'line');
             viewPanel.Layout.Row = 1;
-
+            
             viewGrid = uigridlayout(viewPanel, [1 2]);
             viewGrid.Padding = [5 5 5 5];
             viewGrid.ColumnSpacing = 5;
-
-            uibutton(viewGrid, 'Text','Machine View', ...
+            viewGrid.BackgroundColor = panelBg;
+            
+            btnViewM = uibutton(viewGrid, ...
+                'Text', 'Machine View', ...
+                'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onResetCuttingViewMachine());
-
-            uibutton(viewGrid, 'Text','Billet View', ...
+            btnViewM.Layout.Column = 1;
+            
+            btnViewB = uibutton(viewGrid, ...
+                'Text', 'Billet View', ...
+                'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onResetCuttingViewBillet());
+            btnViewB.Layout.Column = 2;
+            
+            % -------------------------------------------------------
+            % 2. AUTO TOOLS PANEL (Placed Above Modes)
+            % -------------------------------------------------------
+            autoPanel = uipanel(app.CuttingLeftPanel, ...
+                'Title','Auto Tools', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, ...
+                'FontWeight', 'bold', ...
+                'BorderType', 'line');
+            autoPanel.Layout.Row = 2;
+            
+            autoGrid = uigridlayout(autoPanel, [1 2]);
+            autoGrid.Padding = [5 5 5 5];
+            autoGrid.ColumnSpacing = 5;
+            autoGrid.BackgroundColor = panelBg;
+            
+            app.btnAutoStart = uibutton(autoGrid, ...
+                'Text', 'Auto Start', ...
+                'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~,~)app.onAutoStart());
+            app.btnAutoStart.Layout.Column = 1;
+            
+            app.btnAutoEntry = uibutton(autoGrid, ...
+                'Text', 'Auto Entry', ...
+                'FontWeight', 'bold', ...
+                'ButtonPushedFcn', @(~,~)app.onAutoEntry());
+            app.btnAutoEntry.Layout.Column = 2;
+            
+            % -------------------------------------------------------
+            % 3. MODES PANEL
+            % -------------------------------------------------------
+            modePanel = uipanel(app.CuttingLeftPanel, 'Title','Modes', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            modePanel.Layout.Row = 3;
 
-            % 2. Direction Strategy Panel (Shifted to Row 2)
-            dirPanel = uipanel(app.CuttingLeftPanel, 'Title','Cutting Direction', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            dirPanel.Layout.Row = 2;
+            % Tweaked widths: Labels get 70px, Switches get the rest
+            modeGrid = uigridlayout(modePanel, [2 2]);
+            modeGrid.RowHeight = {'1x','1x'};
+            modeGrid.ColumnWidth = {70, '1x'};
+            modeGrid.Padding = [5 5 5 5];
+            modeGrid.BackgroundColor = panelBg;
 
-            dirGrid = uigridlayout(dirPanel, [1 1]); % Removed extra row for label
-            dirGrid.RowHeight = {'fit'};
-            dirGrid.Padding = [10 10 10 10];
+            % Direction
+            lblDir = uilabel(modeGrid, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblDir.Layout.Row=1; lblDir.Layout.Column=1;
 
-            % Removed 'lblDir' (Winding Order label) as requested
-
-            app.SwitchCutDir = uiswitch(dirGrid, 'slider', ...
+            app.SwitchCutDir = uiswitch(modeGrid, 'slider', ...
                 'Items', {'Top First (CW)', 'Bottom First (CCW)'}, ...
                 'Value', 'Top First (CW)', ...
                 'ValueChangedFcn', @(~,~)app.onCutDirectionChanged());
-            % app.SwitchCutDir.Layout.Row no longer needed if grid is [1 1]
+            app.SwitchCutDir.Layout.Row=1; app.SwitchCutDir.Layout.Column=2;
 
-            % 3. Interaction Mode Panel
-            interPanel = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            interPanel.Layout.Row = 3;
+            % Sync
+            lblSync = uilabel(modeGrid, 'Text','Start Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblSync.Layout.Row=2; lblSync.Layout.Column=1;
 
-            % Grid: Row 1=Label, Row 2=Mode Buttons, Row 3=Options/Auto
-            interGrid = uigridlayout(interPanel, [3 1]);
-            interGrid.RowHeight = {'fit','fit','fit'};
-            interGrid.Padding = [10 5 10 5];
-
-            lblInter = uilabel(interGrid, 'Text','Click on plot to:', 'FontColor',labelCol);
+            app.SwitchSyncStart = uiswitch(modeGrid, 'slider', ...
+                'Items', {'Coupled', 'Independent'}, ...
+                'Value', 'Coupled', ...
+                'ValueChangedFcn', @(src,~)app.onSyncToggleChanged(src));
+            app.SwitchSyncStart.Layout.Row=2; app.SwitchSyncStart.Layout.Column=2;
+            
+            % -------------------------------------------------------
+            % 4. MOUSE INTERACTION PANEL
+            % -------------------------------------------------------
+            interPanel = uipanel(app.CuttingLeftPanel, ...
+                'Title','Mouse Interaction', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, ...
+                'FontWeight', 'bold', ...
+                'BorderType', 'line');
+            interPanel.Layout.Row = 4;
+            
+            interGrid = uigridlayout(interPanel, [2 1]);
+            interGrid.RowHeight = {'fit','fit'};
+            interGrid.Padding = [5 5 5 5];
+            interGrid.BackgroundColor = panelBg;
+            
+            lblInter = uilabel(interGrid, ...
+                'Text', 'Click plot to set:', ...
+                'FontColor', labelCol);
             lblInter.Layout.Row = 1;
-
-            % --- Interaction Mode Buttons (Row 2) ---
-            btnGrid = uigridlayout(interGrid, [1 2]);
-            btnGrid.Layout.Row = 2;
-            btnGrid.ColumnWidth = {'1x','1x'};
-            btnGrid.Padding = [0 0 0 0];
-            btnGrid.ColumnSpacing = 5;
-
-            % Set Start Button
-            app.BtnPickStart = uibutton(btnGrid, 'state', ...
-                'Text', 'Set Start', ...
+            
+            btnInterGrid = uigridlayout(interGrid, [1 2]);
+            btnInterGrid.Layout.Row = 2;
+            btnInterGrid.Padding = [0 0 0 0];
+            btnInterGrid.ColumnSpacing = 5;
+            btnInterGrid.BackgroundColor = panelBg;
+            
+            app.BtnPickStart = uibutton(btnInterGrid, 'state', ...
+                'Text', 'Start Pt', ...
                 'FontWeight', 'bold', ...
                 'BackgroundColor', t.inputBg, ...
                 'FontColor', t.inputTxt, ...
                 'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickStart.Layout.Column = 1;
-
-            % Set Entry Button
-            app.BtnPickEntry = uibutton(btnGrid, 'state', ...
-                'Text', 'Set Entry', ...
+            
+            app.BtnPickEntry = uibutton(btnInterGrid, 'state', ...
+                'Text', 'Entry Pt', ...
                 'FontWeight', 'bold', ...
                 'BackgroundColor', t.inputBg, ...
                 'FontColor', t.inputTxt, ...
-                'Enable', 'on', ...
                 'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Column = 2;
-
-            % --- Options & Auto Buttons (Row 3) ---
-            optGrid = uigridlayout(interGrid, [2 2]);
-            optGrid.Layout.Row = 3;
-            optGrid.ColumnWidth = {'1x','1x'};
-            optGrid.RowHeight = {'fit','fit'};
-            optGrid.Padding = [0 5 0 0];
-
-            % Sync Checkbox (Spans both columns)
-            app.cbSyncStart = uicheckbox(optGrid, ...
-                'Text', 'Sync L/R Start Points', ...
-                'FontColor', labelCol, ...
-                'Value', true, ...
-                'ValueChangedFcn', @(src,~)app.onSyncChanged(src));
-            app.cbSyncStart.Layout.Row = 1;
-            app.cbSyncStart.Layout.Column = [1 2];
-
-            % Auto Start Button
-            app.btnAutoStart = uibutton(optGrid, ...
-                'Text', 'Auto Start', ...
-                'ButtonPushedFcn', @(~,~)app.onAutoStart());
-            app.btnAutoStart.Layout.Row = 2;
-            app.btnAutoStart.Layout.Column = 1;
-
-            % Auto Entry Button
-            app.btnAutoEntry = uibutton(optGrid, ...
-                'Text', 'Auto Entry', ...
-                'ButtonPushedFcn', @(~,~)app.onAutoEntry());
-            app.btnAutoEntry.Layout.Row = 2;
-            app.btnAutoEntry.Layout.Column = 2;
-
-            % Spacer (Row 4)
-            spCut = uilabel(app.CuttingLeftPanel, 'Text','');
-            spCut.Layout.Row = 4;
-
-            % Spacer (Row 5 is the '1x' spring)
-
-            % Generate G-Code Button (Shifted to Bottom)
+            
+            % -------------------------------------------------------
+            % SPACER (Row 5)
+            % -------------------------------------------------------
+            spCut = uilabel(app.CuttingLeftPanel, 'Text', '');
+            spCut.Layout.Row = 5;
+            
+            % -------------------------------------------------------
+            % GENERATE G-CODE BUTTON (Row 7)
+            % -------------------------------------------------------
             btnGenG = uibutton(app.CuttingLeftPanel, ...
-                'Text','Generate G-Code', ...
-                'FontWeight','bold', ...
-                'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'Text', 'Generate G-Code', ...
+                'FontWeight', 'bold', ...
+                'BackgroundColor', [0.15 0.45 0.8], ...
+                'FontColor', [1 1 1], ...
                 'ButtonPushedFcn', @(~,~)app.onGenerateGCode());
             btnGenG.Layout.Row = 7;
-
-            % --- Right Column: 2D Plots ---
+            
+            % -------------------------------------------------------
+            % RIGHT COLUMN: 2D PLOTS
+            % -------------------------------------------------------
             rightCol = uigridlayout(app.GLCutting, [2 1]);
             rightCol.Layout.Column = 2;
             rightCol.RowHeight = {'1x','1x'};
@@ -1258,22 +1295,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutLeft = uiaxes(rightCol);
             app.AxCutLeft.Layout.Row = 1;
             app.AxCutLeft.BackgroundColor = [0.11 0.11 0.11];
-            % NEW: Attach Mouse Click Callback
             title(app.AxCutLeft, 'Left Profile Cut Path');
             xlabel(app.AxCutLeft,'Y'); ylabel(app.AxCutLeft,'Z');
             grid(app.AxCutLeft,'on');
             app.AxCutLeft.DataAspectRatio = [1 1 1];
-
+            
             % Right Profile Plot
             app.AxCutRight = uiaxes(rightCol);
             app.AxCutRight.Layout.Row = 2;
             app.AxCutRight.BackgroundColor = [0.11 0.11 0.11];
-            % NEW: Attach Mouse Click Callback
             title(app.AxCutRight, 'Right Profile Cut Path');
             xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
             grid(app.AxCutRight,'on');
             app.AxCutRight.DataAspectRatio = [1 1 1];
-
             app.applyTheme();
 
         end
@@ -1791,7 +1825,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif evt.NewValue == app.TabMachine
                 app.onResetMachineBilletPosition();
             elseif evt.NewValue == app.TabCutting
-                % NEW: Handle Cutting Tab entry
+                % NEW: Auto-Execute Start/Entry Logic
+                app.onAutoStart();
+                app.onAutoEntry();
+
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
             end
@@ -2395,8 +2432,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif currTab == app.TabMachine
                 % Transition Machine -> Cutting
                 app.TabGroup.SelectedTab = app.TabCutting;
-
-                % Update plots and Force Default View (Billet)
+                
+                % Auto-Execute
+                app.onAutoStart(); 
+                app.onAutoEntry();
+                
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
@@ -2923,208 +2963,114 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function updateCuttingPlots(app)
-            % Visualizes the data on the Cutting Tab in Machine Coordinates.
-            % Includes: View Persistence, Machine Bed, Ghost Profile,
-            % Billet/Machine Bounds, Gradient, Start/End Markers, Lead-in Lines.
-            % Implements Direction Reversal (CW/CCW).
+            % Visualizes the Cutting Tab (Machine Coords)
 
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
-
             t = app.getTheme();
 
-            % --- 1. View Persistence ---
-            % We keep the view if ANY interaction button is active
+            % 1. View Persistence
             preserveView = app.BtnPickStart.Value || app.BtnPickEntry.Value;
-
-            % Check if initialized (not [0 1])
-            currentXL = xlim(app.AxCutLeft);
-            isInitialized = ~isequal(currentXL, [0 1]);
-
-            limsL = []; limsR = [];
+            isInitialized = ~isequal(xlim(app.AxCutLeft), [0 1]);
+            limsL=[]; limsR=[];
             if preserveView && isInitialized
                 limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
                 limsR = [xlim(app.AxCutRight); ylim(app.AxCutRight)];
             end
 
-            % Clear Axes
             cla(app.AxCutLeft); cla(app.AxCutRight);
             hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
-            % --- 2. Coordinate Setup ---
+            % 2. Setup
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom First (CCW)');
 
-            % --- 3. Draw Backgrounds ---
-
-            % A. Machine Bed
+            % 3. Backgrounds
             bedY = [50, 750, 750, 50]; bedZ = [-20, -20, 0, 0];
-            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
-            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest','off');
+            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha',0.1, 'EdgeColor','none', 'HitTest','off');
+            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha',0.1, 'EdgeColor','none', 'HitTest','off');
 
-            % B. Machine Bounds
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            mBoxY = [0, mLimY, mLimY, 0, 0]; mBoxZ = [0, 0, mLimZ, mLimZ, 0];
+            mBoxY = [0, 0, app.MachineLimitY, app.MachineLimitY, 0]; mBoxZ = [0, app.MachineLimitZ, app.MachineLimitZ, 0, 0];
             hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
             hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest','off');
 
-            % C. Billet Outline
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2); bH = app.BilletSize(3);
             boxY = [bY, bY+bW, bY+bW, bY, bY]; boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest','off');
 
-            % --- 4. Prepare Data ---
-            yL = []; zL = []; yR = []; zR = [];
-            useKerf = app.KerfEnabled && app.KerfValue > 0;
-            hGhostL = gobjects(0); hGhostR = gobjects(0);
+            % 4. Prepare Data
+            [yL, zL, hGhostL] = app.preparePlotData(app.AxCutLeft, app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
+            [yR, zR, hGhostR] = app.preparePlotData(app.AxCutRight, app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % ====== LEFT SIDE ======
-            if ~isempty(app.LeftProfilePoints)
-                % 1. Ghost (Raw)
-                rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
-                gY = rawY + offsetY; gZ = rawZ + offsetZ;
-                hGhostL = plot(app.AxCutLeft, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
-
-                % 2. Kerf
-                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
-                yL = rawY + offsetY; zL = rawZ + offsetZ;
-
-                % 3. Gap Fix & Shift & Flip
-                if numel(yL) > 2
-                    if abs(yL(1)-yL(end)) < 1e-6 && abs(zL(1)-zL(end)) < 1e-6, yL(end)=[]; zL(end)=[]; end
-
-                    idx = app.SelectedStartIdxL;
-                    if idx > numel(yL), idx = 1; end
-
-                    % Shift
-                    yL = circshift(yL, -(idx - 1));
-                    zL = circshift(zL, -(idx - 1));
-
-                    % Flip (Keep start point, reverse the rest)
-                    if isCCW
-                        yL(2:end) = flipud(yL(2:end));
-                        zL(2:end) = flipud(zL(2:end));
-                    end
-
-                    % Close
-                    yL(end+1) = yL(1);
-                    zL(end+1) = zL(1);
-                end
-            end
-
-            % ====== RIGHT SIDE ======
-            if ~isempty(app.RightProfilePoints)
-                % 1. Ghost
-                rawY = app.RightProfilePoints(:,2); rawZ = app.RightProfilePoints(:,3);
-                gY = rawY + offsetY; gZ = rawZ + offsetZ;
-                hGhostR = plot(app.AxCutRight, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
-
-                % 2. Kerf
-                if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
-                yR = rawY + offsetY; zR = rawZ + offsetZ;
-
-                % 3. Gap Fix & Shift & Flip
-                if numel(yR) > 2
-                    if abs(yR(1)-yR(end)) < 1e-6 && abs(zR(1)-zR(end)) < 1e-6, yR(end)=[]; zR(end)=[]; end
-
-                    idx = app.SelectedStartIdxR;
-                    if idx > numel(yR), idx = 1; end
-
-                    % Shift
-                    yR = circshift(yR, -(idx - 1));
-                    zR = circshift(zR, -(idx - 1));
-
-                    % Flip
-                    if isCCW
-                        yR(2:end) = flipud(yR(2:end));
-                        zR(2:end) = flipud(zR(2:end));
-                    end
-
-                    % Close
-                    yR(end+1) = yR(1);
-                    zR(end+1) = zR(1);
-                end
-            end
-
-            % --- 5. Plot Profiles & Markers ---
-
-            hStartL = gobjects(0); hEntryL = gobjects(0);
+            % 5. Draw
+            hStartL=gobjects(0); hLeadL=gobjects(0); hRapidL=gobjects(0);
             if ~isempty(yL)
-                % Gradient Patch
-                c = (1:numel(yL))';
-                patch(app.AxCutLeft, 'XData', [yL; NaN], 'YData', [zL; NaN], 'CData', [c; NaN], ...
-                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2, 'HitTest','off');
-
-                % Entry Line (Cyan)
-                if ~isempty(app.EntryPointL)
-                    hEntryL = plot(app.AxCutLeft, [app.EntryPointL(1), yL(1)], [app.EntryPointL(2), zL(1)], ...
-                        '-.', 'Color', [0 1 1], 'LineWidth', 1.5, 'HitTest','off');
-                    plot(app.AxCutLeft, app.EntryPointL(1), app.EntryPointL(2), 'o', ...
-                        'MarkerSize', 6, 'MarkerFaceColor', [0 1 1], 'MarkerEdgeColor','none', 'HitTest','off');
-                end
-
-                % Start: Green Triangle
-                hStartL = plot(app.AxCutLeft, yL(1), zL(1), '^', 'MarkerSize', 10, ...
-                    'MarkerFaceColor', [0 1 0], 'MarkerEdgeColor', [0 0.5 0], 'LineWidth', 1, 'HitTest','off');
-
-                % End: Red Square
-                plot(app.AxCutLeft, yL(end), zL(end), 's', 'MarkerSize', 10, ...
-                    'MarkerFaceColor', [1 0 0], 'MarkerEdgeColor', [0.5 0 0], 'LineWidth', 1, 'HitTest','off');
+                c=(1:numel(yL))';
+                patch(app.AxCutLeft, 'XData',[yL;NaN], 'YData',[zL;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',2, 'HitTest','off');
+                [hRapidL, hLeadL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], app.EntryPointL);
+                % Start Marker Only
+                hStartL = plot(app.AxCutLeft, yL(1), zL(1), '^', 'MarkerSize',8, 'MarkerFaceColor','none', 'MarkerEdgeColor',[0 1 0], 'LineWidth',1.5, 'HitTest','off');
             end
 
-            hStartR = gobjects(0); hEntryR = gobjects(0);
+            hStartR=gobjects(0); hLeadR=gobjects(0); hRapidR=gobjects(0);
             if ~isempty(yR)
-                % Gradient
-                c = (1:numel(yR))';
-                patch(app.AxCutRight, 'XData', [yR; NaN], 'YData', [zR; NaN], 'CData', [c; NaN], ...
-                    'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 2, 'HitTest','off');
-
-                % Entry Line
-                if ~isempty(app.EntryPointR)
-                    hEntryR = plot(app.AxCutRight, [app.EntryPointR(1), yR(1)], [app.EntryPointR(2), zR(1)], ...
-                        '-.', 'Color', [0 1 1], 'LineWidth', 1.5, 'HitTest','off');
-                    plot(app.AxCutRight, app.EntryPointR(1), app.EntryPointR(2), 'o', ...
-                        'MarkerSize', 6, 'MarkerFaceColor', [0 1 1], 'MarkerEdgeColor','none', 'HitTest','off');
-                end
-
-                % Start
-                hStartR = plot(app.AxCutRight, yR(1), zR(1), '^', 'MarkerSize', 10, ...
-                    'MarkerFaceColor', [0 1 0], 'MarkerEdgeColor', [0 0.5 0], 'LineWidth', 1, 'HitTest','off');
-
-                % End
-                plot(app.AxCutRight, yR(end), zR(end), 's', 'MarkerSize', 10, ...
-                    'MarkerFaceColor', [1 0 0], 'MarkerEdgeColor', [0.5 0 0], 'LineWidth', 1, 'HitTest','off');
+                c=(1:numel(yR))';
+                patch(app.AxCutRight, 'XData',[yR;NaN], 'YData',[zR;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',2, 'HitTest','off');
+                [hRapidR, hLeadR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], app.EntryPointR);
+                hStartR = plot(app.AxCutRight, yR(1), zR(1), '^', 'MarkerSize',8, 'MarkerFaceColor','none', 'MarkerEdgeColor',[0 1 0], 'LineWidth',1.5, 'HitTest','off');
             end
 
-            % --- 6. Legends ---
-            handlesL = [hStartL, hEntryL, hBilletL, hMachL, hGhostL];
-            labelsL = {'Start', 'Lead-in', 'Billet', 'Limits', 'Raw Profile'};
-            validL = isgraphics(handlesL);
-            if any(validL)
-                lgd = legend(app.AxCutLeft, handlesL(validL), labelsL(validL), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
-            end
+            % 6. Legends (No Red Exit)
+            labels = {'Start', 'Rapid (Yellow)', 'Lead-in (Orange)', 'Billet', 'Limits', 'Raw Profile'};
 
-            handlesR = [hStartR, hEntryR, hBilletR, hMachR, hGhostR];
-            labelsR = {'Start', 'Lead-in', 'Billet', 'Limits', 'Raw Profile'};
-            validR = isgraphics(handlesR);
-            if any(validR)
-                lgd = legend(app.AxCutRight, handlesR(validR), labelsR(validR), 'Location', 'northeast');
-                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
-            end
+            handlesL=[hStartL, hRapidL, hLeadL, hBilletL, hMachL, hGhostL];
+            if any(isgraphics(handlesL)), lgd=legend(app.AxCutLeft, handlesL(isgraphics(handlesL)), labels(isgraphics(handlesL)), 'Location','northeast'); lgd.Box='off'; lgd.TextColor=t.labelCol; end
 
-            % --- 7. Final Formatting ---
-            title(app.AxCutLeft, 'Left Tower (Machine Coords)');
-            title(app.AxCutRight, 'Right Tower (Machine Coords)');
-            colormap(app.AxCutLeft, 'turbo'); colormap(app.AxCutRight, 'turbo');
+            handlesR=[hStartR, hRapidR, hLeadR, hBilletR, hMachR, hGhostR];
+            if any(isgraphics(handlesR)), lgd=legend(app.AxCutRight, handlesR(isgraphics(handlesR)), labels(isgraphics(handlesR)), 'Location','northeast'); lgd.Box='off'; lgd.TextColor=t.labelCol; end
 
+            % 7. View
+            title(app.AxCutLeft,'Left Tower'); title(app.AxCutRight,'Right Tower');
+            colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
             if preserveView && isInitialized
                 xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
                 xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
+                daspect(app.AxCutLeft,[1 1 1]); daspect(app.AxCutRight,[1 1 1]);
             else
-                axis(app.AxCutLeft, 'equal'); axis(app.AxCutRight, 'equal');
+                axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
+            end
+        end
+
+        function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
+            % Prepares profile data: Ghost drawing, Kerf offset, Gap fix, Shift, Flip
+            y=[]; z=[]; hGhost=gobjects(0);
+            if isempty(pts), return; end
+
+            % 1. Draw Ghost (Raw data + Offset)
+            rawY = pts(:,2); rawZ = pts(:,3);
+            gY = rawY + offY; gZ = rawZ + offZ;
+            hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
+
+            % 2. Apply Kerf
+            if doKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal); end
+            y = rawY + offY; z = rawZ + offZ;
+
+            % 3. Process Loop (Gap, Shift, Flip)
+            if numel(y) > 2
+                % Remove duplicate end point if closed
+                if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6, y(end)=[]; z(end)=[]; end
+
+                % Shift Start
+                idx = startIdx; if idx > numel(y), idx = 1; end
+                y = circshift(y, -(idx - 1)); z = circshift(z, -(idx - 1));
+
+                % Flip (Reverse direction relative to start point)
+                if isCCW, y(2:end) = flipud(y(2:end)); z(2:end) = flipud(z(2:end)); end
+
+                % Re-close
+                y(end+1) = y(1); z(end+1) = z(1);
             end
         end
 
@@ -3223,13 +3169,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 cp = ax.CurrentPoint(1, 1:2);
                 clickY = cp(1); clickZ = cp(2);
 
-                % 2. Reconstruct Data (Local recalc for distance check)
-                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-                offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+                % 2. Get Data for the specific side clicked
+                yData = []; zData = [];
                 useKerf = app.KerfEnabled && app.KerfValue > 0;
 
-                yData = []; zData = [];
+                % Common Offset
+                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+                offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
+                % Extract based on side
                 if strcmp(side, 'Left') && ~isempty(app.LeftProfilePoints)
                     rawY = app.LeftProfilePoints(:,2); rawZ = app.LeftProfilePoints(:,3);
                     if useKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue); end
@@ -3240,20 +3188,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                     yData = rawY + offsetY; zData = rawZ + offsetZ;
                 end
 
+                % Safety Exit if no data found
                 if isempty(yData), return; end
 
-                % 3. Find Nearest
+                % 3. Find Nearest Index (Guaranteed to run now)
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
                 [~, minIdx] = min(distances);
 
-                % 4. Update Indices (Checking Sync)
-                if app.cbSyncStart.Value
-                    % Sync ON: Update Both
+                % 4. Apply Index
+                isCoupled = strcmp(app.SwitchSyncStart.Value, 'Coupled');
+
+                if isCoupled
                     app.SelectedStartIdxL = minIdx;
                     app.SelectedStartIdxR = minIdx;
-                    disp(['Sync Start: Both indices set to ' num2str(minIdx)]);
                 else
-                    % Sync OFF: Update Specific
                     if strcmp(side, 'Left')
                         app.SelectedStartIdxL = minIdx;
                     else
@@ -3267,9 +3215,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif app.BtnPickEntry.Value
 
                 cp = ax.CurrentPoint(1, 1:2);
+                isCoupled = strcmp(app.SwitchSyncStart.Value, 'Coupled');
 
-                if app.cbSyncStart.Value
-                    % Sync Entry
+                if isCoupled
                     app.EntryPointL = cp;
                     app.EntryPointR = cp;
                 else
@@ -3283,20 +3231,181 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        function onSyncChanged(app, src)
-            app.SyncStartPoints = src.Value;
+        function onSyncToggleChanged(app, src)
+            % If switched to Coupled, force Right to match Left immediately
+            if strcmp(src.Value, 'Coupled')
+                app.SelectedStartIdxR = app.SelectedStartIdxL;
+
+                % Also sync entry points if they exist
+                if ~isempty(app.EntryPointL)
+                    app.EntryPointR = app.EntryPointL;
+                end
+
+                app.updateCuttingPlots();
+                disp('Start Points Coupled: Right profile synced to Left.');
+            end
         end
 
         function onAutoStart(app)
-            % Reset to index 1
-            app.SelectedStartIdxL = 1;
-            app.SelectedStartIdxR = 1;
+            % Finds the point with Minimum Y (Machine Front) and sets it as Start
+
+            % Helper to find min index of a profile
+            function idx = findMinYIndex(pts, kerfVal, doKerf)
+                if isempty(pts), idx = 1; return; end
+                y = pts(:,2); z = pts(:,3);
+                if doKerf
+                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kerfVal);
+                end
+                [~, idx] = min(y);
+            end
+
+            doKerf = app.KerfEnabled && app.KerfValue > 0;
+
+            % Left
+            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfValue, doKerf);
+            app.SelectedStartIdxL = idxL;
+
+            % Right
+            idxR = findMinYIndex(app.RightProfilePoints, app.KerfValue, doKerf);
+            app.SelectedStartIdxR = idxR;
+
+            disp(['Auto Start: Reset indices to nearest Machine Front (L=' num2str(idxL) ', R=' num2str(idxR) ')']);
             app.updateCuttingPlots();
         end
 
         function onAutoEntry(app)
-            % Placeholder: In future, calculate a neutral point
-            disp('Auto Entry not yet implemented (Requires Vector math)');
+            % Calculates a "Neutral Angle" lead-in point.
+            % Logic: Bisects the angle at the start point and projects outwards.
+            % Constraint: Must be at least 10mm in front of Billet Min-Y.
+
+            % --- Nested Helper ---
+            function ptEntry = calcNeutralEntry(pts, startIdx, billetMinY, doKerf, kVal)
+                ptEntry = [];
+                if isempty(pts), return; end
+
+                % 1. Get Geometry [y z]
+                y = pts(:,1); z = pts(:,2);
+                if doKerf, [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kVal); end
+
+                N = numel(y);
+                if startIdx > N, startIdx = 1; end
+
+                % 2. Identify Points (Prev, Start, Next)
+                idxS = startIdx;
+                idxN = mod(startIdx, N) + 1;
+                idxP = mod(startIdx - 2, N) + 1;
+
+                P = [y(idxP), z(idxP)];
+                S = [y(idxS), z(idxS)];
+                N_pt = [y(idxN), z(idxN)];
+
+                % 3. Calculate Vectors (Outward from S)
+                vSP = P - S; vSP = vSP / (norm(vSP)+eps);
+                vSN = N_pt - S; vSN = vSN / (norm(vSN)+eps);
+
+                % 4. Calculate Bisector (Pointing Outwards)
+                % Vector pointing 'in' to corner is (vSP + vSN). Negate for 'out'.
+                vBisect = -(vSP + vSN);
+                if norm(vBisect) < 1e-6, vBisect = [-1, 0]; end % Fallback Left
+                vBisect = vBisect / norm(vBisect);
+
+                % 5. Project Entry Point
+                limitY = billetMinY - 10; % 10mm clearance line
+
+                % Default projection: 20mm out
+                defaultDist = 20;
+                candidate = S + vBisect * defaultDist;
+
+                % 6. Apply Y-Constraint (Must be <= limitY)
+                if candidate(1) > limitY
+                    % We need S + v*d = limitY  =>  d = (limitY - Sy) / vy
+                    if abs(vBisect(1)) > 1e-3
+                        d = (limitY - S(1)) / vBisect(1);
+                        if d < 0, d = 20; end
+                        candidate = S + vBisect * d;
+                    else
+                        candidate(1) = limitY; % Pure vertical clamp
+                    end
+                end
+                ptEntry = candidate;
+            end
+            % ---------------------
+
+            doKerf = app.KerfEnabled && app.KerfValue > 0;
+            bMinY  = app.MachineBilletPos(2);
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+
+            % --- LEFT ---
+            if ~isempty(app.LeftProfilePoints)
+                % Extract [y z] directly in Machine Coords
+                ptsL = [app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ];
+                app.EntryPointL = calcNeutralEntry(ptsL, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue);
+            end
+
+            % --- RIGHT ---
+            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
+                app.EntryPointR = app.EntryPointL;
+            elseif ~isempty(app.RightProfilePoints)
+                ptsR = [app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ];
+                app.EntryPointR = calcNeutralEntry(ptsR, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue);
+            end
+
+            app.updateCuttingPlots();
+        end
+
+        function drawArrow(app, ax, pStart, pNext)
+            % Draws a directional arrow from pStart towards pNext
+            v = pNext - pStart;
+            len = norm(v);
+            if len < 1e-6, return; end
+
+            % Normalize and Scale
+            u = v / len;
+            scale = 4; % Arrow size in mm
+
+            % Arrow Geometry (Pointing Right)
+            xPoly = [-1, -1, 0] * scale;
+            yPoly = [0.5, -0.5, 0] * scale;
+
+            % Rotate
+            theta = atan2(u(2), u(1));
+            R = [cos(theta), -sin(theta); sin(theta), cos(theta)];
+            ptsRot = R * [xPoly; yPoly];
+
+            % Translate
+            ptsFinal = ptsRot + pStart(:);
+
+            patch(ax, ptsFinal(1,:), ptsFinal(2,:), [0 1 0], 'EdgeColor','none', 'HitTest','off');
+        end
+
+        function [hRapid, hLead] = drawTravelPath(app, ax, startPt, entryPt)
+            % Draws the Travel Paths:
+            % 1. Rapid (Yellow): Machine Zero -> Billet Front Face -> Entry
+            % 2. Lead-in (Orange): Entry -> Start
+
+            hRapid = gobjects(0); hLead  = gobjects(0);
+            if isempty(startPt), return; end
+
+            % --- 1. Rapid Path (Yellow) ---
+            pZero  = [0, 0];
+
+            % Target: Front Face of Billet, Mid-Height (Exact)
+            pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+
+            % Path: Zero -> Front -> Entry (if exists) -> Start
+            target = startPt;
+            if ~isempty(entryPt), target = entryPt; end
+
+            ptsRapid = [pZero; pFront; target];
+            hRapid = plot(ax, ptsRapid(:,1), ptsRapid(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'HitTest','off');
+
+            % --- 2. Lead-in Path (Orange) ---
+            if ~isempty(entryPt)
+                hLead = plot(ax, [entryPt(1), startPt(1)], [entryPt(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 1.5, 'HitTest','off');
+                % Entry Marker: Filled Dot
+                plot(ax, entryPt(1), entryPt(2), '.', 'MarkerSize',12, 'Color', [1 0.5 0], 'HitTest','off');
+            end
         end
 
         % ===========================================================
