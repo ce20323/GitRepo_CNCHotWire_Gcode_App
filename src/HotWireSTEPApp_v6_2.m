@@ -226,7 +226,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnInteractionGroup    % Button Group for mouse mode
         BtnPickStart           % Button: "Set Start Point"
         BtnPickEntry           % Button: "Set Entry Point" (Future)
-        
+        BtnPickEntry2   % New Button
+        BtnClearEntries % Helper to reset points
+
         % Cutting Tab Properties
         SyncStartPoints (1,1) logical = true % Default to sync
 
@@ -234,6 +236,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         % If empty, we will calculate default later
         EntryPointL = []
         EntryPointR = []
+        EntryPoint2L = []
+        EntryPoint2R = []
 
         % UI Elements
         SwitchSyncStart  % Toggle: Coupled / Independent
@@ -1132,34 +1136,24 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Rows: View(1), Auto(2), Modes(3), Interaction(4), Spacer(5), Msg(6), Generate(7)
             app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit'};
             app.CuttingLeftPanel.Padding   = [10 10 10 10];
-            app.CuttingLeftPanel.BackgroundColor = sideBg; % Theme var
+            app.CuttingLeftPanel.BackgroundColor = sideBg;
 
             % -------------------------------------------------------
             % 1. VIEW CONTROLS PANEL
             % -------------------------------------------------------
             viewPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','View', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
+                'Title','View', 'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
             viewPanel.Layout.Row = 1;
 
             viewGrid = uigridlayout(viewPanel, [1 2]);
-            viewGrid.Padding = [5 5 5 5];
-            viewGrid.ColumnSpacing = 5;
-            viewGrid.BackgroundColor = panelBg;
+            viewGrid.Padding = [5 5 5 5]; viewGrid.ColumnSpacing = 5; viewGrid.BackgroundColor = panelBg;
 
-            % Using standard buttons (they inherit figure text color usually, or we can force labelCol)
-            btnViewM = uibutton(viewGrid, ...
-                'Text', 'Machine View', ...
-                'FontWeight', 'bold', ...
+            btnViewM = uibutton(viewGrid, 'Text', 'Machine View', 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onResetCuttingViewMachine());
             btnViewM.Layout.Column = 1;
 
-            btnViewB = uibutton(viewGrid, ...
-                'Text', 'Billet View', ...
-                'FontWeight', 'bold', ...
+            btnViewB = uibutton(viewGrid, 'Text', 'Billet View', 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onResetCuttingViewBillet());
             btnViewB.Layout.Column = 2;
 
@@ -1167,27 +1161,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 2. AUTO TOOLS PANEL
             % -------------------------------------------------------
             autoPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Auto Tools', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
+                'Title','Auto Tools', 'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
             autoPanel.Layout.Row = 2;
 
             autoGrid = uigridlayout(autoPanel, [1 2]);
-            autoGrid.Padding = [5 5 5 5];
-            autoGrid.ColumnSpacing = 5;
-            autoGrid.BackgroundColor = panelBg;
+            autoGrid.Padding = [5 5 5 5]; autoGrid.ColumnSpacing = 5; autoGrid.BackgroundColor = panelBg;
 
-            app.btnAutoStart = uibutton(autoGrid, ...
-                'Text', 'Auto Start', ...
-                'FontWeight', 'bold', ...
+            app.btnAutoStart = uibutton(autoGrid, 'Text', 'Auto Start', 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onAutoStart());
             app.btnAutoStart.Layout.Column = 1;
 
-            app.btnAutoEntry = uibutton(autoGrid, ...
-                'Text', 'Auto Entry', ...
-                'FontWeight', 'bold', ...
+            app.btnAutoEntry = uibutton(autoGrid, 'Text', 'Auto Entry', 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(~,~)app.onAutoEntry());
             app.btnAutoEntry.Layout.Column = 2;
 
@@ -1195,108 +1180,99 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3. MODES PANEL
             % -------------------------------------------------------
             modePanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Modes', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
+                'Title','Modes', 'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
             modePanel.Layout.Row = 3;
 
-            % Labels get 75px for alignment
             modeGrid = uigridlayout(modePanel, [3 2]);
             modeGrid.RowHeight = {'fit','fit','fit'};
             modeGrid.ColumnWidth = {75, '1x'};
-            modeGrid.Padding = [5 5 5 5];
-            modeGrid.RowSpacing = 8;
-            modeGrid.BackgroundColor = panelBg;
+            modeGrid.Padding = [5 5 5 5]; modeGrid.RowSpacing = 8; modeGrid.BackgroundColor = panelBg;
 
             % Direction
-            lblDir = uilabel(modeGrid, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblDir = uilabel(modeGrid, 'Text', 'Direction:', 'FontColor', labelCol, ...
+                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
             lblDir.Layout.Row = 1; lblDir.Layout.Column = 1;
 
             app.SwitchCutDir = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Top (CW)', 'Bottom (CCW)'}, ... % Shortened Labels
+                'Items', {'Top (CW)', 'Bottom (CCW)'}, ...
                 'Value', 'Top (CW)', ...
                 'ValueChangedFcn', @(~,~)app.onCutDirectionChanged());
             app.SwitchCutDir.Layout.Row = 1; app.SwitchCutDir.Layout.Column = 2;
 
             % Start Pts Sync
-            lblSync = uilabel(modeGrid, ...
-                'Text', 'Start Pts:', ...
-                'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right', ...
-                'VerticalAlignment', 'center');
+            lblSync = uilabel(modeGrid, 'Text', 'Start Pts:', 'FontColor', labelCol, ...
+                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
             lblSync.Layout.Row = 2; lblSync.Layout.Column = 1;
 
             app.SwitchSyncStart = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, ...
-                'Value', 'Coupled', ...
+                'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', ...
                 'ValueChangedFcn', @(src,~)app.onSyncToggleChanged(src));
             app.SwitchSyncStart.Layout.Row = 2; app.SwitchSyncStart.Layout.Column = 2;
 
             % Entry Pts Sync
-            lblESync = uilabel(modeGrid, ...
-                'Text', 'Entry Pts:', ...
-                'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right', ...
-                'VerticalAlignment', 'center');
+            lblESync = uilabel(modeGrid, 'Text', 'Entry Pts:', 'FontColor', labelCol, ...
+                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
             lblESync.Layout.Row = 3; lblESync.Layout.Column = 1;
 
             app.SwitchSyncEntry = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, ...
-                'Value', 'Coupled', ...
+                'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', ...
                 'ValueChangedFcn', @(src,~)app.onSyncEntryToggleChanged(src));
             app.SwitchSyncEntry.Layout.Row = 3; app.SwitchSyncEntry.Layout.Column = 2;
 
             % -------------------------------------------------------
-            % 4. MOUSE INTERACTION PANEL
+            % 4. MOUSE INTERACTION PANEL (Expanded for Entry 2)
             % -------------------------------------------------------
             interPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Mouse Interaction', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
+                'Title','Mouse Interaction', 'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
             interPanel.Layout.Row = 4;
 
-            interGrid = uigridlayout(interPanel, [2 1]);
-            interGrid.RowHeight = {'fit','fit'};
-            interGrid.Padding = [5 5 5 5];
-            interGrid.BackgroundColor = panelBg;
+            interGrid = uigridlayout(interPanel, [3 1]);
+            interGrid.RowHeight = {'fit','fit','fit'};
+            interGrid.Padding = [5 5 5 5]; interGrid.BackgroundColor = panelBg;
 
-            lblInter = uilabel(interGrid, ...
-                'Text', 'Click plot to set:', ...
-                'FontColor', labelCol);
+            lblInter = uilabel(interGrid, 'Text', 'Click plot to set:', 'FontColor', labelCol);
             lblInter.Layout.Row = 1;
 
-            btnInterGrid = uigridlayout(interGrid, [1 2]);
-            btnInterGrid.Layout.Row = 2;
-            btnInterGrid.Padding = [0 0 0 0];
-            btnInterGrid.ColumnSpacing = 5;
-            btnInterGrid.BackgroundColor = panelBg;
+            % Row 1 Buttons: Start | Entry 1
+            btnGrid1 = uigridlayout(interGrid, [1 2]);
+            btnGrid1.Layout.Row = 2;
+            btnGrid1.Padding = [0 0 0 0]; btnGrid1.ColumnSpacing=5; btnGrid1.BackgroundColor=panelBg;
 
-            % Interaction Buttons: Initial state uses theme Input colors
-
-            % Get Button Colors
+            % Get Colors for Initial State
             bCols = app.getInteractionColors();
 
-            % Start Point Button
-            app.BtnPickStart = uibutton(btnInterGrid, 'state', ...
-                'Text', 'Start Pt', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', bCols.StartInactive, ... % Initial: Dull
-                'FontColor', bCols.TextInactive, ...
+            app.BtnPickStart = uibutton(btnGrid1, 'state', ...
+                'Text', 'Start Pt', 'FontWeight', 'bold', ...
+                'BackgroundColor', bCols.StartInactive, 'FontColor', bCols.TextInactive, ...
                 'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickStart.Layout.Column = 1;
 
-            % Entry Point Button
-            app.BtnPickEntry = uibutton(btnInterGrid, 'state', ...
-                'Text', 'Entry Pt', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', bCols.EntryInactive, ... % Initial: Dull
-                'FontColor', bCols.TextInactive, ...
+            app.BtnPickEntry = uibutton(btnGrid1, 'state', ...
+                'Text', 'Entry 1', 'FontWeight', 'bold', ...
+                'BackgroundColor', bCols.EntryInactive, 'FontColor', bCols.TextInactive, ...
                 'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Column = 2;
+
+            % Row 2 Buttons: Entry 2 | Clear
+            btnGrid2 = uigridlayout(interGrid, [1 2]);
+            btnGrid2.Layout.Row = 3;
+            btnGrid2.Padding = [0 0 0 0]; btnGrid2.ColumnSpacing=5; btnGrid2.BackgroundColor=panelBg;
+
+            % New: Entry 2
+            app.BtnPickEntry2 = uibutton(btnGrid2, 'state', ...
+                'Text', 'Entry 2', 'FontWeight', 'bold', ...
+                'BackgroundColor', bCols.Entry2Inactive, 'FontColor', bCols.TextInactive, ...
+                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickEntry2.Layout.Column = 1;
+
+            % New: Clear
+            btnClear = uibutton(btnGrid2, ...
+                'Text', 'Clear Pts', 'FontWeight', 'bold', ...
+                'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, ...
+                'ButtonPushedFcn', @(~,~)app.onClearEntries());
+            btnClear.Layout.Column = 2;
 
             % -------------------------------------------------------
             % SPACER (Row 5)
@@ -1307,7 +1283,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % -------------------------------------------------------
             % CONTINUE BUTTON (Row 7)
             % -------------------------------------------------------
-            % Use BtnCuttingContinue to avoid overwriting the Model Tab button
             app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, ...
                 'Text', 'Continue', ...
                 'FontWeight', 'bold', ...
@@ -1325,7 +1300,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             rightCol.Padding = [0 0 0 0];
             rightCol.RowSpacing = 10;
 
-            % Uses Theme Edit Background (Dark in Dark mode, White in Light mode) for axes
             app.AxCutLeft = uiaxes(rightCol);
             app.AxCutLeft.Layout.Row = 1;
             app.AxCutLeft.BackgroundColor = t.editBg;
@@ -2472,11 +2446,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.onAutoEntry();
                 
                 app.updateCuttingPlots();
-                app.onResetCuttingViewBillet();
-
-            elseif currTab == app.TabCutting
-                % Final Step: Generate G-Code (Placeholder)
-                app.onGenerateGCode();
+                app.onResetCuttingViewBillet();;
 
             elseif currTab == app.TabCutting
                 % Transition Cutting -> Simulation
@@ -3064,7 +3034,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
 
                 % Travel Paths
-                [hRapidL, hLeadL, hEntryDotL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], app.EntryPointL);
+                [hRapidL, hLeadL, hEntryDotL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
 
                 % Start Marker
                 app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)], [yL(2), zL(2)], 'start');
@@ -3079,7 +3049,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 patch(app.AxCutRight, 'XData',[yR;NaN], 'YData',[zR;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',1.0, 'HitTest','off');
                 hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-', [0 0.5 1], 'none', 1.0);
 
-                [hRapidR, hLeadR, hEntryDotR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], app.EntryPointR);
+                [hRapidR, hLeadR, hEntryDotR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
 
                 app.drawRotatedMarker(app.AxCutRight, [yR(1), zR(1)], [yR(2), zR(2)], 'start');
 
@@ -3157,55 +3127,52 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onInteractionStatsChanged(app, src)
-            % Update Colors
+            % Handles mutual exclusivity and color updates for interaction buttons
+
             c = app.getInteractionColors();
 
-            if src == app.BtnPickStart
-                if app.BtnPickStart.Value
-                    % START MODE ON
-                    app.BtnPickEntry.Value = false;
+            % 1. Determine user intent: Did they click it ON or OFF?
+            % Since this is a ValueChangedFcn, src.Value holds the NEW state.
+            wantsToEnable = src.Value;
 
-                    % Colors
-                    app.BtnPickStart.BackgroundColor = c.StartActive;
-                    app.BtnPickStart.FontColor       = c.TextActive;
-                    app.BtnPickEntry.BackgroundColor = c.EntryInactive;
-                    app.BtnPickEntry.FontColor       = c.TextInactive;
+            % 2. Reset ALL buttons to OFF/Inactive (Clean Slate)
+            % This ensures mutual exclusivity
+            app.BtnPickStart.Value = false;
+            app.BtnPickStart.BackgroundColor = c.StartInactive;
+            app.BtnPickStart.FontColor = c.TextInactive;
 
-                    app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
-                    app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
-                    app.UIFigure.Pointer = 'crosshair';
-                else
-                    % OFF
-                    app.BtnPickStart.BackgroundColor = c.StartInactive;
-                    app.BtnPickStart.FontColor       = c.TextInactive;
+            app.BtnPickEntry.Value = false;
+            app.BtnPickEntry.BackgroundColor = c.EntryInactive;
+            app.BtnPickEntry.FontColor = c.TextInactive;
 
-                    app.AxCutLeft.ButtonDownFcn  = [];
-                    app.AxCutRight.ButtonDownFcn = [];
-                    app.UIFigure.Pointer = 'arrow';
-                end
+            app.BtnPickEntry2.Value = false;
+            app.BtnPickEntry2.BackgroundColor = c.Entry2Inactive;
+            app.BtnPickEntry2.FontColor = c.TextInactive;
 
-            elseif src == app.BtnPickEntry
-                if app.BtnPickEntry.Value
-                    % ENTRY MODE ON
-                    app.BtnPickStart.Value = false;
+            % Reset Plot Interaction
+            app.AxCutLeft.ButtonDownFcn = [];
+            app.AxCutRight.ButtonDownFcn = [];
+            app.UIFigure.Pointer = 'arrow';
 
-                    % Colors
-                    app.BtnPickEntry.BackgroundColor = c.EntryActive;
-                    app.BtnPickEntry.FontColor       = c.TextActive;
-                    app.BtnPickStart.BackgroundColor = c.StartInactive;
-                    app.BtnPickStart.FontColor       = c.TextInactive;
+            % 3. If the user wanted to enable a button, turn THAT one back on
+            if wantsToEnable
+                src.Value = true; % Force it active
+                app.UIFigure.Pointer = 'crosshair';
 
-                    app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
-                    app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
-                    app.UIFigure.Pointer = 'crosshair';
-                else
-                    % OFF
-                    app.BtnPickEntry.BackgroundColor = c.EntryInactive;
-                    app.BtnPickEntry.FontColor       = c.TextInactive;
+                % Enable Click Listeners
+                app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
+                app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
 
-                    app.AxCutLeft.ButtonDownFcn  = [];
-                    app.AxCutRight.ButtonDownFcn = [];
-                    app.UIFigure.Pointer = 'arrow';
+                % Apply Active Colors
+                if src == app.BtnPickStart
+                    src.BackgroundColor = c.StartActive;
+                    src.FontColor = c.TextActive;
+                elseif src == app.BtnPickEntry
+                    src.BackgroundColor = c.EntryActive;
+                    src.FontColor = c.TextActive;
+                elseif src == app.BtnPickEntry2
+                    src.BackgroundColor = c.Entry2Active;
+                    src.FontColor = c.TextActive;
                 end
             end
         end
@@ -3246,20 +3213,20 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onCutAxesClick(app, ax, ~, side)
             % Handles clicks on the Cutting axes to set Start or Entry points
 
-            % 1. Setup Context
+            % 1. Get Click Coordinates
             cp = ax.CurrentPoint(1, 1:2);
             clickY = cp(1); clickZ = cp(2);
 
             % --- CASE 1: SET START POINT ---
             if app.BtnPickStart.Value
 
-                % A. Retrieve & Prep Data
+                % A. Retrieve Data for the clicked side
                 yData = []; zData = [];
                 offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
                 offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
                 useKerf = app.KerfEnabled && app.KerfValue > 0;
 
-                % Determine which profile to use
+                % Select Profile
                 pts = [];
                 if strcmp(side, 'Left') && ~isempty(app.LeftProfilePoints)
                     pts = app.LeftProfilePoints;
@@ -3267,28 +3234,26 @@ classdef HotWireSTEPApp_v6_2 < handle
                     pts = app.RightProfilePoints;
                 end
 
-                % Process Data (Inline Logic)
+                % Process Points
                 if ~isempty(pts)
-                    y = pts(:,2); z = pts(:,3);
-                    % Apply Kerf
+                    rawY = pts(:,2); rawZ = pts(:,3);
                     if useKerf
-                        [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, app.KerfValue);
+                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
                     end
-                    % Apply Machine Offset
-                    yData = y + offsetY;
-                    zData = z + offsetZ;
+                    yData = rawY + offsetY;
+                    zData = rawZ + offsetZ;
                 end
 
-                % B. Validate Data
+                % B. Validate (Exit if clicked on empty plot)
                 if isempty(yData)
-                    return; % Stop if no data to click on
+                    return;
                 end
 
-                % C. Find Nearest
+                % C. Find Nearest Point (Define minIdx)
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
                 [~, minIdx] = min(distances);
 
-                % D. Apply to State (Check Start Sync)
+                % D. Apply Index (Start Point Sync Logic)
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
                     app.SelectedStartIdxL = minIdx;
                     app.SelectedStartIdxR = minIdx;
@@ -3300,12 +3265,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
 
-                app.updateCuttingPlots();
-
-                % --- CASE 2: SET ENTRY POINT ---
+                % --- CASE 2: SET ENTRY 1 ---
             elseif app.BtnPickEntry.Value
 
-                % Check Entry Sync
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPointL = cp;
                     app.EntryPointR = cp;
@@ -3316,8 +3278,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                         app.EntryPointR = cp;
                     end
                 end
-                app.updateCuttingPlots();
+
+                % --- CASE 3: SET ENTRY 2 ---
+            elseif app.BtnPickEntry2.Value
+
+                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                    app.EntryPoint2L = cp;
+                    app.EntryPoint2R = cp;
+                else
+                    if strcmp(side, 'Left')
+                        app.EntryPoint2L = cp;
+                    else
+                        app.EntryPoint2R = cp;
+                    end
+                end
             end
+
+            % Final Step: Refresh Plot
+            app.updateCuttingPlots();
         end
 
         function onSyncToggleChanged(app, src)
@@ -3452,22 +3430,63 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateCuttingPlots();
         end
 
-        function [hRapid, hLead, hDot] = drawTravelPath(app, ax, startPt, entryPt)
+        function [hRapid, hLead, hDot] = drawTravelPath(app, ax, startPt, entry1, entry2)
+            % Draws Travel Path with specific sequence:
+            % 1. Machine Zero
+            % 2. Billet Front Face (Mid-Height)
+            % 3. Retract 10mm (Safety)
+            % 4. Entry 1
+            % 5. Entry 2
+            % 6. Start Point
+            %
+            % Coloring:
+            % - Yellow (Rapid): Everything up to the last Entry Point.
+            % - Orange (Feed): Only the final segment (Last Entry -> Start).
+
             hRapid = gobjects(0); hLead = gobjects(0); hDot = gobjects(0);
             if isempty(startPt), return; end
 
-            % Rapid (Yellow, Width 1.0)
-            pZero  = [0, 0];
-            pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-            target = startPt;
-            if ~isempty(entryPt), target = entryPt; end
-            ptsRapid = [pZero; pFront; target];
-            hRapid = plot(ax, ptsRapid(:,1), ptsRapid(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'HitTest','off');
+            % --- Define Key Points ---
+            pZero = [0, 0];
 
-            % Lead-in (Orange, Width 1.0)
-            if ~isempty(entryPt)
-                hLead = plot(ax, [entryPt(1), startPt(1)], [entryPt(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 1.0, 'HitTest','off');
-                hDot  = plot(ax, entryPt(1), entryPt(2), '.', 'MarkerSize',12, 'Color', [1 0.5 0], 'HitTest','off');
+            % Front Face @ Mid Height
+            bFrontY = app.MachineBilletPos(2);
+            bMidZ   = app.MachineBilletPos(3) + app.BilletSize(3)/2;
+            pFront  = [bFrontY, bMidZ];
+
+            % Retract 10mm (-Y)
+            pRetract = [bFrontY - 10, bMidZ];
+
+            % --- Build Path Sequence ---
+            % Base Rapid sequence
+            pts = [pZero; pFront; pRetract];
+
+            % Append Entries
+            if ~isempty(entry1), pts = [pts; entry1]; end
+            if ~isempty(entry2), pts = [pts; entry2]; end
+
+            % --- Split Rapid vs Feed ---
+            % Feed is ONLY the segment from the very last point in 'pts' to 'startPt'
+            % Rapid is everything in 'pts'
+
+            % 1. Plot Rapid Chain (Yellow)
+            % This connects Zero->Front->Retract->Entry1->Entry2
+            if size(pts, 1) > 1
+                hRapid = plot(ax, pts(:,1), pts(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'HitTest','off');
+            end
+
+            % 2. Plot Feed Segment (Orange)
+            % Connects Last Point of Rapid Chain -> Start Point
+            lastRapidPt = pts(end, :);
+            hLead = plot(ax, [lastRapidPt(1), startPt(1)], [lastRapidPt(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 1.0, 'HitTest','off');
+
+            % 3. Plot Dots for Entry Points
+            dotPts = [];
+            if ~isempty(entry1), dotPts = [dotPts; entry1]; end
+            if ~isempty(entry2), dotPts = [dotPts; entry2]; end
+
+            if ~isempty(dotPts)
+                hDot = plot(ax, dotPts(:,1), dotPts(:,2), '.', 'MarkerSize', 12, 'Color', [1 0.5 0], 'HitTest','off');
             end
         end
 
@@ -3510,7 +3529,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), 'k', ...
                 'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
         end
-        
+
+        function onClearEntries(app)
+            app.EntryPointL = []; app.EntryPointR = [];
+            app.EntryPoint2L = []; app.EntryPoint2R = [];
+            app.updateCuttingPlots();
+        end
+
         % ===========================================================
         % MOUSE-DRAG ROTATION FOR 3D AXES
         % ===========================================================
@@ -3675,7 +3700,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function cols = getInteractionColors(app)
-            % Returns struct with Active/Inactive colors for Start/Entry buttons
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
@@ -3684,17 +3708,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isDark
                 % Dark Mode
                 cols.StartActive   = [0.0 0.8 0.0]; % Bright Green
-                cols.StartInactive = [0.15 0.25 0.15]; % Dull Greenish Grey
+                cols.StartInactive = [0.15 0.25 0.15];
+
+                % Entry & Entry 2 share colors
                 cols.EntryActive   = [1.0 0.6 0.0]; % Bright Orange
-                cols.EntryInactive = [0.30 0.20 0.10]; % Dull Brownish Grey
-                cols.TextActive    = [0 0 0];       % Black text on bright btn
-                cols.TextInactive  = [0.9 0.9 0.9]; % White text on dull btn
+                cols.EntryInactive = [0.30 0.20 0.10];
+
+                cols.Entry2Active   = [1.0 0.6 0.0]; % Same as Entry 1
+                cols.Entry2Inactive = [0.30 0.20 0.10];
+
+                cols.TextActive    = [0 0 0];
+                cols.TextInactive  = [0.9 0.9 0.9];
             else
                 % Light Mode
                 cols.StartActive   = [0.4 1.0 0.4];
                 cols.StartInactive = [0.90 0.96 0.90];
+
                 cols.EntryActive   = [1.0 0.7 0.4];
                 cols.EntryInactive = [0.98 0.94 0.90];
+
+                cols.Entry2Active   = [1.0 0.7 0.4];
+                cols.Entry2Inactive = [0.98 0.94 0.90];
+
                 cols.TextActive    = [0 0 0];
                 cols.TextInactive  = [0 0 0];
             end
