@@ -253,6 +253,24 @@ classdef HotWireSTEPApp_v6_2 < handle
         SelectedStartIdxR = 1
         CutDirection = 'CW'    % 'CW' or 'CCW'
 
+        % ---------- Simulation Tab ----------
+        TabSimulation
+        GLSimulation
+        SimLeftPanel
+        AxSim
+        BtnSimContinue
+
+        % Simulation Controls
+        SimSlider
+        SimPlayBtn
+        SimStopBtn
+        SimSpeedSpinner
+
+        % Simulation Data
+        SimPathL % Nx3 Array [x, y, z] (Machine Coords)
+        SimPathR % Nx3 Array [x, y, z] (Machine Coords)
+        SimTimer % timer object for animation
+
         % ---------- App state ----------
         % 0 = pre-profile (model only)
         % 1 = active cutting (planes + profiles live)
@@ -326,6 +344,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- Main figure ---
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
+            app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
 
             % --- UNPACK PALETTE (This fixes your "Unrecognized variable" error) ---
@@ -1315,7 +1334,132 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
             grid(app.AxCutRight,'on');
             app.AxCutRight.DataAspectRatio = [1 1 1];
-            
+
+            % ===========================================================
+            % SIMULATION TAB
+            % ===========================================================
+            app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
+
+            app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
+            app.GLSimulation.ColumnWidth   = {320, '1x'};
+            app.GLSimulation.Padding       = [10 10 10 10];
+            app.GLSimulation.ColumnSpacing = 10;
+
+            % --- Left Control Column ---
+            app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
+            % Rows: Playback(1), Settings(2), Spacer(3,4,5), Continue(6)
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit'};
+            app.SimLeftPanel.Padding   = [10 10 10 10];
+            app.SimLeftPanel.BackgroundColor = sideBg;
+
+            % -------------------------------------------------------
+            % 1. PLAYBACK CONTROLS
+            % -------------------------------------------------------
+            panSimPlay = uipanel(app.SimLeftPanel, ...
+                'Title', 'Playback', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, ...
+                'FontWeight', 'bold', ...
+                'BorderType', 'line');
+            panSimPlay.Layout.Row = 1;
+
+            gridSimPlay = uigridlayout(panSimPlay, [2 3]);
+            gridSimPlay.ColumnWidth = {'1x', '1x', '1x'};
+            gridSimPlay.RowHeight   = {'fit', 'fit'};
+            gridSimPlay.Padding     = [5 5 5 5];
+            gridSimPlay.ColumnSpacing = 5;
+            gridSimPlay.BackgroundColor = panelBg;
+
+            % Play Button
+            app.SimPlayBtn = uibutton(gridSimPlay, ...
+                'Text', 'Play', ...
+                'FontWeight', 'bold', ...
+                'BackgroundColor', t.accentBg, ...
+                'FontColor', t.editTxt, ...
+                'ButtonPushedFcn', @(~,~)app.onSimPlay());
+            app.SimPlayBtn.Layout.Column = 1;
+
+            % Pause Button (Local variable)
+            btnSimPause = uibutton(gridSimPlay, ...
+                'Text', 'Pause', ...
+                'FontWeight', 'bold', ...
+                'BackgroundColor', panelBg, ... % Neutral
+                'FontColor', labelCol, ...
+                'ButtonPushedFcn', @(~,~)app.onSimPause());
+            btnSimPause.Layout.Column = 2;
+
+            % Stop/Reset Button
+            app.SimStopBtn = uibutton(gridSimPlay, ...
+                'Text', 'Reset', ...
+                'FontWeight', 'bold', ...
+                'BackgroundColor', panelBg, ... % Neutral
+                'FontColor', labelCol, ...
+                'ButtonPushedFcn', @(~,~)app.onSimStop());
+            app.SimStopBtn.Layout.Column = 3;
+
+            % Slider (Spans row 2)
+            app.SimSlider = uislider(gridSimPlay, ...
+                'Limits', [1 100], ...
+                'Value', 1, ...
+                'ValueChangedFcn', @(src,~)app.onSimSliderChanging(src));
+            app.SimSlider.Layout.Row = 2;
+            app.SimSlider.Layout.Column = [1 3];
+
+            % -------------------------------------------------------
+            % 2. SETTINGS PANEL
+            % -------------------------------------------------------
+            panSimSet = uipanel(app.SimLeftPanel, ...
+                'Title', 'Settings', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', labelCol, ...
+                'FontWeight', 'bold', ...
+                'BorderType', 'line');
+            panSimSet.Layout.Row = 2;
+
+            gridSimSet = uigridlayout(panSimSet, [1 2]);
+            gridSimSet.ColumnWidth = {'fit', '1x'};
+            gridSimSet.Padding     = [5 5 5 5];
+            gridSimSet.BackgroundColor = panelBg;
+
+            lblSimSpeed = uilabel(gridSimSet, ...
+                'Text', 'Speed (x):', ...
+                'FontColor', labelCol, ...
+                'HorizontalAlignment', 'right');
+
+            app.SimSpeedSpinner = uispinner(gridSimSet, ...
+                'Limits', [0.1 10], ...
+                'Value', 1.0, ...
+                'Step', 0.1);
+
+            % -------------------------------------------------------
+            % SPACER (Row 3)
+            % -------------------------------------------------------
+            lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
+            lblSimSpacer.Layout.Row = 3;
+
+            % -------------------------------------------------------
+            % CONTINUE BUTTON (Row 6)
+            % -------------------------------------------------------
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, ...
+                'Text', 'Continue to G-Code', ...
+                'FontWeight', 'bold', ...
+                'BackgroundColor', [0.1 0.6 0.1], ... % Success Green
+                'FontColor', [1 1 1], ...
+                'ButtonPushedFcn', @(~,~)app.onContinue());
+            app.BtnSimContinue.Layout.Row = 6;
+
+            % -------------------------------------------------------
+            % RIGHT COLUMN: 3D VISUALIZATION
+            % -------------------------------------------------------
+            app.AxSim = uiaxes(app.GLSimulation);
+            app.AxSim.Layout.Column = 2;
+            app.AxSim.BackgroundColor = [0.05 0.05 0.05]; % Standard Dark 3D space
+            xlabel(app.AxSim, 'X'); ylabel(app.AxSim, 'Y'); zlabel(app.AxSim, 'Z');
+            grid(app.AxSim, 'on');
+            view(app.AxSim, 3);
+            axis(app.AxSim, 'equal');
+
+
             app.applyTheme();
 
         end
@@ -2449,9 +2593,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.onResetCuttingViewBillet();;
 
             elseif currTab == app.TabCutting
-                % Transition Cutting -> Simulation
                 app.TabGroup.SelectedTab = app.TabSimulation;
-                % (We will implement the simulation init logic here later)
+                app.applyTheme();
+                app.generateSimulationData();
 
             end
         end
@@ -3090,32 +3234,31 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
-            % Prepares profile data: Ghost drawing, Kerf offset, Gap fix, Shift, Flip
+            % Prepares profile data.
+            % If 'ax' is empty/invalid, it skips plotting (Ghost) and just returns data.
+
             y=[]; z=[]; hGhost=gobjects(0);
             if isempty(pts), return; end
 
-            % 1. Draw Ghost (Raw data + Offset)
+            % 1. Ghost Data
             rawY = pts(:,2); rawZ = pts(:,3);
             gY = rawY + offY; gZ = rawZ + offZ;
-            hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
+
+            % Only plot if axis is valid
+            if ~isempty(ax) && isgraphics(ax)
+                hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
+            end
 
             % 2. Apply Kerf
             if doKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal); end
             y = rawY + offY; z = rawZ + offZ;
 
-            % 3. Process Loop (Gap, Shift, Flip)
+            % 3. Process Loop
             if numel(y) > 2
-                % Remove duplicate end point if closed
                 if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6, y(end)=[]; z(end)=[]; end
-
-                % Shift Start
                 idx = startIdx; if idx > numel(y), idx = 1; end
                 y = circshift(y, -(idx - 1)); z = circshift(z, -(idx - 1));
-
-                % Flip (Reverse direction relative to start point)
                 if isCCW, y(2:end) = flipud(y(2:end)); z(2:end) = flipud(z(2:end)); end
-
-                % Re-close
                 y(end+1) = y(1); z(end+1) = z(1);
             end
         end
@@ -3537,6 +3680,199 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
+        % SIMULATION TAB LOGIC
+        % ===========================================================
+
+        function generateSimulationData(app)
+            % Compiles the full toolpath (Rapid + Feed) for simulation
+
+            t = app.getTheme();
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+
+            % 1. Process Profiles (Pass [] as axis to skip plotting)
+            % FIXED: Removed the extra [] argument
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
+            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
+
+            % 2. Sync Profile Counts
+            [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+
+            % 3. Build Approach Sequence
+            function pts = buildPathSeq(startPt, entry1, entry2)
+                pZero = [0, 0];
+                pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+                pRetract = [pFront(1)-10, pFront(2)];
+                pts = [pZero; pFront; pRetract];
+                if ~isempty(entry1), pts = [pts; entry1]; end
+                if ~isempty(entry2), pts = [pts; entry2]; end
+                pts = [pts; startPt];
+            end
+
+            rapidL = buildPathSeq([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
+            rapidR = buildPathSeq([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
+
+            % 4. Interpolate Rapids
+            function [upY, upZ] = interpolatePath(pts, numSteps)
+                if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
+                d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
+                if d(end) == 0, upY=pts(:,1); upZ=pts(:,2); return; end
+                query = linspace(0, d(end), numSteps)';
+                upY = interp1(d, pts(:,1), query);
+                upZ = interp1(d, pts(:,2), query);
+            end
+
+            rapidSteps = 100;
+            [rLy, rLz] = interpolatePath(rapidL, rapidSteps);
+            [rRy, rRz] = interpolatePath(rapidR, rapidSteps);
+
+            % 5. Combine & Store
+            xL_val = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
+            xR_val = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+
+            fullY_L = [rLy; yL]; fullZ_L = [rLz; zL];
+            fullY_R = [rRy; yR]; fullZ_R = [rRz; zR];
+
+            fullX_L = repmat(xL_val, numel(fullY_L), 1);
+            fullX_R = repmat(xR_val, numel(fullY_R), 1);
+
+            app.SimPathL = [fullX_L, fullY_L, fullZ_L];
+            app.SimPathR = [fullX_R, fullY_R, fullZ_R];
+
+            % 6. Init Controls
+            app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
+            app.SimSlider.Value = 1;
+
+            app.initSimulationPlot();
+        end
+
+        function initSimulationPlot(app)
+            ax = app.AxSim;
+            cla(ax); hold(ax, 'on');
+            t = app.getTheme();
+
+            % 1. Machine Bed
+            offX = app.MachineBedPos(1);
+            bs = app.MachineBedSize;
+            [xb, yb, zb] = app.makeBoxVertices(0, 50, -20, bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+                'FaceColor',[0.2 0.2 0.2], 'FaceAlpha', 0.5, 'EdgeColor','none');
+
+            % 2. Billet (Semi-Transparent)
+            bp = app.MachineBilletPos; bs = app.BilletSize;
+            [xm, ym, zm] = app.makeBoxVertices(bp(1), bp(2), bp(3), bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
+                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--');
+
+            % 3. Towers
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ; mSpan = app.MachineSpanX;
+            % Left
+            fill3(ax, [-offX, -offX, -offX, -offX], [0, mLimY, mLimY, 0], [0, 0, mLimZ, mLimZ], ...
+                t.planeRed, 'FaceAlpha', 0.05, 'EdgeColor', t.planeRed);
+            % Right
+            fill3(ax, [mSpan-offX, mSpan-offX, mSpan-offX, mSpan-offX], [0, mLimY, mLimY, 0], [0, 0, mLimZ, mLimZ], ...
+                t.planeGreen, 'FaceAlpha', 0.05, 'EdgeColor', t.planeGreen);
+
+            % 4. Wire (Initial)
+            if ~isempty(app.SimPathL)
+                plot3(ax, [app.SimPathL(1,1), app.SimPathR(1,1)], ...
+                    [app.SimPathL(1,2), app.SimPathR(1,2)], ...
+                    [app.SimPathL(1,3), app.SimPathR(1,3)], ...
+                    'Color', t.wireKerf, 'LineWidth', 2, 'Tag', 'SimWire');
+            end
+
+            axis(ax, 'equal'); view(ax, 3);
+            xlim(ax, [-offX-50, mSpan-offX+50]);
+            ylim(ax, [-50, mLimY+50]);
+            zlim(ax, [-50, mLimZ+50]);
+            grid(ax, 'on');
+        end
+
+        function onSimSliderChanging(app, src)
+            idx = round(src.Value);
+            if isempty(app.SimPathL), return; end
+            if idx > size(app.SimPathL, 1), idx = size(app.SimPathL, 1); end
+
+            hWire = findobj(app.AxSim, 'Tag', 'SimWire');
+            if ~isempty(hWire)
+                hWire.XData = [app.SimPathL(idx,1), app.SimPathR(idx,1)];
+                hWire.YData = [app.SimPathL(idx,2), app.SimPathR(idx,2)];
+                hWire.ZData = [app.SimPathL(idx,3), app.SimPathR(idx,3)];
+            end
+            drawnow limitrate;
+        end
+
+        % ===========================================================
+        % SIMULATION PLAYBACK
+        % ===========================================================
+        function onSimPlay(app)
+            % Start/Resume Timer
+            if isempty(app.SimPathL), return; end
+
+            if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
+                app.SimTimer = timer(...
+                    'ExecutionMode', 'fixedRate', ...
+                    'Period', 0.05, ... % 20 FPS base
+                    'TimerFcn', @(~,~)app.onSimTimerTick());
+            end
+
+            if strcmp(app.SimTimer.Running, 'off')
+                start(app.SimTimer);
+                app.SimPlayBtn.Enable = 'off'; % Disable Play while running
+            end
+        end
+
+        function onSimPause(app)
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
+                stop(app.SimTimer);
+                app.SimPlayBtn.Enable = 'on';
+            end
+        end
+
+        function onSimStop(app)
+            app.onSimPause();
+            app.SimSlider.Value = 1;
+            app.onSimSliderChanging(app.SimSlider); % Reset Visuals
+        end
+
+        function onSimTimerTick(app)
+            % Advance Slider
+            current = app.SimSlider.Value;
+            limit   = app.SimSlider.Limits(2);
+
+            % Speed Multiplier
+            step = 1 + round(app.SimSpeedSpinner.Value * 5);
+
+            nextVal = current + step;
+
+            if nextVal >= limit
+                nextVal = limit;
+                app.onSimPause(); % Stop at end
+            end
+
+            app.SimSlider.Value = nextVal;
+            app.onSimSliderChanging(app.SimSlider);
+        end
+
+        % Ensure Timer is killed when app closes
+        function delete(app)
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
+                stop(app.SimTimer);
+                delete(app.SimTimer);
+            end
+        end
+
+        function onAppClose(app, src)
+            % Cleanup Timer
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
+                stop(app.SimTimer);
+                delete(app.SimTimer);
+            end
+            delete(src); % Close window
+        end
+
+        % ===========================================================
         % MOUSE-DRAG ROTATION FOR 3D AXES
         % ===========================================================
         function onMouseDown(app,~,~)
@@ -3590,7 +3926,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsDragging   = false;
             app.LastMousePos = [NaN NaN];
         end
-
+        
         % ===========================================================
         % THEME HELPERS
         % ===========================================================
