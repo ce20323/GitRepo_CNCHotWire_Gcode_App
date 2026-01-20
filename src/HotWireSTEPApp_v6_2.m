@@ -637,7 +637,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
                 app.BilletSizeMinusBtns(i).Layout.Row = r; app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
-                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', 'BackgroundColor',[0.7 0.7 0.8], ...
+                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', 'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], ...
                     'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = r; app.BilletSizeEdits(i).Layout.Column = 4;
 
@@ -685,7 +685,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 btnMinPos.Layout.Row = rk;
 
                 app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
-                    'BackgroundColor',[0.7 0.7 0.8], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
+                    'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
                 app.BilletCenterOffsetEdits(k).Layout.Row = rk; app.BilletCenterOffsetEdits(k).Layout.Column = 4;
 
                 btnPlusPos = uibutton(gridBPos, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
