@@ -345,935 +345,536 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+
         % ===========================================================
-        % BUILD UI
+        % BUILD UI (Fixed Spacing & Alignments)
         % ===========================================================
         function buildUI(app)
 
-            % --- Main figure ---
+            % --- 1. Main Window Setup ---
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
 
-            % --- UNPACK PALETTE (This fixes your "Unrecognized variable" error) ---
+            % --- 2. Theme & Colors ---
             t = app.getTheme();
-            sideBg = t.sideBg; panelBg = t.panelBg; labelCol = t.labelCol;
-            inputBg = t.inputBg; inputTxt = t.inputTxt;
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+            inputBg  = t.inputBg;
+            inputTxt = t.inputTxt;
 
-            app.UIFigure.Color = sideBg; % Apply background
+            app.UIFigure.Color = sideBg;
 
-            % --- Tab group ---
+            % --- 3. Tab Group Container ---
             app.TabGroup = uitabgroup(app.UIFigure, ...
                 'Units','normalized', ...
                 'Position',[0 0 1 1]);
 
-            app.TabModel    = uitab(app.TabGroup,'Title','Model');
-            app.TabProfiles = uitab(app.TabGroup,'Title','Profiles'); % Profiles tab
-            app.TabBillet   = uitab(app.TabGroup,'Title','Billet');   % NEW: Billet tab
+            % ===========================================================
+            % TAB 1: MODEL IMPORT & ORIENTATION
+            % ===========================================================
+            app.TabModel = uitab(app.TabGroup,'Title','Model');
 
-            % -------------------------------------------------------
-            % PROFILES TAB LAYOUT
-            % Left: control panel (like model tab)
-            % Right: 2D profiles (left on top, right on bottom)
-            % -------------------------------------------------------
+            % Main Layout
+            app.GLModel = uigridlayout(app.TabModel,[1 2]);
+            app.GLModel.ColumnWidth   = {320,'1x'};
+            app.GLModel.Padding       = [10 10 10 10];
+            app.GLModel.ColumnSpacing = 10;
+
+            % --- Left Control Panel ---
+            app.GLLeft = uigridlayout(app.GLModel,[16 1]);
+            app.GLLeft.Layout.Column = 1;
+            app.GLLeft.RowHeight = repmat({'fit'},1,16);
+            app.GLLeft.RowHeight{15} = '1x'; % Spring
+            app.GLLeft.Padding = [10 10 10 10];
+            app.GLLeft.BackgroundColor = sideBg;
+
+            % -- File Import --
+            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onImportSTEP());
+            app.BtnImportSTEP.Layout.Row = 1;
+
+            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onImportSTL());
+            app.BtnImportSTL.Layout.Row = 2;
+
+            app.FileLabel = uilabel(app.GLLeft, 'Text','Current File: ---', 'FontWeight','bold', 'FontColor',labelCol);
+            app.FileLabel.Layout.Row = 3;
+
+            lblModSpacer1 = uilabel(app.GLLeft,'Text',"");
+            lblModSpacer1.Layout.Row = 4;
+
+            % -- Taper Toggle --
+            pnlTaper = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
+            pnlTaper.Layout.Row = 5;
+
+            gridTaper = uigridlayout(pnlTaper,[1 3]);
+            gridTaper.ColumnWidth = {'1x','fit','1x'};
+            gridTaper.Padding = [0 0 0 0]; gridTaper.BackgroundColor = sideBg;
+
+            app.TaperToggle = uiswitch(gridTaper,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', 'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
+            app.TaperToggle.Layout.Column = 2;
+
+            lblModSpacer2 = uilabel(app.GLLeft,'Text',"");
+            lblModSpacer2.Layout.Row = 6;
+
+            % -- Orientation Controls --
+            pnlRot = uipanel(app.GLLeft, 'Title','Model Orientation Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            pnlRot.Layout.Row = 7;
+
+            gridRotOuter = uigridlayout(pnlRot,[1 3]);
+            gridRotOuter.ColumnWidth = {'1x','fit','1x'}; gridRotOuter.Padding = [5 5 5 5];
+
+            app.RotGrid = uigridlayout(gridRotOuter,[3 4]);
+            app.RotGrid.Layout.Column = 2;
+            app.RotGrid.ColumnWidth = {'fit','fit',70,'fit'};
+            app.RotGrid.RowHeight   = {'fit','fit','fit'};
+
+            rotAxes = {'X','Y','Z'};
+            app.RotEdit = gobjects(1,3);
+            for i = 1:3
+                lblRotAxis = uilabel(app.RotGrid, 'Text',rotAxes{i}, 'FontWeight','bold', 'HorizontalAlignment','center');
+                lblRotAxis.Layout.Row = i;
+
+                btnRotNeg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([rotAxes{i} 'm']));
+                btnRotNeg.Layout.Row = i;
+
+                app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
+                    'ValueChangedFcn',@(src,~)app.updateRotation(rotAxes{i},src.Value));
+                app.RotEdit(i).Layout.Row = i;
+
+                btnRotPos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([rotAxes{i} 'p']));
+                btnRotPos.Layout.Row = i;
+            end
+
+            % -- Reset Controls --
+            app.BtnResetOrientation = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            app.BtnResetOrientation.Layout.Row = 8;
+
+            app.BtnResetPlot = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
+            app.BtnResetPlot.Layout.Row = 9;
+
+            lblModSpacer3 = uilabel(app.GLLeft,'Text',"");
+            lblModSpacer3.Layout.Row = 10;
+
+            % -- Plane Offsets --
+            pnlOff = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
+            pnlOff.Layout.Row = 11;
+
+            gridOff = uigridlayout(pnlOff,[3 2]);
+            gridOff.ColumnWidth = {'1x',90}; gridOff.RowHeight = {'fit','fit','fit'}; gridOff.Padding = [10 10 10 10];
+
+            % Colors for offset fields
+            valCol = [0 0 0];
+
+            lblOffL = uilabel(gridOff, 'Text','Left Plane Offset [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold');
+            lblOffL.Layout.Row = 1;
+
+            app.NumLeftOffset = uispinner(gridOff, 'Limits',[-1000 1000], 'Value',0, 'Step',1, 'ValueDisplayFormat','%.2f', ...
+                'FontColor',valCol, 'BackgroundColor',[0.96 0.86 0.86], 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumLeftOffset.Layout.Row = 1; app.NumLeftOffset.Layout.Column = 2;
+
+            lblOffR = uilabel(gridOff, 'Text','Right Plane Offset [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold');
+            lblOffR.Layout.Row = 2;
+
+            app.NumRightOffset = uispinner(gridOff, 'Limits',[-1000 1000], 'Value',0, 'Step',1, 'ValueDisplayFormat','%.2f', ...
+                'FontColor',valCol, 'BackgroundColor',[0.86 0.96 0.86], 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumRightOffset.Layout.Row = 2; app.NumRightOffset.Layout.Column = 2;
+
+            app.BtnResetPlanes = uibutton(gridOff, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
+            app.BtnResetPlanes.Layout.Row = 3; app.BtnResetPlanes.Layout.Column = [1 2];
+
+            % -- Bottom Buttons --
+            lblModSpring = uilabel(app.GLLeft, 'Text','');
+            lblModSpring.Layout.Row = 15;
+
+            pnlBtns = uipanel(app.GLLeft, 'BackgroundColor',[0.16 0.16 0.16], 'BorderType','none');
+            pnlBtns.Layout.Row = 16;
+
+            gridBtns = uigridlayout(pnlBtns,[1 2]);
+            gridBtns.Padding = [0 0 0 0]; gridBtns.ColumnSpacing = 10;
+
+            app.BtnGenerateProfiles = uibutton(gridBtns, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
+
+            app.BtnContinue = uibutton(gridBtns, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
+                'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
+
+            % --- Right Panel: 3D Model Axis ---
+            app.AxModel = uiaxes(app.GLModel);
+            app.AxModel.Layout.Column = 2;
+            app.AxModel.BackgroundColor = [0.11 0.11 0.11];
+            xlabel(app.AxModel,'X (mm)'); ylabel(app.AxModel,'Y (mm)'); zlabel(app.AxModel,'Z (mm)');
+            grid(app.AxModel,'on'); view(app.AxModel,3);
+            hold(app.AxModel,'on');
+
+
+            % ===========================================================
+            % TAB 2: PROFILES
+            % ===========================================================
+            app.TabProfiles = uitab(app.TabGroup,'Title','Profiles');
+
             app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
-            app.GLProfiles.ColumnWidth   = {320,'1x'};
-            app.GLProfiles.RowHeight     = {'1x'};
-            app.GLProfiles.Padding       = [10 10 10 10];
-            app.GLProfiles.ColumnSpacing = 10;
+            app.GLProfiles.ColumnWidth = {320,'1x'};
+            app.GLProfiles.Padding = [10 10 10 10];
 
-            % ================================
-            % LEFT CONTROL COLUMN (Profiles tab)
-            % ================================
+            % --- Left Control Panel ---
             app.profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
-            profilesLeft = app.profilesLeft; % This one line makes all your "profilesLeft" code below it work!
-            profilesLeft.Layout.Column   = 1;
-            profilesLeft.RowHeight       = {'fit','fit','fit','fit','1x','fit'};  % row 5 = spacer, row 6 = button
-            profilesLeft.Padding         = [10 10 10 10];
-            profilesLeft.BackgroundColor = sideBg;
+            app.profilesLeft.Layout.Column = 1;
+            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','1x','fit'}; % Row 5 = Spring
+            app.profilesLeft.Padding = [10 10 10 10];
+            app.profilesLeft.BackgroundColor = sideBg;
 
+            % -- Tolerance --
+            pnlTol = uipanel(app.profilesLeft, 'Title','Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlTol.Layout.Row = 1;
 
-            % --- Profile Sampling Panel (tolerance) ---
-            tolPanel = uipanel(profilesLeft, ...
-                'Title','Profile Sampling', ...
-                'BackgroundColor',panelBg, ...
-                'ForegroundColor',labelCol, ...
-                'FontWeight','bold', ...
-                'BorderType','line');
-            tolPanel.Layout.Row = 1;
+            gridTol = uigridlayout(pnlTol,[2 2]);
+            gridTol.ColumnWidth = {'1x',90}; gridTol.Padding = [10 5 10 5];
 
-            % 2 rows:
-            %   row 1: label + spinner
-            %   row 2: read-only points label
-            tolGrid = uigridlayout(tolPanel,[2 2]);
-            tolGrid.ColumnWidth    = {'1x',90};
-            tolGrid.RowHeight      = {'fit','fit'};
-            tolGrid.Padding        = [10 5 10 5];
-            tolGrid.ColumnSpacing  = 8;
+            lblTol = uilabel(gridTol, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
 
-
-            lblTol = uilabel(tolGrid, ...
-                'Text','Profile Tolerance [mm]:', ...
-                'HorizontalAlignment','right', ...
-                'FontWeight','bold', ...
-                'FontColor',labelCol);
-            lblTol.Layout.Row    = 1;
-            lblTol.Layout.Column = 1;
-
-            app.ProfileTolSpinner = uispinner(tolGrid, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, ...
-                HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
-                'Step',0.05, ...
-                'ValueDisplayFormat','%.2f', ...
-                'Tooltip','Maximum segment length along profile (mm)', ...
-                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
-            % Keep the stored tolerance in sync with the UI default
+            app.ProfileTolSpinner = uispinner(gridTol, 'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, 'Step',0.05, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
-            app.ProfileTolSpinner.Layout.Row    = 1;
-            app.ProfileTolSpinner.Layout.Column = 2;
 
-            % Read-only point-count label (L/R)
-            app.ProfilePointCountLabel = uilabel(tolGrid, ...
-                'Text','Number of Points (L/R): -- / --', ...
-                'HorizontalAlignment','right', ...
-                'FontColor',labelCol, ...
-                'FontAngle','italic');
-            app.ProfilePointCountLabel.Layout.Row    = 2;
-            app.ProfilePointCountLabel.Layout.Column = [1 2];
+            app.ProfilePointCountLabel = uilabel(gridTol, 'Text','Number of Points (L/R): -- / --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            app.ProfilePointCountLabel.Layout.Row = 2; app.ProfilePointCountLabel.Layout.Column = [1 2];
 
-            % --- Reset tolerance to default ---
-            app.BtnResetProfileTol = uibutton(profilesLeft, ...
-                'Text','Reset Tolerance', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            % -- Reset Buttons --
+            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
             app.BtnResetProfileTol.Layout.Row = 2;
 
-            % --- Reset Profiles plot view (optional) ---
-            app.BtnResetProfilesView = uibutton(profilesLeft, ...
-                'Text','Reset Profiles View', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
+            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
             app.BtnResetProfilesView.Layout.Row = 3;
 
-            % --- Kerf Compensation Panel ---
-            kerfPanel = uipanel(profilesLeft, ...
-                'Title','Kerf Compensation', ...
-                'BackgroundColor',panelBg, ...
-                'ForegroundColor',labelCol, ...
-                'FontWeight','bold', ...
-                'BorderType','line');
-            kerfPanel.Layout.Row = 4;
+            % -- Kerf --
+            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlKerf.Layout.Row = 4;
 
-            % 2-row grid: row 1 = label+spinner, row 2 = "Apply kerf" button
-            kerfGrid = uigridlayout(kerfPanel,[2 2]);
-            % Match the offset panel style:
-            % left column stretches, right column is a fixed-width spinner
-            kerfGrid.ColumnWidth   = {'1x',90};
-            kerfGrid.RowHeight     = {'fit','fit'};
-            kerfGrid.Padding       = [10 5 10 5];
-            kerfGrid.ColumnSpacing = 8;
-            kerfGrid.RowSpacing    = 6;
+            gridKerf = uigridlayout(pnlKerf,[2 2]);
+            gridKerf.ColumnWidth = {'1x',90}; gridKerf.Padding = [10 5 10 5];
 
-            lblKerf = uilabel(kerfGrid, ...
-                'Text','Kerf [mm]:', ...
-                'HorizontalAlignment','right', ...
-                'FontWeight','bold', ...
-                'FontColor',labelCol);
-            lblKerf.Layout.Row    = 1;
-            lblKerf.Layout.Column = 1;
+            lblKerf = uilabel(gridKerf, 'Text','Kerf [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
 
-            app.KerfSpinner = uispinner(kerfGrid, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinKerf, ...
-                HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultKerf, ...
-                'Step',0.1, ...
-                'ValueDisplayFormat','%.2f', ...
-                'Tooltip','Positive kerf expands profile (wire centreline offset)', ...
-                'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
-            % Keep stored kerf value in sync with the UI default
+            app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
             app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
-            app.KerfSpinner.Layout.Row    = 1;
-            app.KerfSpinner.Layout.Column = 2;
 
-            % --- Apply kerf button (generates kerf path when pressed) ---
-            app.BtnApplyKerf = uibutton(kerfGrid, ...
-                'Text','Apply Kerf Offset', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
-            app.BtnApplyKerf.Layout.Row    = 2;
-            app.BtnApplyKerf.Layout.Column = [1 2];
+            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf.Layout.Row = 2; app.BtnApplyKerf.Layout.Column = [1 2];
 
-            % (rows 5–6 of profilesLeft left free for future options)
-            % --- Spacer to push the button to the bottom ---
-            spProfilesBottom = uilabel(profilesLeft, ...
-                'Text','');
-            spProfilesBottom.Layout.Row = 5;
+            % -- Spacer --
+            lblProfSpacer = uilabel(app.profilesLeft, 'Text','');
+            lblProfSpacer.Layout.Row = 5;
 
-            % --- Continue button at the bottom of the left panel ---
-            app.BtnProfilesContinue = uibutton(profilesLeft, ...
-                'Text','Continue →', ...
-                'FontWeight','bold', ...
-                'Enable', 'off', ...                     % START DISABLED
-                'BackgroundColor',[0.3 0.3 0.3], ...      % START GREY'FontColor',[1 1 1], ...
+            % -- Continue --
+            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
                 'ButtonPushedFcn',@(~,~)app.onContinueFromProfiles());
             app.BtnProfilesContinue.Layout.Row = 6;
 
-            % ================================
-            % RIGHT COLUMN: 2D PROFILE AXES
-            % ================================
-            profilesRight = uigridlayout(app.GLProfiles,[2 1]);
-            profilesRight.Layout.Column   = 2;
-            profilesRight.RowHeight       = {'1x','1x'};
-            profilesRight.ColumnWidth     = {'1x'};
-            profilesRight.Padding         = [0 0 0 0];
-            profilesRight.RowSpacing      = 10;
+            % --- Right Panel: 2D Plots ---
+            gridProfRight = uigridlayout(app.GLProfiles,[2 1]);
+            gridProfRight.Layout.Column = 2;
+            gridProfRight.RowHeight = {'1x','1x'};
 
-            % Left profile axes (top)
-            app.AxLeftProfile = uiaxes(profilesRight);
-            app.AxLeftProfile.Layout.Row    = 1;
-            app.AxLeftProfile.Layout.Column = 1;
+            app.AxLeftProfile = uiaxes(gridProfRight);
             app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxLeftProfile,'Left Profile');
-            xlabel(app.AxLeftProfile,'Y (mm)');
-            ylabel(app.AxLeftProfile,'Z (mm)');
-            grid(app.AxLeftProfile,'on');
-            % True-scale Y–Z: 1 mm in Y = 1 mm in Z, but the axes
-            % box size itself is controlled by the grid layout.
-            app.AxLeftProfile.DataAspectRatio        = [1 1 1];
-            app.AxLeftProfile.DataAspectRatioMode    = 'manual';
-            app.AxLeftProfile.PlotBoxAspectRatioMode = 'auto';
+            title(app.AxLeftProfile,'Left Profile'); grid(app.AxLeftProfile,'on'); axis(app.AxLeftProfile,'equal');
 
-            % Right profile axes (bottom)
-            app.AxRightProfile = uiaxes(profilesRight);
-            app.AxRightProfile.Layout.Row    = 2;
-            app.AxRightProfile.Layout.Column = 1;
+            app.AxRightProfile = uiaxes(gridProfRight);
             app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxRightProfile,'Right Profile');
-            xlabel(app.AxRightProfile,'Y (mm)');
-            ylabel(app.AxRightProfile,'Z (mm)');
-            grid(app.AxRightProfile,'on');
-            app.AxRightProfile.DataAspectRatio        = [1 1 1];
-            app.AxRightProfile.DataAspectRatioMode    = 'manual';
-            app.AxRightProfile.PlotBoxAspectRatioMode = 'auto';
+            title(app.AxRightProfile,'Right Profile'); grid(app.AxRightProfile,'on'); axis(app.AxRightProfile,'equal');
 
-            % -------------------------------------------------------
-            % BILLET TAB LAYOUT
-            % Left: control panel
-            % Right: 3 orthographic views (Top / Front / Right)
-            % -------------------------------------------------------
+
+            % ===========================================================
+            % TAB 3: BILLET CONFIGURATION
+            % ===========================================================
+            app.TabBillet = uitab(app.TabGroup,'Title','Billet');
+
             app.GLBillet = uigridlayout(app.TabBillet,[1 2]);
-            app.GLBillet.ColumnWidth   = {320,'1x'};
-            app.GLBillet.RowHeight     = {'1x'};
-            app.GLBillet.Padding       = [10 10 10 10];
-            app.GLBillet.ColumnSpacing = 10;
+            app.GLBillet.ColumnWidth = {320,'1x'};
+            app.GLBillet.Padding = [10 10 10 10];
 
-            % ================================
-            % LEFT CONTROL COLUMN (Billet tab)
-            % ================================
-            app.BilletLeftPanel = uigridlayout(app.GLBillet,[7 1]); % 7 rows total
-            app.BilletLeftPanel.Layout.Column   = 1;
-            % Row 1-5: controls, Row 6: warning message (expands), Row 7: button
-            app.BilletLeftPanel.RowHeight       = {'fit','fit','fit','fit','fit','1x','fit'};
-            app.BilletLeftPanel.Padding         = [10 10 10 10];
+            % --- Left Control Panel ---
+            app.BilletLeftPanel = uigridlayout(app.GLBillet,[7 1]);
+            app.BilletLeftPanel.Layout.Column = 1;
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','1x','fit'};
+            app.BilletLeftPanel.Padding = [10 10 10 10];
             app.BilletLeftPanel.BackgroundColor = sideBg;
 
-            % --- [Auto-fit Billet] button (row 1)
-            app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, ...
-                'Text','Auto-fit Billet', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onAutoFitBillet());
+            % -- Auto Fit --
+            app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, 'Text','Auto-fit Billet', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoFitBillet());
             app.BtnAutoFitBillet.Layout.Row = 1;
 
-            % --- Billet size controls block (row 2) ---
-            billetSizePanel = uipanel(app.BilletLeftPanel);
-            billetSizePanel.Title = 'Billet Size Controls';
-            billetSizePanel.BackgroundColor = panelBg;
-            billetSizePanel.ForegroundColor = labelCol;
-            billetSizePanel.FontWeight = 'bold';
-            billetSizePanel.Layout.Row = 2;
+            % -- Size Controls --
+            pnlBSize = uipanel(app.BilletLeftPanel, 'Title','Billet Size Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            pnlBSize.Layout.Row = 2;
 
-            sizeOuter = uigridlayout(billetSizePanel, [1 1]);
-            sizeOuter.Padding = [5 5 5 5];
+            gridBSizeOuter = uigridlayout(pnlBSize, [1 1]); gridBSizeOuter.Padding = [5 5 5 5];
 
-            % 6-Column Symmetric Layout
-            sizeGrid = uigridlayout(sizeOuter, [4 6]);
-            sizeGrid.ColumnWidth = {35, 65, 20, 65, 20, 65};
-            sizeGrid.RowHeight = {'fit','fit','fit','fit'};
-            sizeGrid.Padding = [4 4 4 4];
-            sizeGrid.ColumnSpacing = 4;
-            sizeGrid.RowSpacing = 4;
+            % [FIX] Tighten spacing (ColumnSpacing=4) to prevent cropping on the right
+            gridBSize = uigridlayout(gridBSizeOuter, [4 6]);
+            gridBSize.ColumnWidth = {35, 65, 20, 65, 20, 65};
+            gridBSize.Padding = [4 4 4 4];
+            gridBSize.ColumnSpacing = 4; % <-- ADDED to fix cropping
 
-            % --- Size Headings ---
-            hS1 = uilabel(sizeGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hS1.Layout.Row = 1; hS1.Layout.Column = 1;
-
-            hS2 = uilabel(sizeGrid, 'Text','Stock [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hS2.Layout.Row = 1; hS2.Layout.Column = [3 5];
-
-            hS3 = uilabel(sizeGrid, 'Text','Model', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hS3.Layout.Row = 1; hS3.Layout.Column = 6;
+            % Headings
+            lblAxH = uilabel(gridBSize, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblAxH.Layout.Row = 1;
+            lblStkH = uilabel(gridBSize, 'Text','Stock [mm]', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblStkH.Layout.Row=1; lblStkH.Layout.Column=[3 5];
+            lblModH = uilabel(gridBSize, 'Text','Model', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblModH.Layout.Row=1; lblModH.Layout.Column=6;
 
             axisLabels = {'X','Y','Z'};
-            app.BilletSizeEdits      = gobjects(1,3);
-            app.BilletSizeMinusBtns  = gobjects(1,3);
-            app.BilletSizePlusBtns   = gobjects(1,3);
-            app.BilletModelDimLabels = gobjects(1,3);
-
-            t_init = app.getTheme(); % Get the colors defined in getTheme
+            app.BilletSizeEdits = gobjects(1,3); app.BilletSizeMinusBtns = gobjects(1,3); app.BilletSizePlusBtns = gobjects(1,3); app.BilletModelDimLabels = gobjects(1,3);
 
             for i = 1:3
                 r = i + 1;
-                lblA = uilabel(sizeGrid, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
-                lblA.Layout.Row = r; lblA.Layout.Column = 1;
+                lblAx = uilabel(gridBSize, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lblAx.Layout.Row = r;
 
-                lblSp = uilabel(sizeGrid, 'Text','', 'BackgroundColor', panelBg);
-                lblSp.Layout.Row = r; lblSp.Layout.Column = 2;
-
-                app.BilletSizeMinusBtns(i) = uibutton(sizeGrid, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
+                app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
                 app.BilletSizeMinusBtns(i).Layout.Row = r; app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
-                app.BilletSizeEdits(i) = uieditfield(sizeGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
-                    'BackgroundColor',[0.7 0.7 0.8], 'FontColor',[0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
+                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', 'BackgroundColor',[0.7 0.7 0.8], ...
+                    'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = r; app.BilletSizeEdits(i).Layout.Column = 4;
 
-                app.BilletSizePlusBtns(i) = uibutton(sizeGrid, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
+                app.BilletSizePlusBtns(i) = uibutton(gridBSize, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
-                app.BilletModelDimLabels(i) = uilabel(sizeGrid, 'Text','(---)', 'HorizontalAlignment','center', ...
-                    'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+                app.BilletModelDimLabels(i) = uilabel(gridBSize, 'Text','(---)', 'HorizontalAlignment','center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
                 app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
-            % --- [Auto-position Model] & [Reset] ---
+            % -- Position Buttons --
             app.BtnAutoPositionModel = uibutton(app.BilletLeftPanel, 'Text','Auto-position Model', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoPositionModel());
             app.BtnAutoPositionModel.Layout.Row = 3;
 
             app.BtnResetPosition = uibutton(app.BilletLeftPanel, 'Text','Reset Position', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetPosition());
             app.BtnResetPosition.Layout.Row = 4;
 
-            % --- Billet position controls block (row 5) ---
-            posPanel = uipanel(app.BilletLeftPanel, 'Title','Billet Position Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            posPanel.Layout.Row = 5;
+            % -- Position Controls --
+            pnlBPos = uipanel(app.BilletLeftPanel, 'Title','Billet Position Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            pnlBPos.Layout.Row = 5;
 
-            posGrid = uigridlayout(posPanel, [4 6]);
-            posGrid.ColumnWidth = {35, 65, 20, 65, 20, 65};
-            posGrid.RowHeight = {'fit','fit','fit','fit'};
-            posGrid.Padding = [4 4 4 4];
-            posGrid.ColumnSpacing = 4;
-            posGrid.RowSpacing = 4;
+            % [FIX] Tighten spacing to fix cropping
+            gridBPos = uigridlayout(pnlBPos, [4 6]);
+            gridBPos.ColumnWidth = {35, 65, 20, 65, 20, 65};
+            gridBPos.Padding = [4 4 4 4];
+            gridBPos.ColumnSpacing = 4; % <-- ADDED
 
-            hP1 = uilabel(posGrid, 'Text','Axis', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hP1.Layout.Row = 1; hP1.Layout.Column = 1;
+            lblAxH2 = uilabel(gridBPos, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblAxH2.Layout.Row = 1;
+            lblNegH = uilabel(gridBPos, 'Text','-ive Gap', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblNegH.Layout.Column = 2;
+            lblShftH = uilabel(gridBPos, 'Text','Shift [mm]', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblShftH.Layout.Row=1; lblShftH.Layout.Column=[3 5];
+            lblPosH = uilabel(gridBPos, 'Text','+ive Gap', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblPosH.Layout.Column = 6;
 
-            hP2 = uilabel(posGrid, 'Text','-ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hP2.Layout.Row = 1; hP2.Layout.Column = 2;
-
-            hP3 = uilabel(posGrid, 'Text','Shift [mm]', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hP3.Layout.Row = 1; hP3.Layout.Column = [3 5];
-
-            hP4 = uilabel(posGrid, 'Text','+ive Gap', 'FontWeight','bold', 'FontSize',10, 'HorizontalAlignment','center', 'FontColor',labelCol);
-            hP4.Layout.Row = 1; hP4.Layout.Column = 6;
-
-            app.BilletNegOffsetEdits    = gobjects(1,3);
-            app.BilletCenterOffsetEdits = gobjects(1,3);
-            app.BilletPosOffsetEdits    = gobjects(1,3);
+            app.BilletNegOffsetEdits = gobjects(1,3); app.BilletCenterOffsetEdits = gobjects(1,3); app.BilletPosOffsetEdits = gobjects(1,3);
 
             for k = 1:3
                 rk = k + 1;
-                lblB = uilabel(posGrid, 'Text', axisLabels{k}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
-                lblB.Layout.Row = rk; lblB.Layout.Column = 1;
+                lblAxRow = uilabel(gridBPos, 'Text', axisLabels{k}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lblAxRow.Layout.Row = rk;
 
-                app.BilletNegOffsetEdits(k) = uieditfield(posGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                app.BilletNegOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
                     'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
                 app.BilletNegOffsetEdits(k).Layout.Row = rk; app.BilletNegOffsetEdits(k).Layout.Column = 2;
 
-                btnM2 = uibutton(posGrid, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
-                btnM2.Layout.Row = rk; btnM2.Layout.Column = 3;
+                btnMinPos = uibutton(gridBPos, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
+                btnMinPos.Layout.Row = rk;
 
-                app.BilletCenterOffsetEdits(k) = uieditfield(posGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
-                    'BackgroundColor',[0.7 0.7 0.8], 'FontColor',[0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
+                app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                    'BackgroundColor',[0.7 0.7 0.8], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
                 app.BilletCenterOffsetEdits(k).Layout.Row = rk; app.BilletCenterOffsetEdits(k).Layout.Column = 4;
 
-                btnP2 = uibutton(posGrid, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
-                btnP2.Layout.Row = rk; btnP2.Layout.Column = 5;
+                btnPlusPos = uibutton(gridBPos, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
+                btnPlusPos.Layout.Row = rk;
 
-                app.BilletPosOffsetEdits(k) = uieditfield(posGrid,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                app.BilletPosOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
                     'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
                 app.BilletPosOffsetEdits(k).Layout.Row = rk; app.BilletPosOffsetEdits(k).Layout.Column = 6;
             end
 
-            % --- Message Label (row 6 - replaces old spacer) ---
-            app.BilletMessageLabel = uilabel(app.BilletLeftPanel, ...
-                'Text','', ...
-                'WordWrap','on', ...
-                'FontWeight','bold', ...
-                'FontColor', [1 1 1], ...
-                'VerticalAlignment','top');
+            % -- Message & Continue --
+            app.BilletMessageLabel = uilabel(app.BilletLeftPanel, 'Text','', 'WordWrap','on', 'FontWeight','bold', 'FontColor', [1 1 1], 'VerticalAlignment','top');
             app.BilletMessageLabel.Layout.Row = 6;
 
-            % --- [Continue] button (row 7 – bottom, green) ---
-            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, ...
-                'Text','Continue', ...
-                'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], ...
-                'FontColor',[1 1 1], ...
+            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnBilletContinue.Layout.Row = 7;
 
-            % ================================
-            % RIGHT COLUMN: BILLET PLOTS
-            % ================================
+            % --- Right Panel: 3 Orthographic Views ---
             app.BilletRightPanel = uigridlayout(app.GLBillet,[2 2]);
-            app.BilletRightPanel.Layout.Column   = 2;
-            app.BilletRightPanel.RowHeight       = {'1x','1x'};
-            app.BilletRightPanel.ColumnWidth     = {'1x','1x'};
-            app.BilletRightPanel.Padding         = [0 0 0 0];
-            app.BilletRightPanel.RowSpacing      = 10;
-            app.BilletRightPanel.ColumnSpacing   = 10;
+            app.BilletRightPanel.Layout.Column = 2;
 
-            % Top view (XY) – spans both columns in row 1
             app.AxBilletTop = uiaxes(app.BilletRightPanel);
-            app.AxBilletTop.Layout.Row    = 1;
-            app.AxBilletTop.Layout.Column = 1;
-            app.AxBilletTop.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxBilletTop,'Top View (X/Y)');
-            xlabel(app.AxBilletTop,'X (mm)');
-            ylabel(app.AxBilletTop,'Y (mm)');
-            grid(app.AxBilletTop,'on');
-            app.AxBilletTop.DataAspectRatio        = [1 1 1];
-            app.AxBilletTop.DataAspectRatioMode    = 'manual';
-            app.AxBilletTop.PlotBoxAspectRatioMode = 'auto';
+            app.AxBilletTop.Layout.Row = 1; app.AxBilletTop.Layout.Column = 1;
+            app.AxBilletTop.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletTop,'Top View (X/Y)');
 
-            % Front view (XZ) – row 2, col 1
             app.AxBilletFront = uiaxes(app.BilletRightPanel);
-            app.AxBilletFront.Layout.Row    = 2;
-            app.AxBilletFront.Layout.Column = 1;
-            app.AxBilletFront.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxBilletFront,'Front View (X/Z)');
-            xlabel(app.AxBilletFront,'X (mm)');
-            ylabel(app.AxBilletFront,'Z (mm)');
-            grid(app.AxBilletFront,'on');
-            app.AxBilletFront.DataAspectRatio        = [1 1 1];
-            app.AxBilletFront.DataAspectRatioMode    = 'manual';
-            app.AxBilletFront.PlotBoxAspectRatioMode = 'auto';
+            app.AxBilletFront.Layout.Row = 2; app.AxBilletFront.Layout.Column = 1;
+            app.AxBilletFront.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletFront,'Front View (X/Z)');
 
-            % Right view (YZ) – row 2, col 2
             app.AxBilletRight = uiaxes(app.BilletRightPanel);
-            app.AxBilletRight.Layout.Row    = 2;
-            app.AxBilletRight.Layout.Column = 2;
-            app.AxBilletRight.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxBilletRight,'Right View (Y/Z)');
-            xlabel(app.AxBilletRight,'Y (mm)');
-            ylabel(app.AxBilletRight,'Z (mm)');
-            grid(app.AxBilletRight,'on');
-            app.AxBilletRight.DataAspectRatio        = [1 1 1];
-            app.AxBilletRight.DataAspectRatioMode    = 'manual';
-            app.AxBilletRight.PlotBoxAspectRatioMode = 'auto';
+            app.AxBilletRight.Layout.Row = 2; app.AxBilletRight.Layout.Column = 2;
+            app.AxBilletRight.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletRight,'Right View (Y/Z)');
 
-            % --- Main layout: left controls / right plot ---
-            app.GLModel = uigridlayout(app.TabModel,[1 2]);
-            app.GLModel.ColumnWidth   = {320,'1x'};
-            app.GLModel.RowHeight     = {'1x'};
-            app.GLModel.Padding       = [10 10 10 10];
-            app.GLModel.ColumnSpacing = 10;
-
-            % --- Left control column ---
-            app.GLLeft = uigridlayout(app.GLModel,[16 1]);
-            app.GLLeft.Layout.Column = 1;
-            app.GLLeft.Padding       = [10 10 10 10];
-
-            app.GLLeft.RowHeight = repmat({'fit'},1,16);
-            app.GLLeft.RowHeight{15} = '1x';   % row 15 = spacer
-            % row 16 stays 'fit' so the buttons sit at the bottom
-            app.GLLeft.BackgroundColor = sideBg;
-
-
-            % -------------------------------------------------------
-            % FILE IMPORT BUTTONS
-            % -------------------------------------------------------
-            app.BtnImportSTEP = uibutton(app.GLLeft, ...
-                'Text','Import STEP (recommended)', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onImportSTEP());
-            app.BtnImportSTEP.Layout.Row = 1;
-
-            app.BtnImportSTL = uibutton(app.GLLeft, ...
-                'Text','Import STL', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onImportSTL());
-            app.BtnImportSTL.Layout.Row = 2;
-
-            % -------------------------------------------------------
-            % CURRENT FILE LABEL
-            % -------------------------------------------------------
-            app.FileLabel = uilabel(app.GLLeft, ...
-                'Text','Current File: ---', ...
-                'FontWeight','bold', ...
-                'HorizontalAlignment','left', ...
-                'FontColor',labelCol);
-            app.FileLabel.Layout.Row = 3;
-
-            % Spacer
-            sp = uilabel(app.GLLeft,'Text',"");
-            sp.Layout.Row = 4;
-
-            % -------------------------------------------------------
-            % STRAIGHT / TAPER SWITCH (Fixed Background + Faint Border)
-            % -------------------------------------------------------
-            cutPanel = uipanel(app.GLLeft, ...
-                'BackgroundColor', sideBg, ...
-                'BorderType', 'line', ... % Adds the faint border
-                'Title', '');
-            cutPanel.Layout.Row = 5;
-
-            cutGrid = uigridlayout(cutPanel,[1 3]);
-            cutGrid.ColumnWidth = {'1x','fit','1x'};
-            cutGrid.Padding     = [10 0 10 0];
-            cutGrid.RowSpacing  = 0;
-            cutGrid.ColumnSpacing = 0;
-
-            % Match the panel color exactly to avoid the error
-            cutGrid.BackgroundColor = sideBg;
-
-            spL = uilabel(cutGrid,'Text',"");
-            spL.Layout.Column = 1;
-
-            app.TaperToggle = uiswitch(cutGrid,'slider', ...
-                'Items',{'Straight','Tapered'}, ...
-                'Value','Straight', ...
-                'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
-            app.TaperToggle.Layout.Column = 2;
-
-            spR = uilabel(cutGrid,'Text',"");
-            spR.Layout.Column = 3;
-
-            % Spacer
-            sp = uilabel(app.GLLeft,'Text',"");
-            sp.Layout.Row = 6;
-
-            % -------------------------------------------------------
-            % ROTATION CONTROL PANEL
-            % -------------------------------------------------------
-            rotPanel = uipanel(app.GLLeft, ...
-                'Title','Model Orientation Controls', ...
-                'BackgroundColor',panelBg, ...
-                'FontWeight','bold', ...
-                'ForegroundColor',labelCol);
-            rotPanel.Layout.Row = 7;
-
-            outer = uigridlayout(rotPanel,[1 3]);
-            outer.ColumnWidth = {'1x','fit','1x'};
-            outer.RowHeight   = {'fit'};
-            outer.Padding     = [5 5 5 5];
-
-            app.RotGrid = uigridlayout(outer,[3 4]);
-            app.RotGrid.Layout.Column = 2;
-            app.RotGrid.ColumnWidth   = {'fit','fit',70,'fit'};
-            app.RotGrid.RowHeight     = {'fit','fit','fit'};
-            app.RotGrid.Padding       = [10 10 10 10];
-            app.RotGrid.ColumnSpacing = 8;
-
-            axesLabels = {'X','Y','Z'};
-            app.RotEdit = gobjects(1,3);
-
-            for i = 1:3
-                lbl = uilabel(app.RotGrid, ...
-                    'Text',axesLabels{i}, ...
-                    'FontWeight','bold', ...
-                    'HorizontalAlignment','center');
-                lbl.Layout.Row    = i;
-                lbl.Layout.Column = 1;
-
-                btnNeg = uibutton(app.RotGrid,'Text','-90°', ...
-                    'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
-                btnNeg.Layout.Row    = i;
-                btnNeg.Layout.Column = 2;
-
-                app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', ...
-                    'Limits',[0 360], ...
-                    'Value',0, ...
-                    'HorizontalAlignment','center', ...
-                    'ValueDisplayFormat','%.0f°', ...
-                    'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
-                app.RotEdit(i).Layout.Row    = i;
-                app.RotEdit(i).Layout.Column = 3;
-
-                btnPos = uibutton(app.RotGrid,'Text','+90°', ...
-                    'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
-                btnPos.Layout.Row    = i;
-                btnPos.Layout.Column = 4;
-            end
-
-            % -------------------------------------------------------
-            % RESET ORIENTATION / RESET PLOT VIEW
-            % -------------------------------------------------------
-            app.BtnResetOrientation = uibutton(app.GLLeft, ...
-                'Text','Reset Orientation', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            app.BtnResetOrientation.Layout.Row = 8;
-
-            app.BtnResetPlot = uibutton(app.GLLeft, ...
-                'Text','Reset Plot View', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetPlotView());
-            app.BtnResetPlot.Layout.Row = 9;
-
-            % Spacer
-            sp = uilabel(app.GLLeft,'Text',"");
-            sp.Layout.Row = 10;
-
-            % -------------------------------------------------------
-            % PLANE OFFSETS PANEL (with Reset Planes)
-            % -------------------------------------------------------
-            offsetPanel = uipanel(app.GLLeft,...
-                'BackgroundColor',panelBg,...
-                'BorderType','line');
-            offsetPanel.Layout.Row = 11;
-
-            offsetGrid = uigridlayout(offsetPanel,[3 2]);
-            offsetGrid.ColumnWidth = {'1x',90};
-            offsetGrid.RowHeight   = {'fit','fit','fit'};
-            offsetGrid.Padding     = [10 10 10 10];
-            offsetGrid.RowSpacing  = 5;
-
-            % Theme-aware label colours
-            if app.UIFigure.Color(1) < 0.5
-                labelColor = [1 1 1];
-                valueColor = [0 0 0];
-            else
-                labelColor = [0 0 0];
-                valueColor = [0 0 0];
-            end
-
-            % Left plane
-            lblLeft = uilabel(offsetGrid,...
-                'Text','Left Plane Offset [mm]:',...
-                'HorizontalAlignment','right',...
-                'FontWeight','bold');
-            lblLeft.Layout.Row    = 1;
-            lblLeft.Layout.Column = 1;
-
-
-            app.NumLeftOffset = uispinner(offsetGrid, ...
-                'Limits',[-1000 1000], ...
-                'Value',0, ...
-                'Step',1, ...
-                'ValueDisplayFormat','%.2f', ...
-                'FontColor',valueColor, ...
-                'BackgroundColor',[0.96 0.86 0.86], ...
-                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumLeftOffset.Layout.Row    = 1;
-            app.NumLeftOffset.Layout.Column = 2;
-
-            % Right plane
-            lblRight = uilabel(offsetGrid,...
-                'Text','Right Plane Offset [mm]:',...
-                'HorizontalAlignment','right',...
-                'FontWeight','bold');
-            lblRight.Layout.Row    = 2;
-            lblRight.Layout.Column = 1;
-
-            app.NumRightOffset = uispinner(offsetGrid, ...
-                'Limits',[-1000 1000], ...
-                'Value',0, ...
-                'Step',1, ...
-                'ValueDisplayFormat','%.2f', ...
-                'FontColor',valueColor, ...
-                'BackgroundColor',[0.86 0.96 0.86], ...
-                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumRightOffset.Layout.Row    = 2;
-            app.NumRightOffset.Layout.Column = 2;
-
-            % Reset planes button on row 3
-            app.BtnResetPlanes = uibutton(offsetGrid, ...
-                'Text','Reset Planes', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetPlanes());
-            app.BtnResetPlanes.Layout.Row    = 3;
-            app.BtnResetPlanes.Layout.Column = [1 2];
-
-            % -------------------------------------------------------
-            % GENERATE PROFILES / CONTINUE BUTTONS (stubs)
-            % -------------------------------------------------------
-            spModelBottom = uilabel(app.GLLeft, 'Text','');
-            spModelBottom.Layout.Row = 15;
-
-            btnPanel = uipanel(app.GLLeft, ...
-                'BackgroundColor',[0.16 0.16 0.16], ...
-                'BorderType','none');
-            btnPanel.Layout.Row = 16;
-
-            btnGrid = uigridlayout(btnPanel,[1 2]);
-            btnGrid.ColumnWidth = {'1x','1x'};
-            btnGrid.ColumnSpacing = 10;
-            btnGrid.Padding = [0 0 0 0];
-
-            app.BtnGenerateProfiles = uibutton(btnGrid, ...
-                'Text','Generate Profiles', ...
-                'FontWeight','bold', ...
-                'BackgroundColor',[0.15 0.45 0.8], ...
-                'FontColor',[1 1 1], ...
-                'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
-            app.BtnGenerateProfiles.Layout.Column = 1;
-
-            app.BtnContinue = uibutton(btnGrid, ...
-                'Text','Continue →', ...
-                'FontWeight','bold', ...
-                'BackgroundColor',[0.3 0.3 0.3], ...
-                'FontColor',[0.8 0.8 0.8], ...
-                'Enable','off', ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnContinue.Layout.Column = 2;
-
-            % -------------------------------------------------------
-            % RIGHT-SIDE 3D AXES
-            % -------------------------------------------------------
-            app.AxModel = uiaxes(app.GLModel);
-            app.AxModel.Layout.Column   = 2;
-            app.AxModel.BackgroundColor = [0.11 0.11 0.11];
-
-            % Hide the built-in axes toolbar so our custom mouse
-            % rotation isn't fighting the zoom/pan tools.
-            %app.AxModel.Toolbar.Visible = 'off';
-
-            % Default labels to reserve space
-            xlabel(app.AxModel,'X (mm)','FontWeight','bold');
-            ylabel(app.AxModel,'Y (mm)','FontWeight','bold');
-            zlabel(app.AxModel,'Z (mm)','FontWeight','bold');
-
-            drawnow;
-            pause(0.02);
-            drawnow;
-
-            grid(app.AxModel,'on');
-            view(app.AxModel,3);
-
-            % Ensure additional plots (planes, profiles) don't wipe the model
-            hold(app.AxModel,'on');
-            app.AxModel.NextPlot = 'add';
-
-            grid(app.AxModel,'on');
-            view(app.AxModel,3);
-
-            % Ensure additional plots (planes, profiles) don't wipe the model
-            hold(app.AxModel,'on');
-            app.AxModel.NextPlot = 'add';
 
             % ===========================================================
-            % 4. MACHINE TAB
+            % TAB 4: MACHINE SETUP
             % ===========================================================
             app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
+
             app.GLMachine = uigridlayout(app.TabMachine, [1 2]);
             app.GLMachine.ColumnWidth = {320, '1x'};
             app.GLMachine.Padding = [10 10 10 10];
 
-            % --- Left Panel ---
+            % --- Left Control Panel ---
             app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]);
             app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
             app.MachineLeftPanel.Padding = [10 10 10 10];
             app.MachineLeftPanel.BackgroundColor = sideBg;
 
-            % 1. View Controls (New)
-            pMView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pMView.Layout.Row = 1;
-            gMView = uigridlayout(pMView, [1 2]); gMView.Padding=[5 5 5 5]; gMView.BackgroundColor=panelBg;
-            btnMMach = uibutton(gMView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
-            btnMBill = uibutton(gMView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
+            % -- View --
+            pnlMView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlMView.Layout.Row = 1;
 
-            % 2. Placement
-            pMPlace = uipanel(app.MachineLeftPanel, 'Title','Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            pMPlace.Layout.Row = 2;
-            gMPlace = uigridlayout(pMPlace, [4 2]); gMPlace.ColumnWidth={'1x',110}; gMPlace.Padding=[10 5 10 5]; gMPlace.BackgroundColor=panelBg;
+            gridMView = uigridlayout(pnlMView, [1 2]); gridMView.Padding=[5 5 5 5]; gridMView.BackgroundColor=panelBg;
 
-            lblMAx = uilabel(gMPlace, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol); lblMAx.Layout.Row=1; lblMAx.Layout.Column=1;
-            lblMPos = uilabel(gMPlace, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol); lblMPos.Layout.Row=1; lblMPos.Layout.Column=2;
+            btnMViewMach = uibutton(gridMView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
+            btnMViewBill = uibutton(gridMView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
+
+            % -- Placement --
+            pnlMPlace = uipanel(app.MachineLeftPanel, 'Title','Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
+            pnlMPlace.Layout.Row = 2;
+
+            gridMPlace = uigridlayout(pnlMPlace, [4 2]); gridMPlace.ColumnWidth={'1x',110}; gridMPlace.Padding=[10 5 10 5]; gridMPlace.BackgroundColor=panelBg;
+
+            lblMAx = uilabel(gridMPlace, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol); lblMAx.Layout.Row=1;
+            lblMPos = uilabel(gridMPlace, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol); lblMPos.Layout.Column=2;
 
             mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
             app.MachinePosSpinners = gobjects(1,3);
             for i=1:3
-                lblMAxi = uilabel(gMPlace, 'Text',mAxisLabels{i}, 'FontColor',labelCol);
-                lblMAxi.Layout.Row=i+1; lblMAxi.Layout.Column=1;
-                sM = uispinner(gMPlace, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
-                sM.Layout.Row=i+1; sM.Layout.Column=2;
-                app.MachinePosSpinners(i) = sM;
+                lblMAxRow = uilabel(gridMPlace, 'Text',mAxisLabels{i}, 'FontColor',labelCol);
+                lblMAxRow.Layout.Row=i+1;
+                app.MachinePosSpinners(i) = uispinner(gridMPlace, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
+                app.MachinePosSpinners(i).Layout.Row=i+1; app.MachinePosSpinners(i).Layout.Column=2;
             end
 
-            % 3. Reset Button
+            % -- Reset --
             btnMReset = uibutton(app.MachineLeftPanel, 'Text','Reset Billet Position', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
             btnMReset.Layout.Row = 3;
 
-            % 4. Message
+            % -- Message --
             app.MachineMessageLabel = uilabel(app.MachineLeftPanel, 'Text','Machine configuration valid.', 'WordWrap','on', 'FontWeight','bold', 'FontColor',[1 1 1], 'VerticalAlignment','top');
             app.MachineMessageLabel.Layout.Row = 4;
 
-            % 5. Spacer (Implicit '1x' Row 5)
-
-            % 6. Continue
-            app.BtnMachineContinue = uibutton(app.MachineLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            % -- Continue --
+            app.BtnMachineContinue = uibutton(app.MachineLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnMachineContinue.Layout.Row = 6;
 
-            % Right Plot
+            % --- Right Panel: 3D Machine Plot ---
             app.AxMachine = uiaxes(app.GLMachine); app.AxMachine.Layout.Column=2; app.AxMachine.BackgroundColor=[0.05 0.05 0.05];
             grid(app.AxMachine,'on'); view(app.AxMachine,3); hold(app.AxMachine,'on');
 
+
             % ===========================================================
-            % 5. CUTTING STRATEGY TAB
+            % TAB 5: CUTTING STRATEGY
             % ===========================================================
             app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
 
-            % Define 2 Rows (for the 2 plots) and 2 Columns (Control | Plots)
             app.GLCutting = uigridlayout(app.TabCutting, [2 2]);
             app.GLCutting.ColumnWidth   = {320, '1x'};
-            app.GLCutting.RowHeight     = {'1x', '1x'}; % Equal height for Top/Bottom plots
+            app.GLCutting.RowHeight     = {'1x', '1x'};
             app.GLCutting.Padding       = [10 10 10 10];
             app.GLCutting.ColumnSpacing = 10;
 
-            % --- Left Control Column ---
-            % We define 6 rows. Row 5 is '1x' to act as a spring.
+            % --- Left Control Panel (Spans both rows) ---
             app.CuttingLeftPanel = uigridlayout(app.GLCutting, [6 1]);
-
-            % *** CRITICAL FIX: Span both rows so the panel fills the whole height ***
             app.CuttingLeftPanel.Layout.Row     = [1 2];
             app.CuttingLeftPanel.Layout.Column  = 1;
-
             app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
             app.CuttingLeftPanel.Padding   = [10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
 
-            % 1. VIEW CONTROLS
-            p_C_View = uipanel(app.CuttingLeftPanel, 'Title','View', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_C_View.Layout.Row = 1;
+            % -- View --
+            pnlCView = uipanel(app.CuttingLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlCView.Layout.Row = 1;
 
-            g_C_View = uigridlayout(p_C_View, [1 2]);
-            g_C_View.Padding=[5 5 5 5]; g_C_View.ColumnSpacing=5; g_C_View.BackgroundColor=panelBg;
+            gridCView = uigridlayout(pnlCView, [1 2]); gridCView.Padding=[5 5 5 5]; gridCView.ColumnSpacing=5; gridCView.BackgroundColor=panelBg;
+            btnCViewMach = uibutton(gridCView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
+            btnCViewBill = uibutton(gridCView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
 
-            btn_C_VM = uibutton(g_C_View, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
-            btn_C_VM.Layout.Column = 1;
+            % -- Auto Tools --
+            pnlCAuto = uipanel(app.CuttingLeftPanel, 'Title','Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlCAuto.Layout.Row = 2;
 
-            btn_C_VB = uibutton(g_C_View, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
-            btn_C_VB.Layout.Column = 2;
+            gridCAuto = uigridlayout(pnlCAuto, [1 2]); gridCAuto.Padding=[5 5 5 5]; gridCAuto.ColumnSpacing=5; gridCAuto.BackgroundColor=panelBg;
+            app.btnAutoStart = uibutton(gridCAuto, 'Text','Auto Start', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoStart());
+            app.btnAutoEntry = uibutton(gridCAuto, 'Text','Auto Entry', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
 
-            % 2. AUTO TOOLS
-            p_C_Auto = uipanel(app.CuttingLeftPanel, 'Title','Auto Tools', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_C_Auto.Layout.Row = 2;
+            % -- Modes --
+            pnlCMode = uipanel(app.CuttingLeftPanel, 'Title','Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlCMode.Layout.Row = 3;
 
-            g_C_Auto = uigridlayout(p_C_Auto, [1 2]);
-            g_C_Auto.Padding=[5 5 5 5]; g_C_Auto.ColumnSpacing=5; g_C_Auto.BackgroundColor=panelBg;
+            gridCMode = uigridlayout(pnlCMode, [3 2]); gridCMode.RowHeight = {'fit','fit','fit'}; gridCMode.ColumnWidth = {75, '1x'}; gridCMode.Padding=[5 5 5 5]; gridCMode.BackgroundColor=panelBg;
 
-            app.btnAutoStart = uibutton(g_C_Auto, 'Text','Auto Start', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoStart());
-            app.btnAutoStart.Layout.Column = 1;
-
-            app.btnAutoEntry = uibutton(g_C_Auto, 'Text','Auto Entry', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
-            app.btnAutoEntry.Layout.Column = 2;
-
-            % 3. MODES
-            p_C_Mode = uipanel(app.CuttingLeftPanel, 'Title','Modes', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_C_Mode.Layout.Row = 3;
-
-            g_C_Mode = uigridlayout(p_C_Mode, [3 2]);
-            g_C_Mode.RowHeight = {'fit','fit','fit'};
-            g_C_Mode.ColumnWidth = {75, '1x'};
-            g_C_Mode.Padding=[5 5 5 5]; g_C_Mode.RowSpacing=8; g_C_Mode.BackgroundColor=panelBg;
-
-            % Direction
-            lbl_C_Dir = uilabel(g_C_Mode, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
-            lbl_C_Dir.Layout.Row=1; lbl_C_Dir.Layout.Column=1;
-
-            app.SwitchCutDir = uiswitch(g_C_Mode, 'slider', ...
-                'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', ...
-                'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
+            lblCDir = uilabel(gridCMode, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right'); lblCDir.Layout.Row=1;
+            app.SwitchCutDir = uiswitch(gridCMode, 'slider', 'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', 'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
             app.SwitchCutDir.Layout.Row=1; app.SwitchCutDir.Layout.Column=2;
 
-            % Sync Start
-            lbl_C_Sync = uilabel(g_C_Mode, 'Text','Start Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
-            lbl_C_Sync.Layout.Row=2; lbl_C_Sync.Layout.Column=1;
-
-            app.SwitchSyncStart = uiswitch(g_C_Mode, 'slider', ...
-                'Items',{'Coupled', 'Independent'}, 'Value','Coupled', ...
-                'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
+            lblCSync = uilabel(gridCMode, 'Text','Start Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right'); lblCSync.Layout.Row=2;
+            app.SwitchSyncStart = uiswitch(gridCMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
             app.SwitchSyncStart.Layout.Row=2; app.SwitchSyncStart.Layout.Column=2;
 
-            % Sync Entry
-            lbl_C_ESync = uilabel(g_C_Mode, 'Text','Entry Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
-            lbl_C_ESync.Layout.Row=3; lbl_C_ESync.Layout.Column=1;
-
-            app.SwitchSyncEntry = uiswitch(g_C_Mode, 'slider', ...
-                'Items',{'Coupled', 'Independent'}, 'Value','Coupled', ...
-                'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
+            lblCEntry = uilabel(gridCMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right'); lblCEntry.Layout.Row=3;
+            app.SwitchSyncEntry = uiswitch(gridCMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
             app.SwitchSyncEntry.Layout.Row=3; app.SwitchSyncEntry.Layout.Column=2;
 
-            % 4. INTERACTION
-            p_C_Inter = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_C_Inter.Layout.Row = 4;
+            % -- Mouse Interaction --
+            pnlCInter = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlCInter.Layout.Row = 4;
 
-            g_C_Inter = uigridlayout(p_C_Inter, [3 1]);
-            g_C_Inter.RowHeight = {'fit','fit','fit'};
-            g_C_Inter.Padding=[5 5 5 5]; g_C_Inter.BackgroundColor=panelBg;
+            gridCInter = uigridlayout(pnlCInter, [3 1]); gridCInter.RowHeight = {'fit','fit','fit'}; gridCInter.Padding=[5 5 5 5]; gridCInter.BackgroundColor=panelBg;
 
-            lbl_C_Inst = uilabel(g_C_Inter, 'Text','Click plot to set:', 'FontColor',labelCol);
-            lbl_C_Inst.Layout.Row=1;
-
-            % Row 1 Buttons
-            g_C_IB1 = uigridlayout(g_C_Inter, [1 2]); g_C_IB1.Layout.Row=2;
-            g_C_IB1.Padding=[0 0 0 0]; g_C_IB1.ColumnSpacing=5; g_C_IB1.BackgroundColor=panelBg;
+            lblCInst = uilabel(gridCInter, 'Text','Click plot to set:', 'FontColor',labelCol); lblCInst.Layout.Row=1;
 
             bCols = app.getInteractionColors();
-            app.BtnPickStart = uibutton(g_C_IB1, 'state', 'Text','Start Pt', 'FontWeight','bold', ...
-                'BackgroundColor',bCols.StartInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
-            app.BtnPickStart.Layout.Column = 1;
+            gridCIB1 = uigridlayout(gridCInter, [1 2]); gridCIB1.Layout.Row=2; gridCIB1.Padding=[0 0 0 0]; gridCIB1.BackgroundColor=panelBg;
+            app.BtnPickStart = uibutton(gridCIB1, 'state', 'Text','Start Pt', 'FontWeight','bold', 'BackgroundColor',bCols.StartInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickEntry = uibutton(gridCIB1, 'state', 'Text','Entry 1', 'FontWeight','bold', 'BackgroundColor',bCols.EntryInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
 
-            app.BtnPickEntry = uibutton(g_C_IB1, 'state', 'Text','Entry 1', 'FontWeight','bold', ...
-                'BackgroundColor',bCols.EntryInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
-            app.BtnPickEntry.Layout.Column = 2;
+            gridCIB2 = uigridlayout(gridCInter, [1 2]); gridCIB2.Layout.Row=3; gridCIB2.Padding=[0 0 0 0]; gridCIB2.BackgroundColor=panelBg;
+            app.BtnPickEntry2 = uibutton(gridCIB2, 'state', 'Text','Entry 2', 'FontWeight','bold', 'BackgroundColor',bCols.Entry2Inactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
+            btnCClear = uibutton(gridCIB2, 'Text','Clear Pts', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onClearEntries());
 
-            % Row 2 Buttons
-            g_C_IB2 = uigridlayout(g_C_Inter, [1 2]); g_C_IB2.Layout.Row=3;
-            g_C_IB2.Padding=[0 0 0 0]; g_C_IB2.ColumnSpacing=5; g_C_IB2.BackgroundColor=panelBg;
+            % -- Spacer & Continue --
+            lblCSpacer = uilabel(app.CuttingLeftPanel, 'Text', '');
+            lblCSpacer.Layout.Row = 5; % Spring
 
-            app.BtnPickEntry2 = uibutton(g_C_IB2, 'state', 'Text','Entry 2', 'FontWeight','bold', ...
-                'BackgroundColor',bCols.Entry2Inactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
-            app.BtnPickEntry2.Layout.Column = 1;
-
-            btn_C_Clear = uibutton(g_C_IB2, 'Text','Clear Pts', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, ...
-                'ButtonPushedFcn',@(~,~)app.onClearEntries());
-            btn_C_Clear.Layout.Column = 2;
-
-            % 5. SPACER (Row 5 - The Spring)
-            lbl_C_Spacer = uilabel(app.CuttingLeftPanel, 'Text', '');
-            lbl_C_Spacer.Layout.Row = 5;
-
-            % 6. CONTINUE BUTTON (Row 6)
-            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, ...
-                'Text','Continue', 'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnCuttingContinue.Layout.Row = 6;
 
-            % RIGHT PLOTS (Assigned to Col 2, Rows 1 & 2)
-            app.AxCutLeft = uiaxes(app.GLCutting);
-            app.AxCutLeft.Layout.Row=1;
-            app.AxCutLeft.Layout.Column=2;
+            % --- Right Panel: 2D Cut Plots ---
+            app.AxCutLeft = uiaxes(app.GLCutting); app.AxCutLeft.Layout.Row=1; app.AxCutLeft.Layout.Column=2;
             app.AxCutLeft.BackgroundColor = t.editBg; grid(app.AxCutLeft,'on'); title(app.AxCutLeft,'Left Profile Cut Path');
 
-            app.AxCutRight = uiaxes(app.GLCutting);
-            app.AxCutRight.Layout.Row=2;
-            app.AxCutRight.Layout.Column=2;
+            app.AxCutRight = uiaxes(app.GLCutting); app.AxCutRight.Layout.Row=2; app.AxCutRight.Layout.Column=2;
             app.AxCutRight.BackgroundColor = t.editBg; grid(app.AxCutRight,'on'); title(app.AxCutRight,'Right Profile Cut Path');
 
+
             % ===========================================================
-            % 6. SIMULATION TAB
+            % TAB 6: SIMULATION
             % ===========================================================
             app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
 
             app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
-            app.GLSimulation.ColumnWidth   = {320, '1x'};
-            app.GLSimulation.Padding       = [10 10 10 10];
+            app.GLSimulation.ColumnWidth = {320, '1x'};
+            app.GLSimulation.Padding = [10 10 10 10];
 
             % --- Left Control Panel ---
             app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
@@ -1281,135 +882,80 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimLeftPanel.Padding = [10 10 10 10];
             app.SimLeftPanel.BackgroundColor = sideBg;
 
-            % 1. VIEW
-            p_S_View = uipanel(app.SimLeftPanel, 'Title','View', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_S_View.Layout.Row = 1;
+            % -- View --
+            pnlSView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSView.Layout.Row = 1;
 
-            g_S_View = uigridlayout(p_S_View, [1 2]);
-            g_S_View.Padding=[5 5 5 5]; g_S_View.ColumnSpacing=5; g_S_View.BackgroundColor=panelBg;
+            gridSView = uigridlayout(pnlSView, [1 2]); gridSView.Padding=[5 5 5 5]; gridSView.BackgroundColor=panelBg;
+            uibutton(gridSView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            uibutton(gridSView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
 
-            btn_S_VM = uibutton(g_S_View, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
-            btn_S_VM.Layout.Column = 1;
+            % -- Playback --
+            pnlSPlay = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSPlay.Layout.Row = 2;
 
-            btn_S_VB = uibutton(g_S_View, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
-            btn_S_VB.Layout.Column = 2;
+            % [FIX] Explicit RowHeight to keep buttons from stretching and cropping the slider
+            gridSPlay = uigridlayout(pnlSPlay, [2 3]);
+            gridSPlay.ColumnWidth={'1x','1x','1x'};
+            gridSPlay.RowHeight={'fit','fit'}; % <-- ADDED
+            gridSPlay.Padding=[5 5 5 5];
+            gridSPlay.BackgroundColor=panelBg;
 
-            % 2. PLAYBACK
-            p_S_Play = uipanel(app.SimLeftPanel, 'Title','Playback', ...
-                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_S_Play.Layout.Row = 2;
+            app.SimPlayBtn = uibutton(gridSPlay, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
+            uibutton(gridSPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+            app.SimStopBtn = uibutton(gridSPlay, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
 
-            g_S_Play = uigridlayout(p_S_Play, [2 3]);
-            g_S_Play.ColumnWidth={'1x','1x','1x'}; g_S_Play.RowHeight={'fit','fit'};
-            g_S_Play.Padding=[5 5 5 5]; g_S_Play.ColumnSpacing=5; g_S_Play.BackgroundColor=panelBg;
-
-            app.SimPlayBtn = uibutton(g_S_Play, 'Text','Play', 'FontWeight','bold', ...
-                'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
-            app.SimPlayBtn.Layout.Column = 1;
-
-            btn_S_Pause = uibutton(g_S_Play, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, ...
-                'ButtonPushedFcn',@(~,~)app.onSimPause());
-            btn_S_Pause.Layout.Column = 2;
-
-            app.SimStopBtn = uibutton(g_S_Play, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, ...
-                'ButtonPushedFcn',@(~,~)app.onSimStop());
-            app.SimStopBtn.Layout.Column = 3;
-
-            app.SimSlider = uislider(g_S_Play, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
+            app.SimSlider = uislider(gridSPlay, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
             app.SimSlider.Layout.Row = 2; app.SimSlider.Layout.Column = [1 3];
 
-            % 3. SETTINGS
-            p_S_Set = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_S_Set.Layout.Row = 3;
+            % -- Settings --
+            pnlSSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSSet.Layout.Row = 3;
 
-            g_S_Set = uigridlayout(p_S_Set, [1 2]);
-            g_S_Set.ColumnWidth={'fit','1x'}; g_S_Set.Padding=[5 5 5 5]; g_S_Set.BackgroundColor=panelBg;
+            gridSSet = uigridlayout(pnlSSet, [1 2]); gridSSet.ColumnWidth={'fit','1x'}; gridSSet.Padding=[5 5 5 5]; gridSSet.BackgroundColor=panelBg;
 
-            lbl_S_Speed = uilabel(g_S_Set, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
-            lbl_S_Speed.Layout.Column = 1;
+            lblSSpeed = uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
 
-            app.SimSpeedSpinner = uispinner(g_S_Set, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
-            app.SimSpeedSpinner.Layout.Column = 2;
+            % -- Readouts --
+            pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSCoord.Layout.Row = 4;
 
-            % -------------------------------------------------------
-            % 4. COORDINATES (Explicit Layout)
-            % -------------------------------------------------------
-            p_S_Coord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            p_S_Coord.Layout.Row = 4;
+            gridSCoord = uigridlayout(pnlSCoord, [3 5]); gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60}; gridSCoord.RowHeight = {'fit','fit','fit'}; gridSCoord.Padding = [5 5 5 5]; gridSCoord.BackgroundColor = panelBg;
 
-            % 5 Cols: [Label] [Value] [Spacer] [Label] [Value]
-            % Fixed widths ensure values align perfectly vertically
-            g_S_Coord = uigridlayout(p_S_Coord, [3 5]);
-            g_S_Coord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
-            g_S_Coord.RowHeight = {'fit','fit','fit'};
-            g_S_Coord.Padding = [5 5 5 5];
-            g_S_Coord.BackgroundColor = panelBg;
+            lblHeaderL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblHeaderL.Layout.Column = [1 2];
+            lblHeaderR = uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblHeaderR.Layout.Column = [4 5];
 
-            % -- HEADERS --
-            lbl_S_HL = uilabel(g_S_Coord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lbl_S_HL.Layout.Row = 1;
-            lbl_S_HL.Layout.Column = [1 2];
+            % [FIX] Explicit Column=1 for labels to prevent misalignment
+            % Left X/Y
+            lblXL = uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblXL.Layout.Row = 2; lblXL.Layout.Column = 1; % <-- Explicit
+            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
 
-            lbl_S_HR = uilabel(g_S_Coord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lbl_S_HR.Layout.Row = 1;
-            lbl_S_HR.Layout.Column = [4 5];
+            lblYL = uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblYL.Layout.Row = 3; lblYL.Layout.Column = 1; % <-- Explicit
+            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
 
-            % -- LEFT DATA --
-            % X (Row 2)
-            lbl_S_XL = uilabel(g_S_Coord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_XL.Layout.Row = 2;
-            lbl_S_XL.Layout.Column = 1;
+            % Right Z/A
+            lblZR = uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right'); lblZR.Layout.Row = 2; lblZR.Layout.Column=4;
+            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
 
-            app.LblReadoutX = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutX.Layout.Row = 2;
-            app.LblReadoutX.Layout.Column = 2;
+            lblAR = uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right'); lblAR.Layout.Row = 3; lblAR.Layout.Column=4;
+            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
-            % Y (Row 3)
-            lbl_S_YL = uilabel(g_S_Coord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_YL.Layout.Row = 3;
-            lbl_S_YL.Layout.Column = 1;
+            % -- Generate G-Code --
+            lblSSpacer = uilabel(app.SimLeftPanel, 'Text', '');
+            lblSSpacer.Layout.Row = 5; % Spring
 
-            app.LblReadoutY = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutY.Layout.Row = 3;
-            app.LblReadoutY.Layout.Column = 2;
-
-            % -- RIGHT DATA --
-            % Z (Row 2)
-            lbl_S_ZR = uilabel(g_S_Coord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_ZR.Layout.Row = 2;
-            lbl_S_ZR.Layout.Column = 4;
-
-            app.LblReadoutZ = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutZ.Layout.Row = 2;
-            app.LblReadoutZ.Layout.Column = 5;
-
-            % A (Row 3)
-            lbl_S_AR = uilabel(g_S_Coord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_AR.Layout.Row = 3;
-            lbl_S_AR.Layout.Column = 4;
-
-            app.LblReadoutA = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutA.Layout.Row = 3;
-            app.LblReadoutA.Layout.Column = 5;
-
-            % 5. SPACER
-            lbl_S_Spacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lbl_S_Spacer.Layout.Row = 5;
-
-            % 6. CONTINUE
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Generate G-Code', 'FontWeight','bold', ...
-                'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onGenerateGCode());
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Generate G-Code', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onGenerateGCode());
             app.BtnSimContinue.Layout.Row = 6;
 
-            % RIGHT COLUMN
-            app.AxSim = uiaxes(app.GLSimulation);
-            app.AxSim.Layout.Column = 2;
-            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
-            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
-            grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
+            % --- Right Panel: 3D Sim Plot ---
+            app.AxSim = uiaxes(app.GLSimulation); app.AxSim.Layout.Column = 2; app.AxSim.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z'); grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
 
+            % --- Final Theme Application ---
             app.applyTheme();
 
         end
