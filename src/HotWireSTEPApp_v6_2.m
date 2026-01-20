@@ -266,10 +266,18 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimStopBtn
         SimSpeedSpinner
 
+        % Readout Labels
+        LblReadoutX
+        LblReadoutY
+        LblReadoutZ
+        LblReadoutA
+        
         % Simulation Data
         SimPathL % Nx3 Array [x, y, z] (Machine Coords)
         SimPathR % Nx3 Array [x, y, z] (Machine Coords)
         SimTimer % timer object for animation
+        SimTowerPathL % Nx3 %Physical Tower Paths (Projected)
+        SimTowerPathR % Nx3
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -1053,82 +1061,74 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxModel,'on');
             app.AxModel.NextPlot = 'add';
 
-            % Add Machine Tab to group
+            % ===========================================================
+            % MACHINE TAB
+            % ===========================================================
             app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
 
             app.GLMachine = uigridlayout(app.TabMachine, [1 2]);
             app.GLMachine.ColumnWidth = {320, '1x'};
             app.GLMachine.Padding = [10 10 10 10];
 
-            % --- Left Control Column ---
-            app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]); % 6 Rows
+            % --- Left Control Column (Machine Tab) ---
+            app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]);
+            % Rows: View(1), Placement(2), ResetBillet(3), Msg(4), Spacer(5), Continue(6)
             app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
             app.MachineLeftPanel.Padding = [10 10 10 10];
             app.MachineLeftPanel.BackgroundColor = sideBg;
 
-            % --- Placement Panel ---
-            mPanel = uipanel(app.MachineLeftPanel);
-            mPanel.Title = 'Billet Placement on Machine';
-            mPanel.BackgroundColor = panelBg;
-            mPanel.ForegroundColor = labelCol;
-            mPanel.FontWeight = 'bold';
-            mPanel.Layout.Row = 1;
+            % 1. VIEW CONTROLS
+            panMachView = uipanel(app.MachineLeftPanel, 'Title','View', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panMachView.Layout.Row = 1;
 
-            mOuter = uigridlayout(mPanel, [1 1]);
-            mGrid = uigridlayout(mOuter, [4 2]);
-            mGrid.ColumnWidth = {'1x', 110};
-            mGrid.RowHeight = {'fit','fit','fit','fit'};
-            mGrid.Padding = [10 5 10 5];
+            gridMachView = uigridlayout(panMachView, [1 2]);
+            gridMachView.Padding=[5 5 5 5]; gridMachView.ColumnSpacing=5; gridMachView.BackgroundColor=panelBg;
 
-            % Headings
-            hM1 = uilabel(mGrid, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol);
-            hM1.Layout.Row=1; hM1.Layout.Column=1;
-            hM2 = uilabel(mGrid, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol);
-            hM2.Layout.Row=1; hM2.Layout.Column=2;
+            btnMachViewM = uibutton(gridMachView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
+            btnMachViewM.Layout.Column = 1;
+
+            btnMachViewB = uibutton(gridMachView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
+            btnMachViewB.Layout.Column = 2;
+
+            % 2. BILLET PLACEMENT
+            panMachPlace = uipanel(app.MachineLeftPanel, 'Title','Billet Placement', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold');
+            panMachPlace.Layout.Row = 2;
+
+            gridMachPlace = uigridlayout(panMachPlace, [4 2]);
+            gridMachPlace.ColumnWidth = {'1x', 110};
+            gridMachPlace.RowHeight = {'fit','fit','fit','fit'};
+            gridMachPlace.Padding = [10 5 10 5]; gridMachPlace.BackgroundColor = panelBg;
+
+            lblMAx = uilabel(gridMachPlace, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol); lblMAx.Layout.Row=1; lblMAx.Layout.Column=1;
+            lblMPos = uilabel(gridMachPlace, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol); lblMPos.Layout.Row=1; lblMPos.Layout.Column=2;
 
             mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
             app.MachinePosSpinners = gobjects(1,3);
             for i = 1:3
-                ri = i + 1;
-                lbl = uilabel(mGrid, 'Text', mAxisLabels{i}, 'FontColor',labelCol);
-                lbl.Layout.Row = ri; lbl.Layout.Column = 1;
+                lbl_M = uilabel(gridMachPlace, 'Text', mAxisLabels{i}, 'FontColor',labelCol);
+                lbl_M.Layout.Row = i+1; lbl_M.Layout.Column = 1;
 
-                % Clean Spinner (No background fill)
-                s = uispinner(mGrid);
-                s.Limits = [-500, 2000];
-                s.Value = app.MachineBilletPos(i);
-                s.ValueDisplayFormat = '%.2f'; % 2 decimal places
-                s.Step = 1.0;
-                s.ValueChangedFcn = @(src,~)app.onMachinePosEdited(i,src);
-                s.Layout.Row = ri; s.Layout.Column = 2;
-                app.MachinePosSpinners(i) = s;
+                s_M = uispinner(gridMachPlace, 'Limits',[-500, 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, ...
+                    'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
+                s_M.Layout.Row = i+1; s_M.Layout.Column = 2;
+                app.MachinePosSpinners(i) = s_M;
             end
 
-            % --- Reset Billet Position Button ---
-            app.BtnResetMachineBillet = uibutton(app.MachineLeftPanel, ...
-                'Text','Reset Billet Position', ...
-                'FontWeight','bold', ...
+            % 3. RESET BUTTON
+            btnMachReset = uibutton(app.MachineLeftPanel, 'Text','Reset Billet Position', 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
-            app.BtnResetMachineBillet.Layout.Row = 3; % Adjust row index as needed
+            btnMachReset.Layout.Row = 3;
 
-            % --- Reset Machine Plot View Button ---
-            app.BtnResetMachinePlot = uibutton(app.MachineLeftPanel, ...
-                'Text','Reset Plot View', ...
-                'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onResetMachinePlotView());
-            app.BtnResetMachinePlot.Layout.Row = 4; % Adjust row index as needed
-
-            % Row 5: Message Label (Same style as Billet tab)
-            app.MachineMessageLabel = uilabel(app.MachineLeftPanel, ...
-                'Text','Machine configuration valid.', ...
+            % 4. MESSAGE LABEL
+            app.MachineMessageLabel = uilabel(app.MachineLeftPanel, 'Text','Machine configuration valid.', ...
                 'WordWrap','on', 'FontWeight','bold', 'FontColor', [1 1 1], 'VerticalAlignment','top');
-            app.MachineMessageLabel.Layout.Row = 5;
+            app.MachineMessageLabel.Layout.Row = 4;
 
-            % Row 6: Continue Button (Green)
+            % 6. CONTINUE
             app.BtnMachineContinue = uibutton(app.MachineLeftPanel, ...
-                'Text','Continue', ...
-                'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnMachineContinue.Layout.Row = 6;
 
@@ -1152,188 +1152,127 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- Left Control Column ---
             app.CuttingLeftPanel = uigridlayout(app.GLCutting, [7 1]);
-            % Rows: View(1), Auto(2), Modes(3), Interaction(4), Spacer(5), Msg(6), Generate(7)
             app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit'};
             app.CuttingLeftPanel.Padding   = [10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
 
-            % -------------------------------------------------------
-            % 1. VIEW CONTROLS PANEL
-            % -------------------------------------------------------
-            viewPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','View', 'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            viewPanel.Layout.Row = 1;
+            % 1. VIEW CONTROLS
+            panCutView = uipanel(app.CuttingLeftPanel, 'Title','View', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panCutView.Layout.Row = 1;
 
-            viewGrid = uigridlayout(viewPanel, [1 2]);
-            viewGrid.Padding = [5 5 5 5]; viewGrid.ColumnSpacing = 5; viewGrid.BackgroundColor = panelBg;
+            gridCutView = uigridlayout(panCutView, [1 2]);
+            gridCutView.Padding=[5 5 5 5]; gridCutView.ColumnSpacing=5; gridCutView.BackgroundColor=panelBg;
 
-            btnViewM = uibutton(viewGrid, 'Text', 'Machine View', 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~,~)app.onResetCuttingViewMachine());
-            btnViewM.Layout.Column = 1;
+            btnCutViewM = uibutton(gridCutView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
+            btnCutViewM.Layout.Column = 1;
 
-            btnViewB = uibutton(viewGrid, 'Text', 'Billet View', 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~,~)app.onResetCuttingViewBillet());
-            btnViewB.Layout.Column = 2;
+            btnCutViewB = uibutton(gridCutView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
+            btnCutViewB.Layout.Column = 2;
 
-            % -------------------------------------------------------
-            % 2. AUTO TOOLS PANEL
-            % -------------------------------------------------------
-            autoPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Auto Tools', 'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            autoPanel.Layout.Row = 2;
+            % 2. AUTO TOOLS
+            panCutAuto = uipanel(app.CuttingLeftPanel, 'Title','Auto Tools', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panCutAuto.Layout.Row = 2;
 
-            autoGrid = uigridlayout(autoPanel, [1 2]);
-            autoGrid.Padding = [5 5 5 5]; autoGrid.ColumnSpacing = 5; autoGrid.BackgroundColor = panelBg;
+            gridCutAuto = uigridlayout(panCutAuto, [1 2]);
+            gridCutAuto.Padding=[5 5 5 5]; gridCutAuto.ColumnSpacing=5; gridCutAuto.BackgroundColor=panelBg;
 
-            app.btnAutoStart = uibutton(autoGrid, 'Text', 'Auto Start', 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~,~)app.onAutoStart());
+            app.btnAutoStart = uibutton(gridCutAuto, 'Text','Auto Start', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoStart());
             app.btnAutoStart.Layout.Column = 1;
 
-            app.btnAutoEntry = uibutton(autoGrid, 'Text', 'Auto Entry', 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(~,~)app.onAutoEntry());
+            app.btnAutoEntry = uibutton(gridCutAuto, 'Text','Auto Entry', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
             app.btnAutoEntry.Layout.Column = 2;
 
-            % -------------------------------------------------------
-            % 3. MODES PANEL
-            % -------------------------------------------------------
-            modePanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Modes', 'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            modePanel.Layout.Row = 3;
+            % 3. MODES
+            panCutMode = uipanel(app.CuttingLeftPanel, 'Title','Modes', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panCutMode.Layout.Row = 3;
 
-            modeGrid = uigridlayout(modePanel, [3 2]);
-            modeGrid.RowHeight = {'fit','fit','fit'};
-            modeGrid.ColumnWidth = {75, '1x'};
-            modeGrid.Padding = [5 5 5 5]; modeGrid.RowSpacing = 8; modeGrid.BackgroundColor = panelBg;
+            gridCutMode = uigridlayout(panCutMode, [3 2]);
+            gridCutMode.RowHeight = {'fit','fit','fit'};
+            gridCutMode.ColumnWidth = {75, '1x'};
+            gridCutMode.Padding=[5 5 5 5]; gridCutMode.RowSpacing=8; gridCutMode.BackgroundColor=panelBg;
 
             % Direction
-            lblDir = uilabel(modeGrid, 'Text', 'Direction:', 'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
-            lblDir.Layout.Row = 1; lblDir.Layout.Column = 1;
+            lblCutDir = uilabel(gridCutMode, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblCutDir.Layout.Row=1; lblCutDir.Layout.Column=1;
 
-            app.SwitchCutDir = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Top (CW)', 'Bottom (CCW)'}, ...
-                'Value', 'Top (CW)', ...
-                'ValueChangedFcn', @(~,~)app.onCutDirectionChanged());
-            app.SwitchCutDir.Layout.Row = 1; app.SwitchCutDir.Layout.Column = 2;
+            app.SwitchCutDir = uiswitch(gridCutMode, 'slider', ...
+                'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', ...
+                'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
+            app.SwitchCutDir.Layout.Row=1; app.SwitchCutDir.Layout.Column=2;
 
-            % Start Pts Sync
-            lblSync = uilabel(modeGrid, 'Text', 'Start Pts:', 'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
-            lblSync.Layout.Row = 2; lblSync.Layout.Column = 1;
+            % Sync Start
+            lblCutSync = uilabel(gridCutMode, 'Text','Start Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblCutSync.Layout.Row=2; lblCutSync.Layout.Column=1;
 
-            app.SwitchSyncStart = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', ...
-                'ValueChangedFcn', @(src,~)app.onSyncToggleChanged(src));
-            app.SwitchSyncStart.Layout.Row = 2; app.SwitchSyncStart.Layout.Column = 2;
+            app.SwitchSyncStart = uiswitch(gridCutMode, 'slider', ...
+                'Items',{'Coupled', 'Independent'}, 'Value','Coupled', ...
+                'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
+            app.SwitchSyncStart.Layout.Row=2; app.SwitchSyncStart.Layout.Column=2;
 
-            % Entry Pts Sync
-            lblESync = uilabel(modeGrid, 'Text', 'Entry Pts:', 'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
-            lblESync.Layout.Row = 3; lblESync.Layout.Column = 1;
+            % Sync Entry
+            lblCutESync = uilabel(gridCutMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right', 'VerticalAlignment','center');
+            lblCutESync.Layout.Row=3; lblCutESync.Layout.Column=1;
 
-            app.SwitchSyncEntry = uiswitch(modeGrid, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', ...
-                'ValueChangedFcn', @(src,~)app.onSyncEntryToggleChanged(src));
-            app.SwitchSyncEntry.Layout.Row = 3; app.SwitchSyncEntry.Layout.Column = 2;
+            app.SwitchSyncEntry = uiswitch(gridCutMode, 'slider', ...
+                'Items',{'Coupled', 'Independent'}, 'Value','Coupled', ...
+                'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
+            app.SwitchSyncEntry.Layout.Row=3; app.SwitchSyncEntry.Layout.Column=2;
 
-            % -------------------------------------------------------
-            % 4. MOUSE INTERACTION PANEL (Expanded for Entry 2)
-            % -------------------------------------------------------
-            interPanel = uipanel(app.CuttingLeftPanel, ...
-                'Title','Mouse Interaction', 'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            interPanel.Layout.Row = 4;
+            % 4. INTERACTION
+            panCutInter = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panCutInter.Layout.Row = 4;
 
-            interGrid = uigridlayout(interPanel, [3 1]);
-            interGrid.RowHeight = {'fit','fit','fit'};
-            interGrid.Padding = [5 5 5 5]; interGrid.BackgroundColor = panelBg;
+            gridCutInter = uigridlayout(panCutInter, [3 1]);
+            gridCutInter.RowHeight = {'fit','fit','fit'};
+            gridCutInter.Padding=[5 5 5 5]; gridCutInter.BackgroundColor=panelBg;
 
-            lblInter = uilabel(interGrid, 'Text', 'Click plot to set:', 'FontColor', labelCol);
-            lblInter.Layout.Row = 1;
+            lblCutInter = uilabel(gridCutInter, 'Text','Click plot to set:', 'FontColor',labelCol);
+            lblCutInter.Layout.Row=1;
 
-            % Row 1 Buttons: Start | Entry 1
-            btnGrid1 = uigridlayout(interGrid, [1 2]);
-            btnGrid1.Layout.Row = 2;
-            btnGrid1.Padding = [0 0 0 0]; btnGrid1.ColumnSpacing=5; btnGrid1.BackgroundColor=panelBg;
+            % Row 1 Buttons
+            gridBtns1 = uigridlayout(gridCutInter, [1 2]); gridBtns1.Layout.Row=2;
+            gridBtns1.Padding=[0 0 0 0]; gridBtns1.ColumnSpacing=5; gridBtns1.BackgroundColor=panelBg;
 
-            % Get Colors for Initial State
             bCols = app.getInteractionColors();
-
-            app.BtnPickStart = uibutton(btnGrid1, 'state', ...
-                'Text', 'Start Pt', 'FontWeight', 'bold', ...
-                'BackgroundColor', bCols.StartInactive, 'FontColor', bCols.TextInactive, ...
-                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickStart = uibutton(gridBtns1, 'state', 'Text','Start Pt', 'FontWeight','bold', ...
+                'BackgroundColor',bCols.StartInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickStart.Layout.Column = 1;
 
-            app.BtnPickEntry = uibutton(btnGrid1, 'state', ...
-                'Text', 'Entry 1', 'FontWeight', 'bold', ...
-                'BackgroundColor', bCols.EntryInactive, 'FontColor', bCols.TextInactive, ...
-                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickEntry = uibutton(gridBtns1, 'state', 'Text','Entry 1', 'FontWeight','bold', ...
+                'BackgroundColor',bCols.EntryInactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Column = 2;
 
-            % Row 2 Buttons: Entry 2 | Clear
-            btnGrid2 = uigridlayout(interGrid, [1 2]);
-            btnGrid2.Layout.Row = 3;
-            btnGrid2.Padding = [0 0 0 0]; btnGrid2.ColumnSpacing=5; btnGrid2.BackgroundColor=panelBg;
+            % Row 2 Buttons
+            gridBtns2 = uigridlayout(gridCutInter, [1 2]); gridBtns2.Layout.Row=3;
+            gridBtns2.Padding=[0 0 0 0]; gridBtns2.ColumnSpacing=5; gridBtns2.BackgroundColor=panelBg;
 
-            % New: Entry 2
-            app.BtnPickEntry2 = uibutton(btnGrid2, 'state', ...
-                'Text', 'Entry 2', 'FontWeight', 'bold', ...
-                'BackgroundColor', bCols.Entry2Inactive, 'FontColor', bCols.TextInactive, ...
-                'ValueChangedFcn', @(src,evt)app.onInteractionStatsChanged(src));
+            app.BtnPickEntry2 = uibutton(gridBtns2, 'state', 'Text','Entry 2', 'FontWeight','bold', ...
+                'BackgroundColor',bCols.Entry2Inactive, 'FontColor',bCols.TextInactive, 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry2.Layout.Column = 1;
 
-            % New: Clear
-            btnClear = uibutton(btnGrid2, ...
-                'Text', 'Clear Pts', 'FontWeight', 'bold', ...
-                'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, ...
-                'ButtonPushedFcn', @(~,~)app.onClearEntries());
-            btnClear.Layout.Column = 2;
+            btnCutClear = uibutton(gridBtns2, 'Text','Clear Pts', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, ...
+                'ButtonPushedFcn',@(~,~)app.onClearEntries());
+            btnCutClear.Layout.Column = 2;
 
-            % -------------------------------------------------------
-            % SPACER (Row 5)
-            % -------------------------------------------------------
-            spCut = uilabel(app.CuttingLeftPanel, 'Text', '');
-            spCut.Layout.Row = 5;
+            % 5. SPACER
+            lblCutSpacer = uilabel(app.CuttingLeftPanel, 'Text', '');
+            lblCutSpacer.Layout.Row = 5;
 
-            % -------------------------------------------------------
-            % CONTINUE BUTTON (Row 7)
-            % -------------------------------------------------------
-            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, ...
-                'Text', 'Continue', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', [0.1 0.6 0.1], ... % Success Green
-                'FontColor', [1 1 1], ...
-                'ButtonPushedFcn', @(~,~)app.onContinue());
+            % 7. CONTINUE
+            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, 'Text','Continue', 'FontWeight','bold', ...
+                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnCuttingContinue.Layout.Row = 7;
 
-            % -------------------------------------------------------
-            % RIGHT COLUMN: 2D PLOTS
-            % -------------------------------------------------------
-            rightCol = uigridlayout(app.GLCutting, [2 1]);
-            rightCol.Layout.Column = 2;
-            rightCol.RowHeight = {'1x','1x'};
-            rightCol.Padding = [0 0 0 0];
-            rightCol.RowSpacing = 10;
+            % RIGHT PLOTS
+            app.AxCutLeft = uiaxes(app.GLCutting); app.AxCutLeft.Layout.Row=1; app.AxCutLeft.Layout.Column=2;
+            app.AxCutLeft.BackgroundColor = t.editBg; grid(app.AxCutLeft,'on'); title(app.AxCutLeft,'Left Profile Cut Path');
 
-            app.AxCutLeft = uiaxes(rightCol);
-            app.AxCutLeft.Layout.Row = 1;
-            app.AxCutLeft.BackgroundColor = t.editBg;
-            title(app.AxCutLeft, 'Left Profile Cut Path');
-            xlabel(app.AxCutLeft,'Y'); ylabel(app.AxCutLeft,'Z');
-            grid(app.AxCutLeft,'on');
-            app.AxCutLeft.DataAspectRatio = [1 1 1];
-
-            app.AxCutRight = uiaxes(rightCol);
-            app.AxCutRight.Layout.Row = 2;
-            app.AxCutRight.BackgroundColor = t.editBg;
-            title(app.AxCutRight, 'Right Profile Cut Path');
-            xlabel(app.AxCutRight,'Y'); ylabel(app.AxCutRight,'Z');
-            grid(app.AxCutRight,'on');
-            app.AxCutRight.DataAspectRatio = [1 1 1];
+            app.AxCutRight = uiaxes(app.GLCutting); app.AxCutRight.Layout.Row=2; app.AxCutRight.Layout.Column=2;
+            app.AxCutRight.BackgroundColor = t.editBg; grid(app.AxCutRight,'on'); title(app.AxCutRight,'Right Profile Cut Path');
 
             % ===========================================================
             % SIMULATION TAB
@@ -1345,120 +1284,119 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLSimulation.Padding       = [10 10 10 10];
             app.GLSimulation.ColumnSpacing = 10;
 
-            % --- Left Control Column ---
+            % --- Left Control Panel ---
             app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
-            % Rows: Playback(1), Settings(2), Spacer(3,4,5), Continue(6)
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', '1x', 'fit', 'fit', 'fit'};
-            app.SimLeftPanel.Padding   = [10 10 10 10];
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
+            app.SimLeftPanel.Padding = [10 10 10 10];
             app.SimLeftPanel.BackgroundColor = sideBg;
 
-            % -------------------------------------------------------
-            % 1. PLAYBACK CONTROLS
-            % -------------------------------------------------------
-            panSimPlay = uipanel(app.SimLeftPanel, ...
-                'Title', 'Playback', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
-            panSimPlay.Layout.Row = 1;
+            % 1. VIEW
+            panSimView = uipanel(app.SimLeftPanel, 'Title','View', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panSimView.Layout.Row = 1;
+
+            gridSimView = uigridlayout(panSimView, [1 2]);
+            gridSimView.Padding=[5 5 5 5]; gridSimView.ColumnSpacing=5; gridSimView.BackgroundColor=panelBg;
+
+            btnSimViewM = uibutton(gridSimView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            btnSimViewM.Layout.Column = 1;
+
+            btnSimViewB = uibutton(gridSimView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
+            btnSimViewB.Layout.Column = 2;
+
+            % 2. PLAYBACK
+            panSimPlay = uipanel(app.SimLeftPanel, 'Title','Playback', ...
+                'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            panSimPlay.Layout.Row = 2;
 
             gridSimPlay = uigridlayout(panSimPlay, [2 3]);
-            gridSimPlay.ColumnWidth = {'1x', '1x', '1x'};
-            gridSimPlay.RowHeight   = {'fit', 'fit'};
-            gridSimPlay.Padding     = [5 5 5 5];
-            gridSimPlay.ColumnSpacing = 5;
-            gridSimPlay.BackgroundColor = panelBg;
+            gridSimPlay.ColumnWidth={'1x','1x','1x'}; gridSimPlay.RowHeight={'fit','fit'};
+            gridSimPlay.Padding=[5 5 5 5]; gridSimPlay.ColumnSpacing=5; gridSimPlay.BackgroundColor=panelBg;
 
-            % Play Button
-            app.SimPlayBtn = uibutton(gridSimPlay, ...
-                'Text', 'Play', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', t.accentBg, ...
-                'FontColor', t.editTxt, ...
-                'ButtonPushedFcn', @(~,~)app.onSimPlay());
+            app.SimPlayBtn = uibutton(gridSimPlay, 'Text','Play', 'FontWeight','bold', ...
+                'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
             app.SimPlayBtn.Layout.Column = 1;
 
-            % Pause Button (Local variable)
-            btnSimPause = uibutton(gridSimPlay, ...
-                'Text', 'Pause', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', panelBg, ... % Neutral
-                'FontColor', labelCol, ...
-                'ButtonPushedFcn', @(~,~)app.onSimPause());
+            btnSimPause = uibutton(gridSimPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, ...
+                'ButtonPushedFcn',@(~,~)app.onSimPause());
             btnSimPause.Layout.Column = 2;
 
-            % Stop/Reset Button
-            app.SimStopBtn = uibutton(gridSimPlay, ...
-                'Text', 'Reset', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', panelBg, ... % Neutral
-                'FontColor', labelCol, ...
-                'ButtonPushedFcn', @(~,~)app.onSimStop());
+            app.SimStopBtn = uibutton(gridSimPlay, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, ...
+                'ButtonPushedFcn',@(~,~)app.onSimStop());
             app.SimStopBtn.Layout.Column = 3;
 
-            % Slider (Spans row 2)
-            app.SimSlider = uislider(gridSimPlay, ...
-                'Limits', [1 100], ...
-                'Value', 1, ...
-                'ValueChangedFcn', @(src,~)app.onSimSliderChanging(src));
-            app.SimSlider.Layout.Row = 2;
-            app.SimSlider.Layout.Column = [1 3];
+            app.SimSlider = uislider(gridSimPlay, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
+            app.SimSlider.Layout.Row = 2; app.SimSlider.Layout.Column = [1 3];
 
-            % -------------------------------------------------------
-            % 2. SETTINGS PANEL
-            % -------------------------------------------------------
-            panSimSet = uipanel(app.SimLeftPanel, ...
-                'Title', 'Settings', ...
-                'BackgroundColor', panelBg, ...
-                'ForegroundColor', labelCol, ...
-                'FontWeight', 'bold', ...
-                'BorderType', 'line');
-            panSimSet.Layout.Row = 2;
+            % 3. SETTINGS
+            panSimSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            panSimSet.Layout.Row = 3;
 
             gridSimSet = uigridlayout(panSimSet, [1 2]);
-            gridSimSet.ColumnWidth = {'fit', '1x'};
-            gridSimSet.Padding     = [5 5 5 5];
-            gridSimSet.BackgroundColor = panelBg;
+            gridSimSet.ColumnWidth={'fit','1x'}; gridSimSet.Padding=[5 5 5 5]; gridSimSet.BackgroundColor=panelBg;
 
-            lblSimSpeed = uilabel(gridSimSet, ...
-                'Text', 'Speed (x):', ...
-                'FontColor', labelCol, ...
-                'HorizontalAlignment', 'right');
+            lblSimSpeed = uilabel(gridSimSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSimSpeed.Layout.Column = 1;
 
-            app.SimSpeedSpinner = uispinner(gridSimSet, ...
-                'Limits', [0.1 10], ...
-                'Value', 1.0, ...
-                'Step', 0.1);
+            app.SimSpeedSpinner = uispinner(gridSimSet, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
+            app.SimSpeedSpinner.Layout.Column = 2;
 
-            % -------------------------------------------------------
-            % SPACER (Row 3)
-            % -------------------------------------------------------
-            lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lblSimSpacer.Layout.Row = 3;
+            % 4. COORDINATES (Fixed Tight Spacing)
+            panCoords = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            panCoords.Layout.Row = 4;
 
-            % -------------------------------------------------------
-            % CONTINUE BUTTON (Row 6)
-            % -------------------------------------------------------
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, ...
-                'Text', 'Continue to G-Code', ...
-                'FontWeight', 'bold', ...
-                'BackgroundColor', [0.1 0.6 0.1], ... % Success Green
-                'FontColor', [1 1 1], ...
-                'ButtonPushedFcn', @(~,~)app.onContinue());
+            % 3 Columns: [Left Data] [Spacer] [Right Data]
+            coordGrid = uigridlayout(panCoords, [3 3]);
+            coordGrid.ColumnWidth = {'1x', 20, '1x'};
+            coordGrid.RowHeight = {'fit','fit','fit'};
+            coordGrid.Padding = [5 5 5 5];
+            coordGrid.BackgroundColor = panelBg;
+
+            % -- HEADERS --
+            lblH_L = uilabel(coordGrid, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblH_L.Layout.Row=1; lblH_L.Layout.Column=1;
+
+            lblH_R = uilabel(coordGrid, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblH_R.Layout.Row=1; lblH_R.Layout.Column=3;
+
+            % -- LEFT DATA (X, Y) --
+            % X (Row 2)
+            gL1 = uigridlayout(coordGrid, [1 2]); gL1.Layout.Row=2; gL1.Layout.Column=1;
+            gL1.Padding=[0 0 0 0]; gL1.BackgroundColor=panelBg; gL1.ColumnWidth={'fit','1x'};
+            uilabel(gL1, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg);
+            app.LblReadoutX = uilabel(gL1, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
+            % Y (Row 3)
+            gL2 = uigridlayout(coordGrid, [1 2]); gL2.Layout.Row=3; gL2.Layout.Column=1;
+            gL2.Padding=[0 0 0 0]; gL2.BackgroundColor=panelBg; gL2.ColumnWidth={'fit','1x'};
+            uilabel(gL2, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg);
+            app.LblReadoutY = uilabel(gL2, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
+            % -- RIGHT DATA (Z, A) --
+            % Z (Row 2)
+            gR1 = uigridlayout(coordGrid, [1 2]); gR1.Layout.Row=2; gR1.Layout.Column=3;
+            gR1.Padding=[0 0 0 0]; gR1.BackgroundColor=panelBg; gR1.ColumnWidth={'fit','1x'};
+            uilabel(gR1, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg);
+            app.LblReadoutZ = uilabel(gR1, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
+            % A (Row 3)
+            gR2 = uigridlayout(coordGrid, [1 2]); gR2.Layout.Row=3; gR2.Layout.Column=3;
+            gR2.Padding=[0 0 0 0]; gR2.BackgroundColor=panelBg; gR2.ColumnWidth={'fit','1x'};
+            uilabel(gR2, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg);
+            app.LblReadoutA = uilabel(gR2, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
+            % 6. CONTINUE
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Generate G-Code', 'FontWeight','bold', ...
+                'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onGenerateGCode());
             app.BtnSimContinue.Layout.Row = 6;
 
-            % -------------------------------------------------------
-            % RIGHT COLUMN: 3D VISUALIZATION
-            % -------------------------------------------------------
+            % RIGHT COLUMN
             app.AxSim = uiaxes(app.GLSimulation);
             app.AxSim.Layout.Column = 2;
-            app.AxSim.BackgroundColor = [0.05 0.05 0.05]; % Standard Dark 3D space
-            xlabel(app.AxSim, 'X'); ylabel(app.AxSim, 'Y'); zlabel(app.AxSim, 'Z');
-            grid(app.AxSim, 'on');
-            view(app.AxSim, 3);
-            axis(app.AxSim, 'equal');
-
+            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
+            grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
 
             app.applyTheme();
 
@@ -2902,31 +2840,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.refreshMachinePlot();
         end
 
-        function onResetMachinePlotView(app)
-            ax = app.AxMachine;
-            if isempty(ax) || ~isgraphics(ax), return; end
+        function onResetMachineViewMachine(app)
+            app.resetViewToMachine(app.AxMachine);
+        end
 
-            % 1. Reset to Isometric
-            view(ax, 3);
-
-            % 2. Re-apply Unified Limits using correct property names
-            offX  = app.MachineBedPos(1);
-            bs    = app.MachineBedSize;
-            mX    = app.MachineSpanX;
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-
-            xlim(ax, [-offX - 100, mX - offX + 100]);
-            ylim(ax, [-50, mLimY + 50]);
-            zlim(ax, [-bs(3)-20, mLimZ + 80]);
-
-            drawnow limitrate;
+        function onResetMachineViewBillet(app)
+            app.resetViewToBillet(app.AxMachine);
         end
 
         function refreshMachinePlot(app)
-            % ===========================================================
-            % REFRESH MACHINE PLOT: Spectrum Sync & High-Fidelity Sim
-            % ===========================================================
+            % REFRESH MACHINE PLOT: High-Fidelity Sim with Blue Billet & Ghost Profiles
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
 
@@ -2938,40 +2861,49 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
+            % Tweak Wire Colors for visibility against grid
             if isDark
-                cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1]; bgCol = [0.05 0.05 0.05];
-                planeAlpha = 0.15; vioCol = [1 0.8 0]; successGreen = [0.4 1 0.4];
-                wireBaseCol  = [0.80 0.80 0.80]; modelAlpha = 0.35;
+                cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1];
+                % Brighter grey for dark mode
+                wireBaseCol  = [0.50 0.50 0.50];
+                modelAlpha = 0.35;
                 offWhite = [0.9 0.9 0.9];
             else
-                cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0]; bgCol = [1 1 1];
-                planeAlpha = 0.08; vioCol = [0.8 0.4 0]; successGreen = [0 0.6 0];
-                wireBaseCol  = [0.15 0.15 0.15]; modelAlpha = 0.30;
+                cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0];
+                % Darker grey for light mode
+                wireBaseCol  = [0.40 0.40 0.40];
+                modelAlpha = 0.30;
                 offWhite = [0.2 0.2 0.2];
             end
 
+            % Constants
             offX = app.MachineBedPos(1); mX = app.MachineSpanX;
             mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
             bs = app.MachineBedSize; bp = app.MachineBedPos;
 
-            % --- 2. PHYSICAL BED & WORKSPACE CAGE ---
+            % --- 2. PHYSICAL BED ---
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2], 'HandleVisibility','off');
+            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
+            % --- 3. WORKSPACE CAGE ---
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
-            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor', cageCol, 'LineStyle',':', 'EdgeAlpha',0.3, 'HandleVisibility','off');
+            hLim = patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
+                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % --- 3. TOWER HEAD PLANES & LABELS ---
+            % --- 4. TOWER HEAD PLANES & LABELS ---
             pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
-            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeRed, 'LineStyle', '-', 'HandleVisibility','off');
-            patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
-                'FaceAlpha', planeAlpha, 'EdgeColor', t.planeGreen, 'LineStyle', '-', 'HandleVisibility','off');
+            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
+                'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle', '-');
+            hTowerR = patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
+                'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle', '-');
 
-            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold');
-            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right');
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize',9);
+            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize',9);
+
+            % --- 5. BILLET & MODEL ---
+            hBillet = gobjects(0); hModel = gobjects(0);
+            hGhostL = gobjects(0); hWireL = gobjects(0);
 
             isViolated = false;
 
@@ -2979,19 +2911,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
                 totalShift = bPlotPos + app.BilletShift;
 
-                % Draw Billet Outline
+                % A. Billet Outline (Blue Style)
                 [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-                patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor', tickCol, 'FaceAlpha', 0.03, ...
-                    'EdgeColor', tickCol, 'LineStyle','--', 'LineWidth', 1.2, 'EdgeAlpha', 0.8, 'HandleVisibility','off');
+                hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
+                    'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, ...
+                    'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
 
-                % Draw Ghost Model
+                % B. Ghost Model
                 Vplot = app.ModelPatch.Vertices + totalShift;
-                patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', modelAlpha, 'EdgeColor', 'none', 'HandleVisibility','off');
+                hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
 
+                % C. Profiles & Wire Paths
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % 1. FOAM BOUNDARY (Dashed Off-white)
+                    % 1. GHOST PROFILES (Raw Foam Boundary) - SOLID & BOLDER
                     [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...\
                         app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...\
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
@@ -2999,22 +2933,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
-                    plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
-                    plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), 'Color', offWhite, 'LineWidth', 0.5, 'LineStyle',':');
+                    hGhostL = plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
+                        'Color', t.rawMeshCol, 'LineWidth', 1.0, 'LineStyle','-');
+                    plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
+                        'Color', t.rawMeshCol, 'LineWidth', 1.0, 'LineStyle','-');
 
-                    % 2. KERF PATH (Actual wire movement - Solid Orange)
+                    % 2. KERF PATH (Actual Wire - Solid)
                     yL_k = app.LeftProfilePoints(:,2); zL_k = app.LeftProfilePoints(:,3);
                     yR_k = app.RightProfilePoints(:,2); zR_k = app.RightProfilePoints(:,3);
+
                     if app.KerfEnabled && app.KerfValue > 0
                         [yL_k, zL_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfValue);
                         [yR_k, zR_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfValue);
                     end
                     [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
 
-                    plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
-                    plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), 'Color', t.wireKerf, 'LineWidth', 1.0);
+                    hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
+                        'Color', t.wireKerf, 'LineWidth', 1.0);
+                    plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
+                        'Color', t.wireKerf, 'LineWidth', 1.0);
 
-                    % 3. TOWER HEAD PATHS (Solid Red/Green on the tower planes)
+                    % 3. TOWER HEAD PROJECTIONS
                     [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
                         ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...\
                         ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
@@ -3022,13 +2961,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                     plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.2);
                     plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.2);
 
-                    % --- 4. SPECTRUM SYNC DOTS & WIRE SEGMENTS ---
-                    % Generate colormap for the length of the sample
-                    step = max(1, floor(numel(tL.y)/20)); % Show ~20 wire segments
+                    % 4. SPECTRUM SYNC DOTS & WIRES
+                    step = max(1, floor(numel(tL.y)/20));
                     idx = 1:step:numel(tL.y);
                     if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
-
-                    % Use 'hsv' for high contrast start/end identification
                     dotCMap = hsv(numel(idx));
 
                     bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
@@ -3036,28 +2972,43 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                     for k = 1:numel(idx)
                         currIdx = idx(k);
-                        wCol = [wireBaseCol, 0.40]; if bad(currIdx), wCol = [vioCol, 0.7]; end
+                        % WIRE COLOR FIX: Higher alpha (0.6) and adjusted base color
+                        wCol = [wireBaseCol, 0.60];
+                        if bad(currIdx), wCol = [1 0.8 0 0.8]; end % Yellow alert
 
-                        % Draw the wire connecting Left Tower Head to Right Tower Head
-                        plot3(ax, [-offX, mX-offX], [tL.y(currIdx), tR.y(currIdx)], [tL.z(currIdx), tR.z(currIdx)], 'Color', wCol, 'LineWidth', 0.5);
+                        % Wire
+                        plot3(ax, [-offX, mX-offX], [tL.y(currIdx), tR.y(currIdx)], [tL.z(currIdx), tR.z(currIdx)], ...
+                            'Color', wCol, 'LineWidth', 0.8);
 
-                        % Draw the Spectrum Dots (Paired by color to show indexing/sync)
-                        plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
-                        plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
+                        % Dots
+                        plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
+                        plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
                     end
-
-                    % --- 5. SYNC DEBUGGER ---
-                    vK = [ySyncR - ySyncL, zSyncR - zSyncL];
-                    kDrift = max(vK) - min(vK);
-                    fprintf('Machine Sync Debug: Y-Drift=%.4fmm, Z-Drift=%.4fmm\n', kDrift(1), kDrift(2));
                 end
             end
 
-            % --- 6. FINALIZE AXES ---
-            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on'); ax.BackgroundColor = bgCol;
-            set(ax, 'XColor', tickCol, 'YColor', tickCol, 'ZColor', tickCol);
-            xlim(ax, [-offX - 100, mX - offX + 100]); ylim(ax, [-50, mLimY + 50]); zlim(ax, [-bs(3)-20, mLimZ + 80]);
+            % --- 6. LEGEND ---
+            handles = [hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL];
+            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Ghost Profile (Raw)', 'Wire Path (Kerf)'};
 
+            valid = isgraphics(handles);
+            if any(valid)
+                lgd = legend(ax, handles(valid), labels(valid), 'Location','northeast');
+                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
+            end
+
+            % --- 7. VIEW SETTINGS ---
+            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
+            ax.BackgroundColor = t.editBg;
+            set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
+
+            xlim(ax, [-offX - 100, mX - offX + 100]);
+            ylim(ax, [-50, mLimY + 50]);
+            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+
+            % --- 8. STATUS UPDATE ---
             if isViolated
                 app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
                 app.MachineMessageLabel.FontColor = [1 0.4 0.4];
@@ -3065,7 +3016,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BtnMachineContinue.Enable = 'off';
             else
                 app.MachineMessageLabel.Text = 'Machine configuration valid.';
-                app.MachineMessageLabel.FontColor = successGreen;
+                app.MachineMessageLabel.FontColor = [0.4 1 0.4];
                 app.MachineLeftPanel.BackgroundColor = t.sideBg;
                 app.BtnMachineContinue.Enable = 'on';
             end
@@ -3691,15 +3642,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % 1. Process Profiles (Pass [] as axis to skip plotting)
-            % FIXED: Removed the extra [] argument
+            % 1. Process Profiles
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
             % 2. Sync Profile Counts
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
-            % 3. Build Approach Sequence
+            % 3. Build Approach Sequences
             function pts = buildPathSeq(startPt, entry1, entry2)
                 pZero = [0, 0];
                 pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
@@ -3727,20 +3677,30 @@ classdef HotWireSTEPApp_v6_2 < handle
             [rLy, rLz] = interpolatePath(rapidL, rapidSteps);
             [rRy, rRz] = interpolatePath(rapidR, rapidSteps);
 
-            % 5. Combine & Store
-            xL_val = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
-            xR_val = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+            % 5. Combine & Store (SimPathL/R)
+            % FIX: Add BilletShift(1) to X position calculation for model-relative path
+            xL_val = app.MachineBilletPos(1) + app.NumLeftOffset.Value + app.BilletShift(1);
+            xR_val = app.MachineBilletPos(1) + app.NumRightOffset.Value + app.BilletShift(1);
 
             fullY_L = [rLy; yL]; fullZ_L = [rLz; zL];
             fullY_R = [rRy; yR]; fullZ_R = [rRz; zR];
 
-            fullX_L = repmat(xL_val, numel(fullY_L), 1);
-            fullX_R = repmat(xR_val, numel(fullY_R), 1);
+            app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
+            app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            app.SimPathL = [fullX_L, fullY_L, fullZ_L];
-            app.SimPathR = [fullX_R, fullY_R, fullZ_R];
+            % 6. Calculate Projected Tower Paths
+            V = app.SimPathR - app.SimPathL;
 
-            % 6. Init Controls
+            % Left Tower (X=0)
+            tL = -app.SimPathL(:,1) ./ V(:,1);
+            app.SimTowerPathL = app.SimPathL + tL .* V;
+
+            % Right Tower (X=MachineSpan)
+            mSpan = app.MachineSpanX;
+            tR = (mSpan - app.SimPathL(:,1)) ./ V(:,1);
+            app.SimTowerPathR = app.SimPathL + tR .* V;
+
+            % 7. Init Controls
             app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
             app.SimSlider.Value = 1;
 
@@ -3748,59 +3708,186 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function initSimulationPlot(app)
+            % Sets up the 3D environment for simulation
+
             ax = app.AxSim;
             cla(ax); hold(ax, 'on');
             t = app.getTheme();
 
-            % 1. Machine Bed
-            offX = app.MachineBedPos(1);
-            bs = app.MachineBedSize;
-            [xb, yb, zb] = app.makeBoxVertices(0, 50, -20, bs(1), bs(2), bs(3));
+            offX  = app.MachineBedPos(1);
+            mSpan = app.MachineSpanX;
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize; bp = app.MachineBedPos;
+
+            % 1. STATIC GEOMETRY
+            [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.2 0.2 0.2], 'FaceAlpha', 0.5, 'EdgeColor','none');
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
-            % 2. Billet (Semi-Transparent)
-            bp = app.MachineBilletPos; bs = app.BilletSize;
-            [xm, ym, zm] = app.makeBoxVertices(bp(1), bp(2), bp(3), bs(1), bs(2), bs(3));
+            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
+            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
+                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+
+            % Towers & Labels
+            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
+            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
+
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, ...
+                'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
+            text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, ...
+                'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
+
+            % 2. BILLET & GHOSTS (FIXED POSITIONING)
+            % Base position relative to Machine Zero: bp
+            % Applied user shift: app.BilletShift
+            % Final Machine Coords: bp + BilletShift
+            % Plot Coords: (Machine Coords) - [offX, 0, 0]
+
+            finalBilletPos = bp + app.BilletShift;
+            bPlotPos = finalBilletPos - [offX, 0, 0];
+
+            [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--');
+                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
 
-            % 3. Towers
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ; mSpan = app.MachineSpanX;
-            % Left
-            fill3(ax, [-offX, -offX, -offX, -offX], [0, mLimY, mLimY, 0], [0, 0, mLimZ, mLimZ], ...
-                t.planeRed, 'FaceAlpha', 0.05, 'EdgeColor', t.planeRed);
-            % Right
-            fill3(ax, [mSpan-offX, mSpan-offX, mSpan-offX, mSpan-offX], [0, mLimY, mLimY, 0], [0, 0, mLimZ, mLimZ], ...
-                t.planeGreen, 'FaceAlpha', 0.05, 'EdgeColor', t.planeGreen);
+            % Ghost Profiles
+            offsetY = finalBilletPos(2);
+            offsetZ = finalBilletPos(3);
+            % X-Shift for ghosts (Machine X -> Plot X)
+            shiftX = app.BilletShift(1) - offX;
 
-            % 4. Wire (Initial)
-            if ~isempty(app.SimPathL)
-                plot3(ax, [app.SimPathL(1,1), app.SimPathR(1,1)], ...
-                    [app.SimPathL(1,2), app.SimPathR(1,2)], ...
-                    [app.SimPathL(1,3), app.SimPathR(1,3)], ...
-                    'Color', t.wireKerf, 'LineWidth', 2, 'Tag', 'SimWire');
+            if ~isempty(app.LeftProfilePoints)
+                xPL = (app.MachineBilletPos(1) + app.NumLeftOffset.Value) + shiftX;
+                plot3(ax, xPL*ones(size(app.LeftProfilePoints,1),1), app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, ...
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
+            end
+            if ~isempty(app.RightProfilePoints)
+                xPR = (app.MachineBilletPos(1) + app.NumRightOffset.Value) + shiftX;
+                plot3(ax, xPR*ones(size(app.RightProfilePoints,1),1), app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, ...
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
             end
 
-            axis(ax, 'equal'); view(ax, 3);
-            xlim(ax, [-offX-50, mSpan-offX+50]);
-            ylim(ax, [-50, mLimY+50]);
-            zlim(ax, [-50, mLimZ+50]);
-            grid(ax, 'on');
+            % 3. DYNAMIC ELEMENTS
+            if ~isempty(app.SimPathL)
+                % Model Trails
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
+                % Tower Trails
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 1.0, 'Tag', 'SimTowerL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 1.0, 'Tag', 'SimTowerR');
+                % Wire
+                plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 1.0, 'Tag', 'SimWire');
+                % Dots
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+
+                app.onSimSliderChanging(app.SimSlider);
+            end
+
+            app.onResetSimViewMachine();
+            ax.BackgroundColor = [0.05 0.05 0.05];
+            set(ax, 'XColor', [0.6 0.6 0.6], 'YColor', [0.6 0.6 0.6], 'ZColor', [0.6 0.6 0.6]);
         end
 
         function onSimSliderChanging(app, src)
             idx = round(src.Value);
             if isempty(app.SimPathL), return; end
-            if idx > size(app.SimPathL, 1), idx = size(app.SimPathL, 1); end
+            idx = min(idx, size(app.SimPathL, 1));
+
+            offX = app.MachineBedPos(1);
+
+            % 1. Update Wire Ends
+            pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
+            pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
 
             hWire = findobj(app.AxSim, 'Tag', 'SimWire');
             if ~isempty(hWire)
-                hWire.XData = [app.SimPathL(idx,1), app.SimPathR(idx,1)];
-                hWire.YData = [app.SimPathL(idx,2), app.SimPathR(idx,2)];
-                hWire.ZData = [app.SimPathL(idx,3), app.SimPathR(idx,3)];
+                hWire.XData = [pTL(1), pTR(1)]; hWire.YData = [pTL(2), pTR(2)]; hWire.ZData = [pTL(3), pTR(3)];
             end
+
+            % 2. Update Dots
+            hDotL = findobj(app.AxSim, 'Tag', 'SimDotL');
+            if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
+            hDotR = findobj(app.AxSim, 'Tag', 'SimDotR');
+            if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
+
+            % 3. Update Tower Trails
+            hTowerL = findobj(app.AxSim, 'Tag', 'SimTowerL');
+            if ~isempty(hTowerL)
+                histL = app.SimTowerPathL(1:idx, :) - [offX, 0, 0];
+                hTowerL.XData = histL(:,1); hTowerL.YData = histL(:,2); hTowerL.ZData = histL(:,3);
+            end
+            hTowerR = findobj(app.AxSim, 'Tag', 'SimTowerR');
+            if ~isempty(hTowerR)
+                histR = app.SimTowerPathR(1:idx, :) - [offX, 0, 0];
+                hTowerR.XData = histR(:,1); hTowerR.YData = histR(:,2); hTowerR.ZData = histR(:,3);
+            end
+
+            % 4. Update Model Trails (Fixed Artifacts)
+            % Using plot3 (Solid Line), so we just pass valid X/Y/Z data
+            hTrailL = findobj(app.AxSim, 'Tag', 'SimTrailL');
+            if ~isempty(hTrailL)
+                dat = app.SimPathL(1:idx, :) - [offX, 0, 0];
+                hTrailL.XData = dat(:,1); hTrailL.YData = dat(:,2); hTrailL.ZData = dat(:,3);
+            end
+            hTrailR = findobj(app.AxSim, 'Tag', 'SimTrailR');
+            if ~isempty(hTrailR)
+                dat = app.SimPathR(1:idx, :) - [offX, 0, 0];
+                hTrailR.XData = dat(:,1); hTrailR.YData = dat(:,2); hTrailR.ZData = dat(:,3);
+            end
+
+            % 5. Readouts (Live Machine Coords)
+            % Note: Use pTL/pTR but add offX back to get Machine Absolute
+            if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
+            if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
+            if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
+            if ~isempty(app.LblReadoutA), app.LblReadoutA.Text = sprintf('%.2f', pTR(3)); end
+
             drawnow limitrate;
+        end
+
+        function onResetSimViewMachine(app)
+            app.resetViewToMachine(app.AxSim);
+        end
+
+        function onResetSimViewBillet(app)
+            app.resetViewToBillet(app.AxSim);
+        end
+
+        % --- Shared Helpers ---
+        function resetViewToMachine(app, ax)
+            offX = app.MachineBedPos(1);
+            mX = app.MachineSpanX;
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize;
+
+            view(ax, 3); axis(ax, 'equal');
+            xlim(ax, [-offX - 100, mX - offX + 100]);
+            ylim(ax, [-50, mLimY + 50]);
+            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+        end
+
+        function resetViewToBillet(app, ax)
+            % Centers view on the Billet (Machine Coords)
+            % Billet Position 'bp' is relative to Machine Zero.
+            % Plot X-Zero is Bed Left Edge (Machine Zero is at -offX).
+
+            offX = app.MachineBedPos(1);
+            bp   = app.MachineBilletPos; % [X Y Z] absolute
+            bs   = app.BilletSize;
+
+            % Billet Bounds in Plot Coords
+            bMin = [bp(1)-offX, bp(2), bp(3)];
+            bMax = bMin + bs;
+
+            buffer = 50;
+            xlim(ax, [bMin(1)-buffer, bMax(1)+buffer]);
+            ylim(ax, [bMin(2)-buffer, bMax(2)+buffer]);
+            zlim(ax, [bMin(3)-buffer, bMax(3)+buffer]);
+
+            view(ax, 3); axis(ax, 'equal');
         end
 
         % ===========================================================
@@ -3929,7 +4016,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         
         % ===========================================================
         % THEME HELPERS
-        % ===========================================================
+        % ===========================================================         
         function applyTheme(app)
             t = app.getTheme();
             app.UIFigure.Color = t.sideBg;
