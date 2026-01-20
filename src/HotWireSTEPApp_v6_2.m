@@ -3191,25 +3191,34 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % SIMULATION TAB LOGIC
         % ===========================================================
-
         function generateSimulationData(app)
             % Compiles the full toolpath (Rapid + Feed) for simulation
 
+            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                return;
+            end
+
             t = app.getTheme();
-            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
-            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % 1. Process Profiles
-            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
-            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
+            % --- Coordinate Calculation ---
+            % 1. Y/Z Offsets: Convert CAD Y/Z to Machine Absolute Y/Z
+            %    Machine_Y = CAD_Y + BilletShift_Y + MachineBilletPos_Y
+            machOffsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            machOffsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % 2. Sync Profile Counts
+            isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+
+            % 2. Process Profiles (Returns Machine Absolute Y/Z)
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, machOffsetY, machOffsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
+            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, machOffsetY, machOffsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
+
+            % 3. Sync Profile Counts
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
-            % 3. Build Approach Sequences
+            % 4. Build Approach Sequences (In Machine Coords)
             function pts = buildPathSeq(startPt, entry1, entry2)
-                pZero = [0, 0];
+                pZero = [0, 0]; % Machine Zero
+                % Front face of billet
                 pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
                 pRetract = [pFront(1)-10, pFront(2)];
                 pts = [pZero; pFront; pRetract];
@@ -3221,7 +3230,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             rapidL = buildPathSeq([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
             rapidR = buildPathSeq([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
 
-            % 4. Interpolate Rapids
+            % 5. Interpolate Rapids
             function [upY, upZ] = interpolatePath(pts, numSteps)
                 if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
                 d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
@@ -3235,30 +3244,39 @@ classdef HotWireSTEPApp_v6_2 < handle
             [rLy, rLz] = interpolatePath(rapidL, rapidSteps);
             [rRy, rRz] = interpolatePath(rapidR, rapidSteps);
 
-            % 5. Combine & Store (SimPathL/R)
-            % FIX: Add BilletShift(1) to X position calculation for model-relative path
-            xL_val = app.MachineBilletPos(1) + app.NumLeftOffset.Value + app.BilletShift(1);
-            xR_val = app.MachineBilletPos(1) + app.NumRightOffset.Value + app.BilletShift(1);
-
+            % 6. Combine Y/Z Arrays
             fullY_L = [rLy; yL]; fullZ_L = [rLz; zL];
             fullY_R = [rRy; yR]; fullZ_R = [rRz; zR];
 
-            app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
-            app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
+            % 7. Calculate Machine X positions
+            % Machine_X = CAD_X + BilletShift_X + MachineBilletPos_X
 
-            % 6. Calculate Projected Tower Paths
+            % Get original CAD X planes from the profile data
+            cadX_L = app.LeftProfilePoints(1,1);
+            cadX_R = app.RightProfilePoints(1,1);
+
+            machX_L = cadX_L + app.BilletShift(1) + app.MachineBilletPos(1);
+            machX_R = cadX_R + app.BilletShift(1) + app.MachineBilletPos(1);
+
+            % 8. Store Full 3D Path (Machine Coords)
+            app.SimPathL = [repmat(machX_L, numel(fullY_L), 1), fullY_L, fullZ_L];
+            app.SimPathR = [repmat(machX_R, numel(fullY_R), 1), fullY_R, fullZ_R];
+
+            % 9. Calculate Projected Tower Paths
+            % V is vector from Left Wire Node to Right Wire Node
             V = app.SimPathR - app.SimPathL;
 
-            % Left Tower (X=0)
-            tL = -app.SimPathL(:,1) ./ V(:,1);
+            % Left Tower (at Machine X=0)
+            % t = (TargetX - StartX) / VectorX
+            tL = (0 - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
 
-            % Right Tower (X=MachineSpan)
+            % Right Tower (at Machine X=MachineSpanX)
             mSpan = app.MachineSpanX;
             tR = (mSpan - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % 7. Init Controls
+            % 10. Init Controls
             app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
             app.SimSlider.Value = 1;
 
@@ -3267,39 +3285,73 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function initSimulationPlot(app)
             ax = app.AxSim; cla(ax); hold(ax, 'on'); t = app.getTheme();
-            offX = app.MachineBedPos(1); mSpan = app.MachineSpanX; mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ; bs = app.MachineBedSize; bp = app.MachineBedPos;
 
-            % 1. STATIC
+            % Plot X-Offset: We shift the view so the Bed starts at X=0 in the plot.
+            % (Machine Zero is actually at X = -offX in the plot).
+            offX  = app.MachineBedPos(1);
+
+            % Geometries
+            mSpan = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            bs    = app.MachineBedSize;
+            bp    = app.MachineBedPos;       % Bed Position (Fixed machine geometry)
+            mbp   = app.MachineBilletPos;    % Billet Position (Variable user setting)
+
+            % 1. STATIC MACHINE GEOMETRY
+            % Bed (Plot Origin X=0 is Bed Left Edge)
+            % Y/Z are drawn at absolute Machine Coordinates
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
+
+            % Workspace Limits (Machine Zero at X = -offX)
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, 'FaceColor','none', 'EdgeColor',t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
+            % Tower Planes
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
 
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
             text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
 
-            % 2. BILLET (Fixed at MachineBilletPos)
-            bPlotX = bp(1) - offX;
-            [xm, ym, zm] = app.makeBoxVertices(bPlotX, bp(2), bp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            % 2. BILLET
+            % CRITICAL FIX: Use 'mbp' (MachineBilletPos), NOT 'bp' (MachineBedPos)
+            % Plot X = MachineBilletPos_X - offX
+            bPlotX = mbp(1) - offX;
+            [xm, ym, zm] = app.makeBoxVertices(bPlotX, mbp(2), mbp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--', 'LineWidth',1.0);
 
-            % 3. GHOST PROFILES (Shifted)
-            offsetY = bp(2) + app.BilletShift(2); offsetZ = bp(3) + app.BilletShift(3);
-            shiftX = app.BilletShift(1) - offX;
+            % 3. GHOST PROFILES (Shifted to correct location)
+            % CRITICAL FIX: Calculate offsets using Billet Position (mbp)
+            machOffsetY = mbp(2) + app.BilletShift(2);
+            machOffsetZ = mbp(3) + app.BilletShift(3);
 
             if ~isempty(app.LeftProfilePoints)
-                xPL = (app.MachineBilletPos(1) + app.NumLeftOffset.Value) + shiftX;
-                plot3(ax, xPL*ones(size(app.LeftProfilePoints,1),1), app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
-            end
-            if ~isempty(app.RightProfilePoints)
-                xPR = (app.MachineBilletPos(1) + app.NumRightOffset.Value) + shiftX;
-                plot3(ax, xPR*ones(size(app.RightProfilePoints,1),1), app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
+                cadX = app.LeftProfilePoints(1,1);
+                % Machine Absolute X = CAD + Shift + BilletOrigin
+                machX = cadX + app.BilletShift(1) + mbp(1);
+                % Plot Relative X
+                plotX = machX - offX;
+
+                plot3(ax, plotX*ones(size(app.LeftProfilePoints,1),1), ...
+                    app.LeftProfilePoints(:,2) + machOffsetY, ...
+                    app.LeftProfilePoints(:,3) + machOffsetZ, ...
+                    '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
             end
 
-            % 4. DYNAMIC
+            if ~isempty(app.RightProfilePoints)
+                cadX = app.RightProfilePoints(1,1);
+                machX = cadX + app.BilletShift(1) + mbp(1);
+                plotX = machX - offX;
+
+                plot3(ax, plotX*ones(size(app.RightProfilePoints,1),1), ...
+                    app.RightProfilePoints(:,2) + machOffsetY, ...
+                    app.RightProfilePoints(:,3) + machOffsetZ, ...
+                    '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
+            end
+
+            % 4. DYNAMIC PATH PLACEHOLDERS
             if ~isempty(app.SimPathL)
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed, 'LineWidth', 1.5, 'Tag', 'SimTrailL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
