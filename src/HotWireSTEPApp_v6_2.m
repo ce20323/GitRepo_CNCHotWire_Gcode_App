@@ -1123,16 +1123,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
 
-            app.GLCutting = uigridlayout(app.TabCutting, [1 2]);
+            % Define 2 Rows (for the 2 plots) and 2 Columns (Control | Plots)
+            app.GLCutting = uigridlayout(app.TabCutting, [2 2]);
             app.GLCutting.ColumnWidth   = {320, '1x'};
+            app.GLCutting.RowHeight     = {'1x', '1x'}; % Equal height for Top/Bottom plots
             app.GLCutting.Padding       = [10 10 10 10];
             app.GLCutting.ColumnSpacing = 10;
 
             % --- Left Control Column ---
-            app.CuttingLeftPanel = uigridlayout(app.GLCutting, [7 1]);
-            % Rows: View(1), Auto(2), Modes(3), Interaction(4), Spacer(5), Continue(7)
-            % Row 5 ('1x') pushes the Continue button (Row 7) to the bottom
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit'};
+            % We define 6 rows. Row 5 is '1x' to act as a spring.
+            app.CuttingLeftPanel = uigridlayout(app.GLCutting, [6 1]);
+
+            % *** CRITICAL FIX: Span both rows so the panel fills the whole height ***
+            app.CuttingLeftPanel.Layout.Row     = [1 2];
+            app.CuttingLeftPanel.Layout.Column  = 1;
+
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
             app.CuttingLeftPanel.Padding   = [10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
 
@@ -1238,20 +1244,26 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'ButtonPushedFcn',@(~,~)app.onClearEntries());
             btn_C_Clear.Layout.Column = 2;
 
-            % 5. SPACER (Important for layout!)
+            % 5. SPACER (Row 5 - The Spring)
             lbl_C_Spacer = uilabel(app.CuttingLeftPanel, 'Text', '');
             lbl_C_Spacer.Layout.Row = 5;
 
-            % 7. CONTINUE
-            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, 'Text','Continue', 'FontWeight','bold', ...
-                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnCuttingContinue.Layout.Row = 7;
+            % 6. CONTINUE BUTTON (Row 6)
+            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, ...
+                'Text','Continue', 'FontWeight','bold', ...
+                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            app.BtnCuttingContinue.Layout.Row = 6;
 
-            % RIGHT PLOTS
-            app.AxCutLeft = uiaxes(app.GLCutting); app.AxCutLeft.Layout.Row=1; app.AxCutLeft.Layout.Column=2;
+            % RIGHT PLOTS (Assigned to Col 2, Rows 1 & 2)
+            app.AxCutLeft = uiaxes(app.GLCutting);
+            app.AxCutLeft.Layout.Row=1;
+            app.AxCutLeft.Layout.Column=2;
             app.AxCutLeft.BackgroundColor = t.editBg; grid(app.AxCutLeft,'on'); title(app.AxCutLeft,'Left Profile Cut Path');
 
-            app.AxCutRight = uiaxes(app.GLCutting); app.AxCutRight.Layout.Row=2; app.AxCutRight.Layout.Column=2;
+            app.AxCutRight = uiaxes(app.GLCutting);
+            app.AxCutRight.Layout.Row=2;
+            app.AxCutRight.Layout.Column=2;
             app.AxCutRight.BackgroundColor = t.editBg; grid(app.AxCutRight,'on'); title(app.AxCutRight,'Right Profile Cut Path');
 
             % ===========================================================
@@ -3708,81 +3720,48 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function initSimulationPlot(app)
-            % Sets up the 3D environment for simulation
+            ax = app.AxSim; cla(ax); hold(ax, 'on'); t = app.getTheme();
+            offX = app.MachineBedPos(1); mSpan = app.MachineSpanX; mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ; bs = app.MachineBedSize; bp = app.MachineBedPos;
 
-            ax = app.AxSim;
-            cla(ax); hold(ax, 'on');
-            t = app.getTheme();
-
-            offX  = app.MachineBedPos(1);
-            mSpan = app.MachineSpanX;
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize; bp = app.MachineBedPos;
-
-            % 1. STATIC GEOMETRY
+            % 1. STATIC
             [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
-
+            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
-            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, 'FaceColor','none', 'EdgeColor',t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % Towers & Labels
-            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
-                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
-            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
-                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
+            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
+            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
 
-            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, ...
-                'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
-            text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, ...
-                'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
+            text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
 
-            % 2. BILLET & GHOSTS (FIXED POSITIONING)
-            % Base position relative to Machine Zero: bp
-            % Applied user shift: app.BilletShift
-            % Final Machine Coords: bp + BilletShift
-            % Plot Coords: (Machine Coords) - [offX, 0, 0]
+            % 2. BILLET (Fixed at MachineBilletPos)
+            bPlotX = bp(1) - offX;
+            [xm, ym, zm] = app.makeBoxVertices(bPlotX, bp(2), bp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--', 'LineWidth',1.0);
 
-            finalBilletPos = bp + app.BilletShift;
-            bPlotPos = finalBilletPos - [offX, 0, 0];
-
-            [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
-
-            % Ghost Profiles
-            offsetY = finalBilletPos(2);
-            offsetZ = finalBilletPos(3);
-            % X-Shift for ghosts (Machine X -> Plot X)
+            % 3. GHOST PROFILES (Shifted)
+            offsetY = bp(2) + app.BilletShift(2); offsetZ = bp(3) + app.BilletShift(3);
             shiftX = app.BilletShift(1) - offX;
 
             if ~isempty(app.LeftProfilePoints)
                 xPL = (app.MachineBilletPos(1) + app.NumLeftOffset.Value) + shiftX;
-                plot3(ax, xPL*ones(size(app.LeftProfilePoints,1),1), app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
+                plot3(ax, xPL*ones(size(app.LeftProfilePoints,1),1), app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
             end
             if ~isempty(app.RightProfilePoints)
                 xPR = (app.MachineBilletPos(1) + app.NumRightOffset.Value) + shiftX;
-                plot3(ax, xPR*ones(size(app.RightProfilePoints,1),1), app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
+                plot3(ax, xPR*ones(size(app.RightProfilePoints,1),1), app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
             end
 
-            % 3. DYNAMIC ELEMENTS
+            % 4. DYNAMIC
             if ~isempty(app.SimPathL)
-                % Model Trails
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed, 'LineWidth', 1.5, 'Tag', 'SimTrailL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
-                % Tower Trails
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 1.0, 'Tag', 'SimTowerL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 1.0, 'Tag', 'SimTowerR');
-                % Wire
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0], 'LineWidth', 1.0, 'Tag', 'SimTowerL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerR');
                 plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 1.0, 'Tag', 'SimWire');
-                % Dots
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeRed, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
-
                 app.onSimSliderChanging(app.SimSlider);
             end
 
