@@ -1320,45 +1320,67 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimSpeedSpinner = uispinner(g_S_Set, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
             app.SimSpeedSpinner.Layout.Column = 2;
 
-            % 4. COORDINATES (Fixed Layout)
+            % -------------------------------------------------------
+            % 4. COORDINATES (Explicit Layout)
+            % -------------------------------------------------------
             p_S_Coord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', ...
                 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             p_S_Coord.Layout.Row = 4;
 
             % 5 Cols: [Label] [Value] [Spacer] [Label] [Value]
+            % Fixed widths ensure values align perfectly vertically
             g_S_Coord = uigridlayout(p_S_Coord, [3 5]);
-            g_S_Coord.ColumnWidth={'fit', 65, 15, 'fit', 65};
-            g_S_Coord.RowHeight={'fit','fit','fit'};
-            g_S_Coord.Padding=[5 5 5 5]; g_S_Coord.BackgroundColor=panelBg;
+            g_S_Coord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
+            g_S_Coord.RowHeight = {'fit','fit','fit'};
+            g_S_Coord.Padding = [5 5 5 5];
+            g_S_Coord.BackgroundColor = panelBg;
 
-            % Headers
+            % -- HEADERS --
             lbl_S_HL = uilabel(g_S_Coord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lbl_S_HL.Layout.Column=[1 2];
+            lbl_S_HL.Layout.Row = 1;
+            lbl_S_HL.Layout.Column = [1 2];
 
             lbl_S_HR = uilabel(g_S_Coord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lbl_S_HR.Layout.Column=[4 5];
+            lbl_S_HR.Layout.Row = 1;
+            lbl_S_HR.Layout.Column = [4 5];
 
-            % Left Data
+            % -- LEFT DATA --
+            % X (Row 2)
             lbl_S_XL = uilabel(g_S_Coord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_XL.Layout.Row=2;
+            lbl_S_XL.Layout.Row = 2;
+            lbl_S_XL.Layout.Column = 1;
+
             app.LblReadoutX = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
+            app.LblReadoutX.Layout.Row = 2;
+            app.LblReadoutX.Layout.Column = 2;
 
+            % Y (Row 3)
             lbl_S_YL = uilabel(g_S_Coord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_YL.Layout.Row=3;
+            lbl_S_YL.Layout.Row = 3;
+            lbl_S_YL.Layout.Column = 1;
+
             app.LblReadoutY = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
+            app.LblReadoutY.Layout.Row = 3;
+            app.LblReadoutY.Layout.Column = 2;
 
-            % Right Data
+            % -- RIGHT DATA --
+            % Z (Row 2)
             lbl_S_ZR = uilabel(g_S_Coord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_ZR.Layout.Row=2; lbl_S_ZR.Layout.Column=4;
-            app.LblReadoutZ = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
+            lbl_S_ZR.Layout.Row = 2;
+            lbl_S_ZR.Layout.Column = 4;
 
+            app.LblReadoutZ = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
+            app.LblReadoutZ.Layout.Row = 2;
+            app.LblReadoutZ.Layout.Column = 5;
+
+            % A (Row 3)
             lbl_S_AR = uilabel(g_S_Coord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lbl_S_AR.Layout.Row=3; lbl_S_AR.Layout.Column=4;
+            lbl_S_AR.Layout.Row = 3;
+            lbl_S_AR.Layout.Column = 4;
+
             app.LblReadoutA = uilabel(g_S_Coord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left');
-            app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
+            app.LblReadoutA.Layout.Row = 3;
+            app.LblReadoutA.Layout.Column = 5;
 
             % 5. SPACER
             lbl_S_Spacer = uilabel(app.SimLeftPanel, 'Text', '');
