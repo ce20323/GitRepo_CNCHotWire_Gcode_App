@@ -275,9 +275,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Simulation Data
         SimPathL % Nx3 Array [x, y, z] (Machine Coords)
         SimPathR % Nx3 Array [x, y, z] (Machine Coords)
-        SimTimer % timer object for animation
         SimTowerPathL % Nx3 %Physical Tower Paths (Projected)
         SimTowerPathR % Nx3
+        SimRapidCutoffIndex % Index where rapid approach ends
+        SimTimer % timer object for animation
+
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -637,7 +639,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
                 app.BilletSizeMinusBtns(i).Layout.Row = r; app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
-                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', 'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], ...
+                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.2f', 'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], ...
                     'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = r; app.BilletSizeEdits(i).Layout.Column = 4;
 
@@ -677,21 +679,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 lblAxRow = uilabel(gridBPos, 'Text', axisLabels{k}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
                 lblAxRow.Layout.Row = rk;
 
-                app.BilletNegOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                app.BilletNegOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.2f', ...
                     'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
                 app.BilletNegOffsetEdits(k).Layout.Row = rk; app.BilletNegOffsetEdits(k).Layout.Column = 2;
 
                 btnMinPos = uibutton(gridBPos, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
                 btnMinPos.Layout.Row = rk;
 
-                app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.2f', ...
                     'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
                 app.BilletCenterOffsetEdits(k).Layout.Row = rk; app.BilletCenterOffsetEdits(k).Layout.Column = 4;
 
                 btnPlusPos = uibutton(gridBPos, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
                 btnPlusPos.Layout.Row = rk;
 
-                app.BilletPosOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.1f', ...
+                app.BilletPosOffsetEdits(k) = uieditfield(gridBPos,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.2f', ...
                     'BackgroundColor',inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
                 app.BilletPosOffsetEdits(k).Layout.Row = rk; app.BilletPosOffsetEdits(k).Layout.Column = 6;
             end
@@ -2516,8 +2518,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                         ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...\
                         ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
-                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.2);
-                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.2);
+                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.0);
+                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.0);
 
                     % 4. SPECTRUM SYNC DOTS & WIRES
                     step = max(1, floor(numel(tL.y)/20));
@@ -3194,31 +3196,21 @@ classdef HotWireSTEPApp_v6_2 < handle
         function generateSimulationData(app)
             % Compiles the full toolpath (Rapid + Feed) for simulation
 
-            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
-                return;
-            end
-
             t = app.getTheme();
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % --- Coordinate Calculation ---
-            % 1. Y/Z Offsets: Convert CAD Y/Z to Machine Absolute Y/Z
-            %    Machine_Y = CAD_Y + BilletShift_Y + MachineBilletPos_Y
-            machOffsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-            machOffsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            % 1. Process Profiles
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
+            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-
-            % 2. Process Profiles (Returns Machine Absolute Y/Z)
-            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, machOffsetY, machOffsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
-            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, machOffsetY, machOffsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
-
-            % 3. Sync Profile Counts
+            % 2. Sync
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
-            % 4. Build Approach Sequences (In Machine Coords)
+            % 3. Build Approach Sequences
             function pts = buildPathSeq(startPt, entry1, entry2)
-                pZero = [0, 0]; % Machine Zero
-                % Front face of billet
+                pZero = [0, 0];
                 pFront = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
                 pRetract = [pFront(1)-10, pFront(2)];
                 pts = [pZero; pFront; pRetract];
@@ -3230,7 +3222,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             rapidL = buildPathSeq([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
             rapidR = buildPathSeq([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
 
-            % 5. Interpolate Rapids
+            % 4. Interpolate Rapids
             function [upY, upZ] = interpolatePath(pts, numSteps)
                 if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
                 d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
@@ -3244,123 +3236,153 @@ classdef HotWireSTEPApp_v6_2 < handle
             [rLy, rLz] = interpolatePath(rapidL, rapidSteps);
             [rRy, rRz] = interpolatePath(rapidR, rapidSteps);
 
-            % 6. Combine Y/Z Arrays
+            app.SimRapidCutoffIndex = numel(rLy);
+
+            % 5. Combine & Store
+            % FIX: Use stored Profile Point X (which is ModelRelative) + BilletShift + MachinePos
+
+            if ~isempty(app.LeftProfilePoints)
+                baseXL = app.LeftProfilePoints(1,1);
+            else
+                baseXL = app.MachineBilletPos(1); % Fallback
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                baseXR = app.RightProfilePoints(1,1);
+            else
+                baseXR = app.MachineBilletPos(1) + 10; % Fallback
+            end
+
+            xL_val = baseXL + app.BilletShift(1) + app.MachineBilletPos(1);
+            xR_val = baseXR + app.BilletShift(1) + app.MachineBilletPos(1);
+
             fullY_L = [rLy; yL]; fullZ_L = [rLz; zL];
             fullY_R = [rRy; yR]; fullZ_R = [rRz; zR];
 
-            % 7. Calculate Machine X positions
-            % Machine_X = CAD_X + BilletShift_X + MachineBilletPos_X
+            app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
+            app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            % Get original CAD X planes from the profile data
-            cadX_L = app.LeftProfilePoints(1,1);
-            cadX_R = app.RightProfilePoints(1,1);
-
-            machX_L = cadX_L + app.BilletShift(1) + app.MachineBilletPos(1);
-            machX_R = cadX_R + app.BilletShift(1) + app.MachineBilletPos(1);
-
-            % 8. Store Full 3D Path (Machine Coords)
-            app.SimPathL = [repmat(machX_L, numel(fullY_L), 1), fullY_L, fullZ_L];
-            app.SimPathR = [repmat(machX_R, numel(fullY_R), 1), fullY_R, fullZ_R];
-
-            % 9. Calculate Projected Tower Paths
-            % V is vector from Left Wire Node to Right Wire Node
+            % 6. Towers
             V = app.SimPathR - app.SimPathL;
 
-            % Left Tower (at Machine X=0)
-            % t = (TargetX - StartX) / VectorX
-            tL = (0 - app.SimPathL(:,1)) ./ V(:,1);
+            tL = -app.SimPathL(:,1) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
 
-            % Right Tower (at Machine X=MachineSpanX)
             mSpan = app.MachineSpanX;
             tR = (mSpan - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % 10. Init Controls
+            % 7. Init
             app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
             app.SimSlider.Value = 1;
-
             app.initSimulationPlot();
         end
 
         function initSimulationPlot(app)
-            ax = app.AxSim; cla(ax); hold(ax, 'on'); t = app.getTheme();
+            % Sets up the 3D environment for simulation
 
-            % Plot X-Offset: We shift the view so the Bed starts at X=0 in the plot.
-            % (Machine Zero is actually at X = -offX in the plot).
-            offX  = app.MachineBedPos(1);
+            ax = app.AxSim;
+            cla(ax); hold(ax, 'on');
+            t = app.getTheme();
 
-            % Geometries
-            mSpan = app.MachineSpanX;
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-            bs    = app.MachineBedSize;
-            bp    = app.MachineBedPos;       % Bed Position (Fixed machine geometry)
-            mbp   = app.MachineBilletPos;    % Billet Position (Variable user setting)
+            % Constants
+            offX      = app.MachineBedPos(1);
+            mSpan     = app.MachineSpanX;
+            mLimY     = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs        = app.MachineBedSize;
 
-            % 1. STATIC MACHINE GEOMETRY
-            % Bed (Plot Origin X=0 is Bed Left Edge)
-            % Y/Z are drawn at absolute Machine Coordinates
-            [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
+            % --- CRITICAL FIX: Separate Bed and Billet Variables ---
+            bedPos    = app.MachineBedPos;    % Physical Bed Location
+            billetPos = app.MachineBilletPos; % Stock Location
 
-            % Workspace Limits (Machine Zero at X = -offX)
+            % 1. STATIC GEOMETRY
+            % Bed (Uses bedPos)
+            [xb, yb, zb] = app.makeBoxVertices(0, bedPos(2), -bs(3), bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
+
+            % Limits
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
-            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, 'FaceColor','none', 'EdgeColor',t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
+                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % Tower Planes
-            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
-            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
+            % Towers
+            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
+            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
 
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
             text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
 
-            % 2. BILLET
-            % CRITICAL FIX: Use 'mbp' (MachineBilletPos), NOT 'bp' (MachineBedPos)
-            % Plot X = MachineBilletPos_X - offX
-            bPlotX = mbp(1) - offX;
-            [xm, ym, zm] = app.makeBoxVertices(bPlotX, mbp(2), mbp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-            patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--', 'LineWidth',1.0);
+            % 2. BILLET & GHOSTS
+            % Billet Plot Position: billetPos - offX
+            bPlotX = billetPos(1) - offX;
+            [xm, ym, zm] = app.makeBoxVertices(bPlotX, billetPos(2), billetPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
+                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
 
-            % 3. GHOST PROFILES (Shifted to correct location)
-            % CRITICAL FIX: Calculate offsets using Billet Position (mbp)
-            machOffsetY = mbp(2) + app.BilletShift(2);
-            machOffsetZ = mbp(3) + app.BilletShift(3);
+            % Ghost Profiles
+            offsetY = billetPos(2) + app.BilletShift(2);
+            offsetZ = billetPos(3) + app.BilletShift(3);
+            % X-Shift: (BilletPos + InternalShift) - BedOffset
+            shiftX = (billetPos(1) + app.BilletShift(1)) - offX;
 
+            hGhostL = gobjects(0);
             if ~isempty(app.LeftProfilePoints)
-                cadX = app.LeftProfilePoints(1,1);
-                % Machine Absolute X = CAD + Shift + BilletOrigin
-                machX = cadX + app.BilletShift(1) + mbp(1);
-                % Plot Relative X
-                plotX = machX - offX;
-
-                plot3(ax, plotX*ones(size(app.LeftProfilePoints,1),1), ...
-                    app.LeftProfilePoints(:,2) + machOffsetY, ...
-                    app.LeftProfilePoints(:,3) + machOffsetZ, ...
-                    '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
+                xPL = app.LeftProfilePoints(:,1) + shiftX;
+                hGhostL = plot3(ax, xPL, app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, ...
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
             end
-
             if ~isempty(app.RightProfilePoints)
-                cadX = app.RightProfilePoints(1,1);
-                machX = cadX + app.BilletShift(1) + mbp(1);
-                plotX = machX - offX;
-
-                plot3(ax, plotX*ones(size(app.RightProfilePoints,1),1), ...
-                    app.RightProfilePoints(:,2) + machOffsetY, ...
-                    app.RightProfilePoints(:,3) + machOffsetZ, ...
-                    '-', 'Color',t.rawMeshCol, 'LineWidth',1.0);
+                xPR = app.RightProfilePoints(:,1) + shiftX;
+                plot3(ax, xPR, app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, ...
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
             end
 
-            % 4. DYNAMIC PATH PLACEHOLDERS
+            % 3. DYNAMIC ELEMENTS
+            hWire=gobjects(0); hRapids=gobjects(0); hTrails=gobjects(0);
             if ~isempty(app.SimPathL)
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed, 'LineWidth', 1.5, 'Tag', 'SimTrailL');
+                % Model Trails (Solid lines)
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0], 'LineWidth', 1.0, 'Tag', 'SimTowerL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerR');
-                plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 1.0, 'Tag', 'SimWire');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeRed, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 6, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+
+                % Tower Trails (Split Rapid/Feed)
+                % Rapid (Yellow)
+                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidR');
+                % Feed (Red/Green)
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedR');
+
+                % Model Path Trails (Split Rapid/Feed)
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidR');
+                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed, 'LineWidth', 1.5, 'Tag', 'SimModelFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimModelFeedR');
+
+                % Wire (Thin: 0.5)
+                hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
+
+                % Dots (Large: 10)
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+
+                % Model Dots (Dots on the block)
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotR');
+
                 app.onSimSliderChanging(app.SimSlider);
+            end
+
+            % 5. LEGEND
+            handles = [hBed, hTowerL, hTowerR, hBillet, hGhostL, hRapids, hTrails, hWire];
+            labels  = {'Machine Bed', 'Left Tower', 'Right Tower', 'Billet', 'Ghost Profile', 'Rapid Path', 'Cut Path', 'Wire'};
+
+            valid = isgraphics(handles);
+            if any(valid)
+                lgd = legend(ax, handles(valid), labels(valid), 'Location','northeast');
+                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
             end
 
             app.onResetSimViewMachine();
@@ -3374,49 +3396,98 @@ classdef HotWireSTEPApp_v6_2 < handle
             idx = min(idx, size(app.SimPathL, 1));
 
             offX = app.MachineBedPos(1);
+            cutoff = app.SimRapidCutoffIndex;
+            idxRapid = min(idx, cutoff);
 
-            % 1. Update Wire Ends
+            % 1. Wire & Dots
             pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
             pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
 
+            % Model Points
+            pML = app.SimPathL(idx, :) - [offX, 0, 0];
+            pMR = app.SimPathR(idx, :) - [offX, 0, 0];
+
+            % Update Wire
             hWire = findobj(app.AxSim, 'Tag', 'SimWire');
             if ~isempty(hWire)
                 hWire.XData = [pTL(1), pTR(1)]; hWire.YData = [pTL(2), pTR(2)]; hWire.ZData = [pTL(3), pTR(3)];
             end
 
-            % 2. Update Dots
+            % Update Tower Dots
             hDotL = findobj(app.AxSim, 'Tag', 'SimDotL');
             if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
             hDotR = findobj(app.AxSim, 'Tag', 'SimDotR');
             if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
 
-            % 3. Update Tower Trails
-            hTowerL = findobj(app.AxSim, 'Tag', 'SimTowerL');
-            if ~isempty(hTowerL)
-                histL = app.SimTowerPathL(1:idx, :) - [offX, 0, 0];
-                hTowerL.XData = histL(:,1); hTowerL.YData = histL(:,2); hTowerL.ZData = histL(:,3);
+            % Update Model Dots
+            hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL');
+            if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
+            hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR');
+            if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
+
+            % 2. RAPID TRAILS (Yellow) - Tower & Model
+            % Towers
+            hTRapL = findobj(app.AxSim, 'Tag', 'SimTowerRapidL');
+            if ~isempty(hTRapL)
+                dat = app.SimTowerPathL(1:idxRapid, :) - [offX, 0, 0];
+                hTRapL.XData = dat(:,1); hTRapL.YData = dat(:,2); hTRapL.ZData = dat(:,3);
             end
-            hTowerR = findobj(app.AxSim, 'Tag', 'SimTowerR');
-            if ~isempty(hTowerR)
-                histR = app.SimTowerPathR(1:idx, :) - [offX, 0, 0];
-                hTowerR.XData = histR(:,1); hTowerR.YData = histR(:,2); hTowerR.ZData = histR(:,3);
+            hTRapR = findobj(app.AxSim, 'Tag', 'SimTowerRapidR');
+            if ~isempty(hTRapR)
+                dat = app.SimTowerPathR(1:idxRapid, :) - [offX, 0, 0];
+                hTRapR.XData = dat(:,1); hTRapR.YData = dat(:,2); hTRapR.ZData = dat(:,3);
             end
 
-            % 4. Update Model Trails (Fixed Artifacts)
-            % Using plot3 (Solid Line), so we just pass valid X/Y/Z data
-            hTrailL = findobj(app.AxSim, 'Tag', 'SimTrailL');
-            if ~isempty(hTrailL)
-                dat = app.SimPathL(1:idx, :) - [offX, 0, 0];
-                hTrailL.XData = dat(:,1); hTrailL.YData = dat(:,2); hTrailL.ZData = dat(:,3);
+            % Model
+            hMRapL = findobj(app.AxSim, 'Tag', 'SimModelRapidL');
+            if ~isempty(hMRapL)
+                dat = app.SimPathL(1:idxRapid, :) - [offX, 0, 0];
+                hMRapL.XData = dat(:,1); hMRapL.YData = dat(:,2); hMRapL.ZData = dat(:,3);
             end
-            hTrailR = findobj(app.AxSim, 'Tag', 'SimTrailR');
-            if ~isempty(hTrailR)
-                dat = app.SimPathR(1:idx, :) - [offX, 0, 0];
-                hTrailR.XData = dat(:,1); hTrailR.YData = dat(:,2); hTrailR.ZData = dat(:,3);
+            hMRapR = findobj(app.AxSim, 'Tag', 'SimModelRapidR');
+            if ~isempty(hMRapR)
+                dat = app.SimPathR(1:idxRapid, :) - [offX, 0, 0];
+                hMRapR.XData = dat(:,1); hMRapR.YData = dat(:,2); hMRapR.ZData = dat(:,3);
             end
 
-            % 5. Readouts (Live Machine Coords)
-            % Note: Use pTL/pTR but add offX back to get Machine Absolute
+            % 3. FEED TRAILS (Red/Green) - Tower & Model
+            if idx > cutoff
+                startF = cutoff;
+
+                % Towers
+                hTFeedL = findobj(app.AxSim, 'Tag', 'SimTowerFeedL');
+                if ~isempty(hTFeedL)
+                    dat = app.SimTowerPathL(startF:idx, :) - [offX, 0, 0];
+                    hTFeedL.XData = dat(:,1); hTFeedL.YData = dat(:,2); hTFeedL.ZData = dat(:,3);
+                end
+                hTFeedR = findobj(app.AxSim, 'Tag', 'SimTowerFeedR');
+                if ~isempty(hTFeedR)
+                    dat = app.SimTowerPathR(startF:idx, :) - [offX, 0, 0];
+                    hTFeedR.XData = dat(:,1); hTFeedR.YData = dat(:,2); hTFeedR.ZData = dat(:,3);
+                end
+
+                % Model
+                hMFeedL = findobj(app.AxSim, 'Tag', 'SimModelFeedL');
+                if ~isempty(hMFeedL)
+                    dat = app.SimPathL(startF:idx, :) - [offX, 0, 0];
+                    hMFeedL.XData = dat(:,1); hMFeedL.YData = dat(:,2); hMFeedL.ZData = dat(:,3);
+                end
+                hMFeedR = findobj(app.AxSim, 'Tag', 'SimModelFeedR');
+                if ~isempty(hMFeedR)
+                    dat = app.SimPathR(startF:idx, :) - [offX, 0, 0];
+                    hMFeedR.XData = dat(:,1); hMFeedR.YData = dat(:,2); hMFeedR.ZData = dat(:,3);
+                end
+
+            else
+                % Clear Feed if rewinding
+                tags = {'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'};
+                for i=1:numel(tags)
+                    h = findobj(app.AxSim, 'Tag', tags{i});
+                    if ~isempty(h), h.XData=[]; end
+                end
+            end
+
+            % 4. Readouts
             if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
             if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
             if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
