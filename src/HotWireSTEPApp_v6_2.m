@@ -3357,28 +3357,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             hWire=gobjects(0); hRapids=gobjects(0); hTrails=gobjects(0);
             if ~isempty(app.SimPathL)
                 % Model Trails
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
-                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 0.5, 'Tag', 'SimTrailL');
+                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 0.5, 'Tag', 'SimTrailR');
 
                 % Tower Trails
-                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidR');
+                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidR');
 
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedR');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedR');
 
                 % Model Path Trails (Split)
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidR');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimModelFeedL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimModelFeedR');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidR');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 0.5, 'Tag', 'SimModelFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 0.5, 'Tag', 'SimModelFeedR');
 
                 % Wire
-                hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
+                hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.2, 'Tag', 'SimWire');
 
                 % Dots
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
 
                 % Model Dots
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
