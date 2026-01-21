@@ -3364,8 +3364,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
 
                 % Dots (Large: 10)
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 10, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 10, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
 
                 % Model Dots
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
@@ -3402,30 +3402,27 @@ classdef HotWireSTEPApp_v6_2 < handle
             pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
             pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
 
-            % Model Points
-            pML = app.SimPathL(idx, :) - [offX, 0, 0];
-            pMR = app.SimPathR(idx, :) - [offX, 0, 0];
-
-            % Update Wire
             hWire = findobj(app.AxSim, 'Tag', 'SimWire');
             if ~isempty(hWire)
                 hWire.XData = [pTL(1), pTR(1)]; hWire.YData = [pTL(2), pTR(2)]; hWire.ZData = [pTL(3), pTR(3)];
             end
 
-            % Update Tower Dots
             hDotL = findobj(app.AxSim, 'Tag', 'SimDotL');
             if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
             hDotR = findobj(app.AxSim, 'Tag', 'SimDotR');
             if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
 
-            % Update Model Dots
+            % Model Dots
+            pML = app.SimPathL(idx, :) - [offX, 0, 0];
+            pMR = app.SimPathR(idx, :) - [offX, 0, 0];
+
             hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL');
             if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
             hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR');
             if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
 
-            % 2. RAPID TRAILS (Yellow) - Tower & Model
-            % Towers
+            % 2. RAPID TRAILS (Yellow)
+            % Tower Rapid
             hTRapL = findobj(app.AxSim, 'Tag', 'SimTowerRapidL');
             if ~isempty(hTRapL)
                 dat = app.SimTowerPathL(1:idxRapid, :) - [offX, 0, 0];
@@ -3437,7 +3434,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hTRapR.XData = dat(:,1); hTRapR.YData = dat(:,2); hTRapR.ZData = dat(:,3);
             end
 
-            % Model
+            % Model Rapid
             hMRapL = findobj(app.AxSim, 'Tag', 'SimModelRapidL');
             if ~isempty(hMRapL)
                 dat = app.SimPathL(1:idxRapid, :) - [offX, 0, 0];
@@ -3449,11 +3446,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hMRapR.XData = dat(:,1); hMRapR.YData = dat(:,2); hMRapR.ZData = dat(:,3);
             end
 
-            % 3. FEED TRAILS (Red/Green) - Tower & Model
+            % 3. FEED TRAILS (Red/Green) - Only if idx > cutoff
             if idx > cutoff
                 startF = cutoff;
 
-                % Towers
+                % Tower Feed
                 hTFeedL = findobj(app.AxSim, 'Tag', 'SimTowerFeedL');
                 if ~isempty(hTFeedL)
                     dat = app.SimTowerPathL(startF:idx, :) - [offX, 0, 0];
@@ -3465,7 +3462,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     hTFeedR.XData = dat(:,1); hTFeedR.YData = dat(:,2); hTFeedR.ZData = dat(:,3);
                 end
 
-                % Model
+                % Model Feed (This is where the bug was - tag mismatch)
                 hMFeedL = findobj(app.AxSim, 'Tag', 'SimModelFeedL');
                 if ~isempty(hMFeedL)
                     dat = app.SimPathL(startF:idx, :) - [offX, 0, 0];
@@ -3478,11 +3475,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
             else
-                % Clear Feed if rewinding
+                % RESET: If we are in Rapid phase (or Reset), clear all Feed lines
+                % (Using the correct tags now)
                 tags = {'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'};
                 for i=1:numel(tags)
                     h = findobj(app.AxSim, 'Tag', tags{i});
-                    if ~isempty(h), h.XData=[]; end
+                    if ~isempty(h)
+                        h.XData=[]; h.YData=[]; h.ZData=[];
+                    end
                 end
             end
 
