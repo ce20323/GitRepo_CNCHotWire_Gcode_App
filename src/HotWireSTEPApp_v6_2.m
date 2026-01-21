@@ -3285,20 +3285,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             cla(ax); hold(ax, 'on');
             t = app.getTheme();
 
-            % Constants
-            offX      = app.MachineBedPos(1);
-            mSpan     = app.MachineSpanX;
-            mLimY     = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs        = app.MachineBedSize;
+            offX  = app.MachineBedPos(1);
+            mSpan = app.MachineSpanX;
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize; bp = app.MachineBedPos;
 
             % --- CRITICAL FIX: Separate Bed and Billet Variables ---
             bedPos    = app.MachineBedPos;    % Physical Bed Location
             billetPos = app.MachineBilletPos; % Stock Location
 
             % 1. STATIC GEOMETRY
-            % Bed (Uses bedPos)
+            % Bed (Assign to hBed)
             [xb, yb, zb] = app.makeBoxVertices(0, bedPos(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
             % Limits
@@ -3306,10 +3305,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % Towers
-            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+            % Towers (Assign to hTowerL/R)
+            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
                 'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
-            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+            hTowerR = patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
                 'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
 
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
@@ -3318,6 +3317,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 2. BILLET & GHOSTS
             % Billet Plot Position: billetPos - offX
             bPlotX = billetPos(1) - offX;
+
             [xm, ym, zm] = app.makeBoxVertices(bPlotX, billetPos(2), billetPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
                 'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
@@ -3325,7 +3325,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Ghost Profiles
             offsetY = billetPos(2) + app.BilletShift(2);
             offsetZ = billetPos(3) + app.BilletShift(3);
-            % X-Shift: (BilletPos + InternalShift) - BedOffset
             shiftX = (billetPos(1) + app.BilletShift(1)) - offX;
 
             hGhostL = gobjects(0);
@@ -3345,9 +3344,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.SimPathL)
                 % Model Trails (Solid lines)
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
+                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
 
-                % Tower Trails (Split Rapid/Feed)
+                % Tower Trails
                 % Rapid (Yellow)
                 hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidR');
@@ -3358,17 +3357,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % Model Path Trails (Split Rapid/Feed)
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidR');
-                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed, 'LineWidth', 1.5, 'Tag', 'SimModelFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimModelFeedL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimModelFeedR');
 
                 % Wire (Thin: 0.5)
                 hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
 
                 % Dots (Large: 10)
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 10, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 10, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
 
-                % Model Dots (Dots on the block)
+                % Model Dots
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotR');
 
