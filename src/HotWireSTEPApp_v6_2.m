@@ -2634,7 +2634,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
 
             % 1. View Persistence
-            preserveView = true; % Always preserve view if initialized
+            preserveView = true;
             curXL = xlim(app.AxCutLeft);
             isInitialized = ~isequal(curXL, [0 1]);
 
@@ -2676,45 +2676,45 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hD = plot(ax, NaN, NaN, style, 'Color', color, 'MarkerFaceColor', mFace, 'LineWidth', lWidth);
             end
 
-            hRapidL=gobjects(0); hLeadL=gobjects(0); hStartL=gobjects(0); hPathDummyL=gobjects(0); hEntryDotL=gobjects(0);
+            hRapidL=gobjects(0); hLeadL=gobjects(0); hStartL=gobjects(0); hPathDummyL=gobjects(0); hEntryDotL=gobjects(0); hLoadL=gobjects(0);
 
             if ~isempty(yL)
                 c=(1:numel(yL))';
                 patch(app.AxCutLeft, 'XData',[yL;NaN], 'YData',[zL;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',1.0, 'HitTest','off');
                 hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
 
-                % Updated Call: Pass Start AND End Points
-                [hRapidL, hLeadL, hEntryDotL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
+                [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
 
                 app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)], [yL(2), zL(2)], 'start');
                 hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
             end
 
-            hRapidR=gobjects(0); hLeadR=gobjects(0); hStartR=gobjects(0); hPathDummyR=gobjects(0); hEntryDotR=gobjects(0);
+            hRapidR=gobjects(0); hLeadR=gobjects(0); hStartR=gobjects(0); hPathDummyR=gobjects(0); hEntryDotR=gobjects(0); hLoadR=gobjects(0);
             if ~isempty(yR)
                 c=(1:numel(yR))';
                 patch(app.AxCutRight, 'XData',[yR;NaN], 'YData',[zR;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',1.0, 'HitTest','off');
                 hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-', [0 0.5 1], 'none', 1.0);
 
-                [hRapidR, hLeadR, hEntryDotR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+                [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
 
                 app.drawRotatedMarker(app.AxCutRight, [yR(1), zR(1)], [yR(2), zR(2)], 'start');
                 hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [0 1 0], 'none');
             end
 
             % 6. Legends
-            labels = {'Start Point', 'Cut Path', 'Rapid Links (Yellow)', 'Leads (Orange)', 'Entry Point', 'Machine Limits', 'Raw Profile'};
+            labels = {'Start Point', 'Load Point', 'Cut Path', 'Rapid Links (Yellow)', 'Leads (Orange)', 'Entry Point', 'Machine Limits', 'Raw Profile'};
 
+            % Dummies
             if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', [1 0.5 0], [1 0.5 0], 1.0); end
             if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [1 0.5 0], [1 0.5 0], 1.0); end
 
-            handlesL = [hStartL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL];
+            handlesL = [hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL];
             if any(isgraphics(handlesL))
                 lgd = legend(app.AxCutLeft, handlesL(isgraphics(handlesL)), labels(isgraphics(handlesL)), 'Location','northeast');
                 lgd.Box='off'; lgd.TextColor=t.labelCol;
             end
 
-            handlesR = [hStartR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR];
+            handlesR = [hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR];
             if any(isgraphics(handlesR))
                 lgd = legend(app.AxCutRight, handlesR(isgraphics(handlesR)), labels(isgraphics(handlesR)), 'Location','northeast');
                 lgd.Box='off'; lgd.TextColor=t.labelCol;
@@ -3073,58 +3073,64 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateCuttingPlots();
         end
 
-        function [hRapid, hLead, hDot] = drawTravelPath(app, ax, startPt, endPt, entry1, entry2)
-            % Draws Rapid/Lead-in/Lead-out paths.
-            % Sequence:
-            %   Start: Zero -> Safe(10mm) -> Front -> Retract -> E1 -> E2 -> Start
-            %   End:   EndPt -> E2 -> E1 -> Retract -> HomeY -> Zero
+        function [hRapid, hLead, hDot, hLoad] = drawTravelPath(app, ax, startPt, endPt, entry1, entry2)
+            % Draws Travel Path.
+            % Approach: Zero -> Safe(10,10) -> Load Point -> Retract(10) -> E1 -> E2 -> Start
+            % Return: End -> E2 -> E1 -> Home Y -> Home Z
 
-            hRapid = gobjects(0); hLead = gobjects(0); hDot = gobjects(0);
+            hRapid = gobjects(0); hLead = gobjects(0); hDot = gobjects(0); hLoad = gobjects(0);
             if isempty(startPt), return; end
 
-            % --- Constants ---
+            % --- Key Coordinates ---
             pZero    = [0, 0];
-            pSafe    = [10, 10]; % 10mm XYZA (Y,Z local)
+            pSafe    = [10, 10]; % Initial safety move
 
-            % Front Face @ Mid Height
+            % Load Point (Mid-Height on Front Face)
             bFrontY  = app.MachineBilletPos(2);
             bMidZ    = app.MachineBilletPos(3) + app.BilletSize(3)/2;
-            pFront   = [bFrontY, bMidZ];
+            pLoad    = [bFrontY, bMidZ];
 
-            % Retract 10mm (-Y)
+            % Retract 10mm (-Y) from Load Point
             pRetract = [bFrontY - 10, bMidZ];
 
-            % --- 1. APPROACH PATH (Yellow + Orange) ---
-            % Sequence: Zero -> Safe -> Front -> Retract -> Entries -> Start
-            ptsIn = [pZero; pSafe; pFront; pRetract];
+            % --- 1. PLOT LOAD POINT (Magenta x) ---
+            hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [1 0 1], 'LineWidth', 1.5, 'HitTest','off');
+
+            % --- 2. APPROACH PATH ---
+            % Sequence: Zero -> Safe -> Load -> Retract -> Entry1 -> Entry2 -> Start
+            ptsIn = [pZero; pSafe; pLoad; pRetract];
             if ~isempty(entry1), ptsIn = [ptsIn; entry1]; end
             if ~isempty(entry2), ptsIn = [ptsIn; entry2]; end
 
-            % Rapid (Yellow): Everything up to the last point in the chain
-            if size(ptsIn,1) > 1
-                plot(ax, ptsIn(:,1), ptsIn(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
+            % Split: Rapid (Yellow) vs Feed (Orange)
+            % Feed is ONLY the last segment: (Last Point -> Start)
+
+            % Plot Rapid Chain (Yellow)
+            if size(ptsIn, 1) > 1
+                hRapid = plot(ax, ptsIn(:,1), ptsIn(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
             end
 
-            % Feed (Orange): Last Entry -> Start
-            lastEntry = ptsIn(end,:);
-            hLead = plot(ax, [lastEntry(1), startPt(1)], [lastEntry(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'HitTest','off');
+            % Plot Feed Segment (Orange)
+            lastPt = ptsIn(end,:);
+            hLead = plot(ax, [lastPt(1), startPt(1)], [lastPt(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'HitTest','off');
 
-            % --- 2. RETURN PATH (Yellow) ---
-            % Sequence: End -> Entries(Rev) -> Retract -> HomeY -> Zero
+            % --- 3. RETURN PATH ---
+            % Sequence: End -> Entry2 -> Entry1 -> Home Y (Y=0) -> Home Z (Z=0)
             ptsOut = endPt;
             if ~isempty(entry2), ptsOut = [ptsOut; entry2]; end
             if ~isempty(entry1), ptsOut = [ptsOut; entry1]; end
 
-            ptsOut = [ptsOut; pRetract];
+            % Home Y (Keep last Z)
+            lastZ = ptsOut(end, 2);
+            ptsOut = [ptsOut; 0, lastZ];
 
-            % Home Y First (Keep Z constant)
-            pHomeY = [0, pRetract(2)];
-            ptsOut = [ptsOut; pHomeY; pZero];
+            % Home Z (0,0)
+            ptsOut = [ptsOut; 0, 0];
 
-            % Plot Return (Yellow Rapid)
-            hRapid = plot(ax, ptsOut(:,1), ptsOut(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
+            % Plot Return (Yellow)
+            plot(ax, ptsOut(:,1), ptsOut(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
 
-            % --- 3. Dots ---
+            % --- 4. DOTS ---
             dotPts = [];
             if ~isempty(entry1), dotPts = [dotPts; entry1]; end
             if ~isempty(entry2), dotPts = [dotPts; entry2]; end
@@ -3197,52 +3203,65 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 2. Sync
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
-            % --- HELPER: Build Full Sequence (Approach + Profile + Return) ---
+            % --- HELPER: Build Full Sequence ---
             function pts = buildFullSequence(profileY, profileZ, entry1, entry2)
                 % Points
                 pZero    = [0, 0];
-                pSafe    = [10, 10]; % Safe Move
-                pFront   = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-                pRetract = [pFront(1)-10, pFront(2)];
+                pSafe    = [10, 10];
+                pLoad    = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+                pRetract = [pLoad(1)-10, pLoad(2)];
 
-                % 1. Approach: Zero -> Safe -> Front -> Retract -> Entries -> Start
-                seqIn = [pZero; pSafe; pFront; pRetract];
+                % 1. Approach: Zero -> Safe -> Load -> Retract -> Entries -> Start
+                seqIn = [pZero; pSafe; pLoad; pRetract];
                 if ~isempty(entry1), seqIn = [seqIn; entry1]; end
                 if ~isempty(entry2), seqIn = [seqIn; entry2]; end
+
+                % Append Profile Start (to connect Feed)
                 seqIn = [seqIn; profileY(1), profileZ(1)];
 
                 % 2. Profile
                 seqProf = [profileY, profileZ];
 
-                % 3. Return: End -> Entries(Rev) -> Retract -> HomeY -> Zero
+                % 3. Return: End -> Entries(Rev) -> HomeY -> Zero
+                % Note: We skip pRetract on exit as requested
                 seqOut = [];
                 if ~isempty(entry2), seqOut = [seqOut; entry2]; end
                 if ~isempty(entry1), seqOut = [seqOut; entry1]; end
 
-                seqOut = [seqOut; pRetract];
+                % Home Y (Keep last Z, move Y to 0)
+                if ~isempty(seqOut)
+                    lastZ = seqOut(end, 2);
+                else
+                    lastZ = seqProf(end, 2);
+                end
 
-                pHomeY = [0, pRetract(2)]; % Home Y first
+                pHomeY = [0, lastZ];
                 seqOut = [seqOut; pHomeY; pZero];
 
                 % Combine
                 pts = [seqIn; seqProf; seqOut];
             end
 
-            % Raw Path Data
+            % Generate Raw Paths
             rawL = buildFullSequence(yL, zL, app.EntryPointL, app.EntryPoint2L);
             rawR = buildFullSequence(yR, zR, app.EntryPointR, app.EntryPoint2R);
 
-            % 4. Interpolate for Animation Smoothness
+            % 4. Interpolate (FIXED)
             function [upY, upZ] = interpolatePath(pts, numStepsTotal)
-                % Variable speed interpolation? No, constant speed for sim is fine for now.
-                % Use distance-based interpolation
                 if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
-                d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
-                if d(end) == 0, upY=pts(:,1); upZ=pts(:,2); return; end
 
-                % Total steps based on length? Or fixed?
-                % Let's use fixed steps proportional to length to keep speed somewhat consistent.
-                stepSize = 2.0; % mm per frame approx
+                % CRITICAL FIX: Remove duplicates to satisfy interp1
+                dists = sqrt(sum(diff(pts,1,1).^2, 2));
+                keepIdx = [true; dists > 1e-6];
+                pts = pts(keepIdx, :);
+
+                if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
+
+                % Recalculate distance
+                d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
+
+                % Constant speed step (approx 2mm)
+                stepSize = 2.0;
                 numSteps = max(100, round(d(end) / stepSize));
 
                 query = linspace(0, d(end), numSteps)';
@@ -3253,13 +3272,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             [fullY_L, fullZ_L] = interpolatePath(rawL, 0);
             [fullY_R, fullZ_R] = interpolatePath(rawR, 0);
 
-            % Calculate Rapid Cutoff (Where profile starts)
-            % This is tricky with interpolation.
-            % Let's just track the index based on the "Approach" segment length vs total.
-            % For now, we will just use the geometry to guess the "Feed" section in the plotter.
-            % (Or keep it simple: Simulation just shows the wire moving, colors handled by static trails).
-
-            % 5. X-Coordinates
+            % 5. X-Coordinates & Storage
             if ~isempty(app.LeftProfilePoints), baseXL = app.LeftProfilePoints(1,1); else, baseXL = app.MachineBilletPos(1); end
             if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
 
@@ -3282,14 +3295,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
             app.SimSlider.Value = 1;
 
-            % NOTE: We need to define SimRapidCutoffIndex for the coloring logic to work
-            % Roughly: Length of approach / Total Length * Total Indices
-            % Exact approach is hard with interpolation.
-            % FIX: Let's accept that the "Simulated Wire" changes color?
-            % Or just let the wire be Orange, and the trails show the coloring (which they do).
-            % I will disable the dynamic wire-color-changing based on cutoff for now to keep it simple,
-            % as the static trails already show Rapid/Feed perfectly.
-            app.SimRapidCutoffIndex = 0;
+            % Set rapid cutoff roughly based on geometry
+            % (Simple approx: 15% in is rapid? For visuals we rely on split handles anyway)
+            app.SimRapidCutoffIndex = round(size(app.SimPathL, 1) * 0.15);
 
             app.initSimulationPlot();
         end
