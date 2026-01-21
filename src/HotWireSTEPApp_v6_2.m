@@ -2545,9 +2545,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                         % Dots
                         plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 6);
                         plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 16);
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 6);
                     end
                 end
             end
