@@ -1449,41 +1449,24 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % TAB CHANGE HANDLER
         % ===========================================================
-        % function onTabChanged(app, ~, evt)
-        %     % Enable custom mouse rotation only on the Model tab.
-        %     % When on other tabs (e.g. Profiles), disable the UIFigure
-        %     % mouse callbacks so built-in uiaxes interactions work.
-        %
-        %     newTab = evt.NewValue;
-        %
-        %     if newTab == app.TabModel
-        %         % Model tab active: enable our custom mouse handlers
-        %         app.UIFigure.WindowButtonDownFcn   = @(src,ev)app.onMouseDown(src,ev);
-        %         app.UIFigure.WindowButtonMotionFcn = @(src,ev)app.onMouseMove(src,ev);
-        %         app.UIFigure.WindowButtonUpFcn     = @(src,ev)app.onMouseUp(src,ev);
-        %     else
-        %         % Any other tab: disable our handlers so the axes
-        %         % use MATLAB's built-in interactions.
-        %         app.UIFigure.WindowButtonDownFcn   = [];
-        %         app.UIFigure.WindowButtonMotionFcn = [];
-        %         app.UIFigure.WindowButtonUpFcn     = [];
-        %     end
-        % end
-
         function onTabChanged(app, ~, evt)
-            % Standard tab house-keeping
+            % 1. Always reset interaction state when changing tabs
+            app.resetInteractionState();
+
+            % 2. Tab Specific Logic
             if evt.NewValue == app.TabBillet
                 app.syncBilletUI();
                 app.refreshBilletPlots();
             elseif evt.NewValue == app.TabMachine
                 app.onResetMachineBilletPosition();
             elseif evt.NewValue == app.TabCutting
-                % NEW: Auto-Execute Start/Entry Logic
                 app.onAutoStart();
                 app.onAutoEntry();
-
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
+            elseif evt.NewValue == app.TabSimulation
+                app.applyTheme();
+                app.generateSimulationData();
             end
         end
 
@@ -2092,8 +2075,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();;
-
+            
             elseif currTab == app.TabCutting
+                % Leave Cutting -> Enter Simulation
+                app.resetInteractionState(); % <--- ADD THIS
+
                 app.TabGroup.SelectedTab = app.TabSimulation;
                 app.applyTheme();
                 app.generateSimulationData();
@@ -2823,6 +2809,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+        function resetInteractionState(app)
+            % Turns off all interaction buttons and resets cursor
+            c = app.getInteractionColors();
+
+            % Reset States
+            app.BtnPickStart.Value = false;
+            app.BtnPickEntry.Value = false;
+            app.BtnPickEntry2.Value = false;
+
+            % Reset Colors
+            app.BtnPickStart.BackgroundColor = c.StartInactive;
+            app.BtnPickEntry.BackgroundColor = c.EntryInactive;
+            app.BtnPickEntry2.BackgroundColor = c.Entry2Inactive;
+
+            % Reset Font Colors
+            app.BtnPickStart.FontColor = c.TextInactive;
+            app.BtnPickEntry.FontColor = c.TextInactive;
+            app.BtnPickEntry2.FontColor = c.TextInactive;
+
+            % Remove Plot Listeners
+            app.AxCutLeft.ButtonDownFcn = [];
+            app.AxCutRight.ButtonDownFcn = [];
+            app.UIFigure.Pointer = 'arrow';
+        end
+
         function onGenerateGCode(app)
             uialert(app.UIFigure, 'G-Code Generation not yet implemented.', 'Info');
         end
@@ -2988,13 +2999,14 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoEntry(app)
-            % Calculates "Neutral Angle" lead-in points for Left and Right profiles.
-            % Logic: Bisects the angle at the start point and projects outwards.
-            % Constraint: Must be at least 10mm in front of Billet Min-Y.
+            % Calculates Auto Entry points.
+            % Mode Logic:
+            %   - If Entry2 is empty (Default): Calculates 1 Entry Point (45mm out on bisector).
+            %   - If Entry2 exists: Calculates 2 Points (E2 on bisector, E1 aligned to Front-10mm).
 
-            % --- Nested Helper: The Math ---
-            function ptEntry = calcNeutralEntry(pts, startIdx, billetMinY, doKerf, kVal)
-                ptEntry = [];
+            % --- Nested Helper ---
+            function [e1, e2] = calcEntryLogic(pts, startIdx, billetMinY, doKerf, kVal, useDual)
+                e1 = []; e2 = [];
                 if isempty(pts), return; end
 
                 % 1. Get Geometry [y z]
@@ -3004,75 +3016,80 @@ classdef HotWireSTEPApp_v6_2 < handle
                 N = numel(y);
                 if startIdx > N, startIdx = 1; end
 
-                % 2. Identify Points (Prev, Start, Next)
+                % 2. Identify Points
                 idxS = startIdx;
                 idxN = mod(startIdx, N) + 1;
                 idxP = mod(startIdx - 2, N) + 1;
 
-                P = [y(idxP), z(idxP)];
                 S = [y(idxS), z(idxS)];
+                P = [y(idxP), z(idxP)];
                 N_pt = [y(idxN), z(idxN)];
 
-                % 3. Calculate Vectors (Outward from S)
+                % 3. Calculate Bisector
                 vSP = P - S; vSP = vSP / (norm(vSP)+eps);
                 vSN = N_pt - S; vSN = vSN / (norm(vSN)+eps);
-
-                % 4. Calculate Bisector (Pointing Outwards)
-                % Vector pointing 'in' to corner is (vSP + vSN). Negate for 'out'.
                 vBisect = -(vSP + vSN);
-                if norm(vBisect) < 1e-6, vBisect = [-1, 0]; end % Fallback Left
+
+                if norm(vBisect) < 1e-6
+                    vTan = N_pt - P; vBisect = [vTan(2), -vTan(1)];
+                end
                 vBisect = vBisect / norm(vBisect);
 
-                % 5. Project Entry Point
-                limitY = billetMinY - 10; % 10mm clearance line
+                % 4. Outward Check
+                testPt = S + vBisect * 0.5;
+                if inpolygon(testPt(1), testPt(2), y, z), vBisect = -vBisect; end
 
-                % Default projection: 20mm out
-                defaultDist = 20;
-                candidate = S + vBisect * defaultDist;
+                % 5. Project Target Point (45mm)
+                distT = 45;
+                targetPt = S + vBisect * distT;
 
-                % 6. Apply Y-Constraint (Must be <= limitY)
-                if candidate(1) > limitY
-                    % We need S + v*d = limitY  =>  d = (limitY - Sy) / vy
-                    if abs(vBisect(1)) > 1e-3
-                        d = (limitY - S(1)) / vBisect(1);
-                        if d < 0, d = 20; end
-                        candidate = S + vBisect * d;
-                    else
-                        candidate(1) = limitY; % Pure vertical clamp
-                    end
+                % 6. Z-Safety
+                if targetPt(2) < 5.0, targetPt(2) = 5.0; end
+
+                % 7. Assign based on Mode
+                if useDual
+                    % TWO POINTS: E2 is target, E1 is retraction alignment
+                    e2 = targetPt;
+                    retractY = billetMinY - 10;
+                    e1 = [retractY, e2(2)];
+                else
+                    % ONE POINT: E1 is target, E2 is empty
+                    e1 = targetPt;
+                    e2 = [];
                 end
-                ptEntry = candidate;
             end
             % ---------------------
 
-            % 1. Setup Context
             doKerf = app.KerfEnabled && app.KerfValue > 0;
             bMinY  = app.MachineBilletPos(2);
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-            % 2. Calculate LEFT
+            % Check if we are in "2 Point Mode" (User has set E2 previously)
+            % We base this on the Left profile state
+            useDualMode = ~isempty(app.EntryPoint2L);
+
+            % --- LEFT ---
             if ~isempty(app.LeftProfilePoints)
-                % Extract [y z] directly in Machine Coords
                 ptsL = [app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ];
-                app.EntryPointL = calcNeutralEntry(ptsL, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue);
+                [e1L, e2L] = calcEntryLogic(ptsL, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue, useDualMode);
+                app.EntryPointL  = e1L;
+                app.EntryPoint2L = e2L;
             end
 
-            % 3. Calculate RIGHT (Coupled or Independent)
-            isEntryCoupled = strcmp(app.SwitchSyncEntry.Value, 'Coupled');
-
-            if isEntryCoupled
-                % COUPLED: Just copy Left to Right
-                app.EntryPointR = app.EntryPointL;
-            else
-                % INDEPENDENT: Calculate based on Right Profile geometry
-                if ~isempty(app.RightProfilePoints)
-                    ptsR = [app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ];
-                    app.EntryPointR = calcNeutralEntry(ptsR, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue);
-                end
+            % --- RIGHT ---
+            if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                app.EntryPointR  = app.EntryPointL;
+                app.EntryPoint2R = app.EntryPoint2L;
+            elseif ~isempty(app.RightProfilePoints)
+                % Check Right specific mode? Or stick to Left's mode decision?
+                % Usually consistent to use Left's mode decision for symmetry.
+                ptsR = [app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ];
+                [e1R, e2R] = calcEntryLogic(ptsR, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue, useDualMode);
+                app.EntryPointR  = e1R;
+                app.EntryPoint2R = e2R;
             end
 
-            % 4. Refresh
             app.updateCuttingPlots();
         end
 
