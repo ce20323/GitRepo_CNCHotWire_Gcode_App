@@ -278,6 +278,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimTowerPathL % Nx3 %Physical Tower Paths (Projected)
         SimTowerPathR % Nx3
         SimRapidCutoffIndex % Index where rapid approach ends
+        SimProfileStartIndex % NEW: End of Orange Lead-in / Start of Profile
         SimFeedEndIndex     % NEW: Index where profile ends and return begins
         SimLeadOutEndIndex  % NEW: Index where orange lead-out ends
         SimTimer % timer object for animation
@@ -3095,18 +3096,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(entry1), ptsIn = [ptsIn; entry1]; end
             if ~isempty(entry2), ptsIn = [ptsIn; entry2]; end
 
-            % Rapid Chain (Yellow)
+            % Rapid Chain (Yellow Solid)
             if size(ptsIn, 1) > 1
                 hRapid = plot(ax, ptsIn(:,1), ptsIn(:,2), '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
             end
 
-            % Lead-In (Orange)
+            % Lead-In (Orange Solid)
             lastPt = ptsIn(end,:);
             hLead = plot(ax, [lastPt(1), startPt(1)], [lastPt(2), startPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'HitTest','off');
 
             % --- 3. RETURN (Orange Lead-out + Yellow Rapid) ---
-            % Sequence: End -> [LeadOut] -> FirstReturnPt -> [Rapid] -> NextEntry -> HomeY -> Zero
-
             % Determine first return point
             firstReturnPt = endPt;
             if ~isempty(entry2)
@@ -3115,24 +3114,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 firstReturnPt = entry1;
             end
 
-            % Plot Lead-Out (Orange Solid)
+            % Plot Lead-Out (Orange Dashed, Double Width)
             if ~isequal(endPt, firstReturnPt)
-                plot(ax, [endPt(1), firstReturnPt(1)], [endPt(2), firstReturnPt(2)], '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'HitTest','off');
+                plot(ax, [endPt(1), firstReturnPt(1)], [endPt(2), firstReturnPt(2)], '--', 'Color', [1 0.5 0], 'LineWidth', 1.0, 'HitTest','off');
             end
 
             % Build Rapid Return Chain
             ptsOut = firstReturnPt;
-            % If we hit Entry 2, we must also hit Entry 1 on the way out
-            if ~isempty(entry2) && ~isempty(entry1)
-                ptsOut = [ptsOut; entry1];
-            end
+            if ~isempty(entry2) && ~isempty(entry1), ptsOut = [ptsOut; entry1]; end
 
-            % Home Y First (Move Y to 0, keep last Z)
+            % Home Y First
             pHomeY = [0, ptsOut(end, 2)];
             ptsOut = [ptsOut; pHomeY; pZero];
 
             % Plot Rapid Return (Yellow Dashed)
-            plot(ax, ptsOut(:,1), ptsOut(:,2), '--', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'HitTest','off');
+            plot(ax, ptsOut(:,1), ptsOut(:,2), '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'HitTest','off');
 
             % --- 4. DOTS ---
             dotPts = [];
@@ -3193,7 +3189,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % SIMULATION TAB LOGIC
         % ===========================================================
         function generateSimulationData(app)
-            % Compiles the full toolpath (Rapid + Feed + LeadOut + Return)
+            % Compiles the full toolpath (Rapid + LeadIn + Feed + LeadOut + Return)
 
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
@@ -3208,16 +3204,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
             % --- HELPERS ---
-            % A. Approach (Zero -> Start)
-            function pts = buildApproach(startPt, entry1, entry2)
+
+            % A1. Build Rapid In (Zero -> ... -> Last Entry)
+            function pts = buildRapidIn(entry1, entry2)
                 pZero    = [0, 0];
                 pSafe    = [10, 10];
                 pLoad    = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
                 pRetract = [pLoad(1)-10, pLoad(2)];
+
                 pts = [pZero; pSafe; pLoad; pRetract];
                 if ~isempty(entry1), pts = [pts; entry1]; end
                 if ~isempty(entry2), pts = [pts; entry2]; end
-                pts = [pts; startPt];
+            end
+
+            % A2. Build Lead In (Last Entry -> Start)
+            function pts = buildLeadIn(startPt, entry1, entry2)
+                % Start where RapidIn ended
+                lastPt = [];
+                pLoad = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+                pRetract = [pLoad(1)-10, pLoad(2)];
+
+                if ~isempty(entry2), lastPt = entry2;
+                elseif ~isempty(entry1), lastPt = entry1;
+                else, lastPt = pRetract; end
+
+                pts = [lastPt; startPt];
             end
 
             % B. Lead Out (End -> First Return Point)
@@ -3238,7 +3249,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pts = firstRet;
                 if ~isempty(entry2) && ~isempty(entry1), pts=[pts; entry1]; end
 
-                % Home Y then Z
                 pHomeY = [0, pts(end,2)];
                 pts = [pts; pHomeY; pZero];
             end
@@ -3258,35 +3268,45 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- GENERATE SEGMENTS ---
-            % 1. Approach
-            rawInL = buildApproach([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
-            rawInR = buildApproach([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
-            [inY_L, inZ_L] = interpolatePath(rawInL); [inY_R, inZ_R] = interpolatePath(rawInR);
 
-            % 2. Profile
+            % 1. Rapid In (Yellow)
+            rawRapL = buildRapidIn(app.EntryPointL, app.EntryPoint2L);
+            rawRapR = buildRapidIn(app.EntryPointR, app.EntryPoint2R);
+            [rapY_L, rapZ_L] = interpolatePath(rawRapL); [rapY_R, rapZ_R] = interpolatePath(rawRapR);
+
+            % 2. Lead In (Orange)
+            rawLeadInL = buildLeadIn([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
+            rawLeadInR = buildLeadIn([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
+            [liY_L, liZ_L] = interpolatePath(rawLeadInL); [liY_R, liZ_R] = interpolatePath(rawLeadInR);
+
+            % 3. Profile
             profY_L = yL; profZ_L = zL; profY_R = yR; profZ_R = zR;
 
-            % 3. Lead Out (Orange)
-            rawLeadL = buildLeadOut([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
-            rawLeadR = buildLeadOut([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
-            [ldY_L, ldZ_L] = interpolatePath(rawLeadL); [ldY_R, ldZ_R] = interpolatePath(rawLeadR);
+            % 4. Lead Out (Orange Dashed)
+            rawLeadOutL = buildLeadOut([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
+            rawLeadOutR = buildLeadOut([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+            [loY_L, loZ_L] = interpolatePath(rawLeadOutL); [loY_R, loZ_R] = interpolatePath(rawLeadOutR);
 
-            % 4. Rapid Return (Yellow)
+            % 5. Rapid Return (Yellow Dashed)
             rawRetL = buildRapidReturn([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
             rawRetR = buildRapidReturn([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
-            % Prepend the end of LeadOut to ensure continuity for interpolation
-            rawRetL = [[ldY_L(end), ldZ_L(end)]; rawRetL];
-            rawRetR = [[ldY_R(end), ldZ_R(end)]; rawRetR];
+            % Stitch for continuity
+            rawRetL = [[loY_L(end), loZ_L(end)]; rawRetL];
+            rawRetR = [[loY_R(end), loZ_R(end)]; rawRetR];
             [retY_L, retZ_L] = interpolatePath(rawRetL); [retY_R, retZ_R] = interpolatePath(rawRetR);
 
             % --- INDICES ---
-            app.SimRapidCutoffIndex = numel(inY_L);
-            app.SimFeedEndIndex     = app.SimRapidCutoffIndex + numel(profY_L);
-            app.SimLeadOutEndIndex  = app.SimFeedEndIndex + numel(ldY_L);
+            app.SimRapidCutoffIndex  = numel(rapY_L);
+            app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(liY_L);
+            app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(profY_L);
+            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + numel(loY_L);
 
             % --- COMBINE ---
-            fullY_L = [inY_L; profY_L; ldY_L; retY_L]; fullZ_L = [inZ_L; profZ_L; ldZ_L; retZ_L];
-            fullY_R = [inY_R; profY_R; ldY_R; retY_R]; fullZ_R = [inZ_R; profZ_R; ldZ_R; retZ_R];
+            fullY_L = [rapY_L; liY_L; profY_L; loY_L; retY_L];
+            fullZ_L = [rapZ_L; liZ_L; profZ_L; loZ_L; retZ_L];
+
+            fullY_R = [rapY_R; liY_R; profY_R; loY_R; retY_R];
+            fullZ_R = [rapZ_R; liZ_R; profZ_R; loZ_R; retZ_R];
 
             % --- STORE ---
             if ~isempty(app.LeftProfilePoints), baseXL = app.LeftProfilePoints(1,1); else, baseXL = app.MachineBilletPos(1); end
@@ -3320,40 +3340,44 @@ classdef HotWireSTEPApp_v6_2 < handle
             cla(ax); hold(ax, 'on');
             t = app.getTheme();
 
-            % Constants
-            offX      = app.MachineBedPos(1);
-            mSpan     = app.MachineSpanX;
-            mLimY     = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize; bp = app.MachineBedPos;
+            offX  = app.MachineBedPos(1);
+            mSpan = app.MachineSpanX;
+            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize;
 
-            % --- CRITICAL: Coordinate Bases ---
-            bedPos    = app.MachineBedPos;    % Physical Bed Location
-            billetPos = app.MachineBilletPos; % Stock Location
+            % --- CRITICAL FIX: Correct Variable Assignments ---
+            bedPos = app.MachineBedPos;    % Physical Bed
+            bp     = app.MachineBilletPos; % Stock Position (Fixed)
 
             % 1. STATIC GEOMETRY
-            % Bed
+            % Bed (Uses bedPos)
             [xb, yb, zb] = app.makeBoxVertices(0, bedPos(2), -bs(3), bs(1), bs(2), bs(3));
-            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
+            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
+                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
             % Limits
             [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
-            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, 'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
+                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
             % Towers
-            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
-            hTowerR = patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], 'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
+            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
+            hTowerR = patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
+                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
 
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
             text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
 
             % 2. BILLET & MODEL
             % Plot X = BilletMachineX - BedOffsetX
-            bPlotX = billetPos(1) - offX;
-            bPlotPos = [bPlotX, billetPos(2), billetPos(3)];
+            bPlotX = bp(1) - offX;
+            bPlotPos = [bPlotX, bp(2), bp(3)];
 
-            [xm, ym, zm] = app.makeBoxVertices(bPlotX, billetPos(2), billetPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            % Billet
+            [xm, ym, zm] = app.makeBoxVertices(bPlotX, bp(2), bp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
+                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 0.5);
 
             % Model Mesh
             hModel = gobjects(0);
@@ -3365,57 +3389,69 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % 3. GHOST PROFILES
-            offsetY = billetPos(2) + app.BilletShift(2);
-            offsetZ = billetPos(3) + app.BilletShift(3);
-            shiftX = (billetPos(1) + app.BilletShift(1)) - offX;
+            offsetY = bp(2) + app.BilletShift(2);
+            offsetZ = bp(3) + app.BilletShift(3);
+            % Shift X: (BilletMachineX + InternalShiftX) - BedOffsetX
+            shiftX = (bp(1) + app.BilletShift(1)) - offX;
 
             hGhostL = gobjects(0);
             if ~isempty(app.LeftProfilePoints)
                 xPL = app.LeftProfilePoints(:,1) + shiftX;
                 hGhostL = plot3(ax, xPL, app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 0.5);
             end
             if ~isempty(app.RightProfilePoints)
                 xPR = app.RightProfilePoints(:,1) + shiftX;
                 plot3(ax, xPR, app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 1.0);
+                    '-', 'Color', t.rawMeshCol, 'LineWidth', 0.5);
             end
 
-            % 4. DYNAMIC ELEMENTS (Init Placeholders)
+            % 4. DYNAMIC ELEMENTS
             hWire=gobjects(0); hRapids=gobjects(0); hTrails=gobjects(0);
+
             if ~isempty(app.SimPathL)
-                % --- MODEL TRAILS (Traces on Block) ---
+                % --- TOWER TRAILS (Projected) ---
+                % Rapid (Yellow)
+                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidR');
+                % Lead In (Orange Solid) - NEW
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadInL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadInR');
+
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadInL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadInR');
+                % Feed (Red/Green) - FIX: Green color corrected
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedL');
+                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedR');
+                % Lead Out (Orange Dashed)
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadOutL');
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadOutR');
+                % Return (Yellow Dashed)
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnL');
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnR');
+
+                % --- MODEL TRAILS (On Block) ---
                 % Rapid (Yellow)
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidR');
                 % Feed (Red/Green)
                 hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 0.5, 'Tag', 'SimModelFeedL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 0.5, 'Tag', 'SimModelFeedR');
-                % Return (Dashed Yellow)
+                % Lead Out (Orange Dashed)
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadOutL');
+                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadOutR');
+                % Return (Yellow Dashed)
                 plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelReturnL');
                 plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelReturnR');
 
-                % --- TOWER TRAILS (Projected Traces) ---
-                % Rapid (Yellow)
-                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidR');
-                % Feed (Red/Green)
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedR');
-                % Lead Out (Orange Solid) - NEW
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimLeadOutL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimLeadOutR');
-                % Return (Dashed Yellow)
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnL');
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnR');
-
-                % --- WIRE & DOTS ---
+                % --- WIRE (Thin: 0.2) ---
                 hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.2, 'Tag', 'SimWire');
 
-                % Tower Dots
+                % --- DOTS (Small: 4) ---
+                % Tower
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
-                % Model Dots
+                % Model
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotR');
 
@@ -3444,11 +3480,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             offX = app.MachineBedPos(1);
 
-            cutStart = app.SimRapidCutoffIndex;
-            cutEnd   = app.SimFeedEndIndex;
-            leadEnd  = app.SimLeadOutEndIndex;
+            % Indices
+            idxRapidEnd = app.SimRapidCutoffIndex;
+            idxProfStart = app.SimProfileStartIndex;
+            idxProfEnd   = app.SimFeedEndIndex;
+            idxLeadOutEnd = app.SimLeadOutEndIndex;
 
-            % 1. Wire & Dots
+            % 1. Wire & Dots (Standard Update)
             pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
             pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
             hWire = findobj(app.AxSim, 'Tag', 'SimWire');
@@ -3457,51 +3495,67 @@ classdef HotWireSTEPApp_v6_2 < handle
             hDotL = findobj(app.AxSim, 'Tag', 'SimDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
             hDotR = findobj(app.AxSim, 'Tag', 'SimDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
 
-            pML = app.SimPathL(idx, :) - [offX, 0, 0];
-            pMR = app.SimPathR(idx, :) - [offX, 0, 0];
+            pML = app.SimPathL(idx, :) - [offX, 0, 0]; pMR = app.SimPathR(idx, :) - [offX, 0, 0];
             hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL'); if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
             hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR'); if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
 
-            % 2. PHASE 1: RAPID (Yellow) - Up to cutStart
-            idxRap = min(idx, cutStart);
-            % Update SimTowerRapidL/R and SimModelRapidL/R
-            updateTrail(app, 'SimTowerRapidL', app.SimTowerPathL, 1, idxRap, offX);
-            updateTrail(app, 'SimTowerRapidR', app.SimTowerPathR, 1, idxRap, offX);
-            updateTrail(app, 'SimModelRapidL', app.SimPathL, 1, idxRap, offX);
-            updateTrail(app, 'SimModelRapidR', app.SimPathR, 1, idxRap, offX);
-
-            % 3. PHASE 2: FEED (Red/Green) - From cutStart to cutEnd
-            if idx > cutStart
-                idxFeed = min(idx, cutEnd);
-                updateTrail(app, 'SimTowerFeedL', app.SimTowerPathL, cutStart, idxFeed, offX);
-                updateTrail(app, 'SimTowerFeedR', app.SimTowerPathR, cutStart, idxFeed, offX);
-                updateTrail(app, 'SimModelFeedL', app.SimPathL, cutStart, idxFeed, offX);
-                updateTrail(app, 'SimModelFeedR', app.SimPathR, cutStart, idxFeed, offX);
-            else
-                clearTrails(app, {'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
+            % HELPER
+            function updateT(tag, data, s, e)
+                h=findobj(app.AxSim,'Tag',tag);
+                if ~isempty(h), dt=data(s:e,:)-[offX,0,0]; h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3); end
+            end
+            function clearT(tags)
+                for i=1:numel(tags), h=findobj(app.AxSim,'Tag',tags{i}); if ~isempty(h), h.XData=[]; end; end
             end
 
-            % 4. PHASE 3: LEAD OUT (Orange) - From cutEnd to leadEnd
-            if idx > cutEnd
-                idxLead = min(idx, leadEnd);
-                % We reuse the Model Feed tags for tower? Or create new ones?
-                % Actually I didn't create Tower LeadOut tags. Let's just use the Return tag for towers?
-                % No, visually it's better to add 'SimLeadOutL/R' to init.
-                % Assuming SimLeadOutL/R exist (added in step 3):
-                updateTrail(app, 'SimLeadOutL', app.SimPathL, cutEnd, idxLead, offX);
-                updateTrail(app, 'SimLeadOutR', app.SimPathR, cutEnd, idxLead, offX);
+            % 2. RAPID (Yellow) -> 1 to RapidEnd
+            curEnd = min(idx, idxRapidEnd);
+            updateT('SimTowerRapidL', app.SimTowerPathL, 1, curEnd);
+            updateT('SimTowerRapidR', app.SimTowerPathR, 1, curEnd);
+            updateT('SimModelRapidL', app.SimPathL, 1, curEnd);
+            updateT('SimModelRapidR', app.SimPathR, 1, curEnd);
+
+            % 3. LEAD IN (Orange Solid) -> RapidEnd to ProfileStart
+            if idx > idxRapidEnd
+                curEnd = min(idx, idxProfStart);
+                updateT('SimTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
+                updateT('SimTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
+                updateT('SimModelLeadInL', app.SimPathL, idxRapidEnd, curEnd);
+                updateT('SimModelLeadInR', app.SimPathR, idxRapidEnd, curEnd);
             else
-                clearTrails(app, {'SimLeadOutL','SimLeadOutR'});
+                clearT({'SimTowerLeadInL','SimTowerLeadInR','SimModelLeadInL','SimModelLeadInR'});
             end
 
-            % 5. PHASE 4: RETURN (Yellow Dashed) - From leadEnd to End
-            if idx > leadEnd
-                updateTrail(app, 'SimReturnL', app.SimPathL, leadEnd, idx, offX);
-                updateTrail(app, 'SimReturnR', app.SimPathR, leadEnd, idx, offX);
-                updateTrail(app, 'SimTowerReturnL', app.SimTowerPathL, leadEnd, idx, offX);
-                updateTrail(app, 'SimTowerReturnR', app.SimTowerPathR, leadEnd, idx, offX);
+            % 4. PROFILE (Red/Green) -> ProfileStart to ProfileEnd
+            if idx > idxProfStart
+                curEnd = min(idx, idxProfEnd);
+                updateT('SimTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
+                updateT('SimTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
+                updateT('SimModelFeedL', app.SimPathL, idxProfStart, curEnd);
+                updateT('SimModelFeedR', app.SimPathR, idxProfStart, curEnd);
             else
-                clearTrails(app, {'SimReturnL','SimReturnR','SimTowerReturnL','SimTowerReturnR'});
+                clearT({'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
+            end
+
+            % 5. LEAD OUT (Orange Dashed) -> ProfileEnd to LeadOutEnd
+            if idx > idxProfEnd
+                curEnd = min(idx, idxLeadOutEnd);
+                updateT('SimTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
+                updateT('SimTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
+                updateT('SimModelLeadOutL', app.SimPathL, idxProfEnd, curEnd);
+                updateT('SimModelLeadOutR', app.SimPathR, idxProfEnd, curEnd);
+            else
+                clearT({'SimTowerLeadOutL','SimTowerLeadOutR','SimModelLeadOutL','SimModelLeadOutR'});
+            end
+
+            % 6. RETURN (Yellow Dashed) -> LeadOutEnd to End
+            if idx > idxLeadOutEnd
+                updateT('SimTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
+                updateT('SimTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
+                updateT('SimModelReturnL', app.SimPathL, idxLeadOutEnd, idx);
+                updateT('SimModelReturnR', app.SimPathR, idxLeadOutEnd, idx);
+            else
+                clearT({'SimTowerReturnL','SimTowerReturnR','SimModelReturnL','SimModelReturnR'});
             end
 
             % Readouts
