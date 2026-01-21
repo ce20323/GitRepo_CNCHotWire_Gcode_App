@@ -3285,18 +3285,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             cla(ax); hold(ax, 'on');
             t = app.getTheme();
 
-            offX  = app.MachineBedPos(1);
-            mSpan = app.MachineSpanX;
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize; bp = app.MachineBedPos;
+            % --- COORDINATE SETUP ---
+            offX      = app.MachineBedPos(1);
+            mSpan     = app.MachineSpanX;
+            mLimY     = app.MachineLimitY;
+            mLimZ     = app.MachineLimitZ;
+            bs        = app.MachineBedSize;
 
-            % --- CRITICAL FIX: Separate Bed and Billet Variables ---
-            bedPos    = app.MachineBedPos;    % Physical Bed Location
-            billetPos = app.MachineBilletPos; % Stock Location
+            % CORRECTED: Billet Position Variable
+            bp = app.MachineBilletPos;
 
             % 1. STATIC GEOMETRY
-            % Bed (Assign to hBed)
-            [xb, yb, zb] = app.makeBoxVertices(0, bedPos(2), -bs(3), bs(1), bs(2), bs(3));
+            % Bed (Uses MachineBedPos directly for drawing the physical bed)
+            [xb, yb, zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
             hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
                 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
@@ -3305,7 +3306,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
                 'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
 
-            % Towers (Assign to hTowerL/R)
+            % Towers
             hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
                 'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
             hTowerR = patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
@@ -3314,18 +3315,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
             text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
 
-            % 2. BILLET & GHOSTS
-            % Billet Plot Position: billetPos - offX
-            bPlotX = billetPos(1) - offX;
+            % 2A. BILLET
+            % Plot X = BilletMachineX - BedOffsetX
+            bPlotX = bp(1) - offX;
+            bPlotPos = [bPlotX, bp(2), bp(3)];
 
-            [xm, ym, zm] = app.makeBoxVertices(bPlotX, billetPos(2), billetPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+            [xm, ym, zm] = app.makeBoxVertices(bPlotX, bp(2), bp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
             hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
                 'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
 
-            % Ghost Profiles
-            offsetY = billetPos(2) + app.BilletShift(2);
-            offsetZ = billetPos(3) + app.BilletShift(3);
-            shiftX = (billetPos(1) + app.BilletShift(1)) - offX;
+            % 2B. MODEL MESH
+            hModel = gobjects(0);
+            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                % Model position in plot = BilletPlotPos + BilletShift
+                modelShift = bPlotPos + app.BilletShift;
+                Vplot = app.ModelPatch.Vertices + modelShift;
+
+                hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', 0.3, 'EdgeColor', 'none', 'Tag', 'SimModel');
+            end
+
+            % 2C. GHOST PROFILES
+            offsetY = bp(2) + app.BilletShift(2);
+            offsetZ = bp(3) + app.BilletShift(3);
+            % X-Shift for profiles: (BilletMachineX + InternalShiftX) - BedOffsetX
+            shiftX = (bp(1) + app.BilletShift(1)) - offX;
 
             hGhostL = gobjects(0);
             if ~isempty(app.LeftProfilePoints)
@@ -3342,30 +3356,29 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3. DYNAMIC ELEMENTS
             hWire=gobjects(0); hRapids=gobjects(0); hTrails=gobjects(0);
             if ~isempty(app.SimPathL)
-                % Model Trails (Solid lines)
+                % Model Trails
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimTrailL');
                 hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimTrailR');
 
                 % Tower Trails
-                % Rapid (Yellow)
                 hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimTowerRapidR');
-                % Feed (Red/Green)
+
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 1.5, 'Tag', 'SimTowerFeedR');
 
-                % Model Path Trails (Split Rapid/Feed)
+                % Model Path Trails (Split)
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 1.0, 'Tag', 'SimModelRapidR');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 1.5, 'Tag', 'SimModelFeedL');
                 plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 1.5, 'Tag', 'SimModelFeedR');
 
-                % Wire (Thin: 0.5)
+                % Wire
                 hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
 
-                % Dots (Large: 10)
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
+                % Dots
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
+                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 8, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
 
                 % Model Dots
                 plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
@@ -3375,8 +3388,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % 5. LEGEND
-            handles = [hBed, hTowerL, hTowerR, hBillet, hGhostL, hRapids, hTrails, hWire];
-            labels  = {'Machine Bed', 'Left Tower', 'Right Tower', 'Billet', 'Ghost Profile', 'Rapid Path', 'Cut Path', 'Wire'};
+            handles = [hBed, hTowerL, hTowerR, hBillet, hModel, hGhostL, hRapids, hTrails, hWire];
+            labels  = {'Machine Bed', 'Left Tower', 'Right Tower', 'Billet', 'Model', 'Ghost Profile', 'Rapid Path', 'Cut Path', 'Wire'};
 
             valid = isgraphics(handles);
             if any(valid)
