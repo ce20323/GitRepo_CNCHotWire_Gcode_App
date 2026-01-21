@@ -3614,24 +3614,33 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function resetViewToBillet(app, ax)
-            % Centers view on the Billet (Machine Coords)
-            % Billet Position 'bp' is relative to Machine Zero.
-            % Plot X-Zero is Bed Left Edge (Machine Zero is at -offX).
+            % Centers view on the Billet with a dynamic buffer
 
             offX = app.MachineBedPos(1);
-            bp   = app.MachineBilletPos; % [X Y Z] absolute
-            bs   = app.BilletSize;
+            bp   = app.MachineBilletPos; % [X Y Z] absolute machine coords
+            bs   = app.BilletSize;       % [W D H]
 
             % Billet Bounds in Plot Coords
+            % Plot X = MachineX - BedOffset
             bMin = [bp(1)-offX, bp(2), bp(3)];
             bMax = bMin + bs;
 
-            buffer = 50;
+            % Calculate a relative buffer (20% of the largest dimension)
+            maxDim = max(bs);
+            if maxDim < 1, maxDim = 100; end % Fallback
+            buffer = maxDim * 0.2;
+
+            % 1. Set Aspect Ratio FIRST (Prevents limit reset)
+            daspect(ax, [1 1 1]);
+
+            % 2. Apply Limits
             xlim(ax, [bMin(1)-buffer, bMax(1)+buffer]);
             ylim(ax, [bMin(2)-buffer, bMax(2)+buffer]);
             zlim(ax, [bMin(3)-buffer, bMax(3)+buffer]);
 
-            view(ax, 3); axis(ax, 'equal');
+            % 3. Standard View Settings
+            view(ax, 3);
+            grid(ax, 'on');
         end
 
         % ===========================================================
