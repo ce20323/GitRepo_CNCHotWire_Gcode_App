@@ -2545,9 +2545,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                         % Dots
                         plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 6);
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
                         plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 6);
+                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
                     end
                 end
             end
@@ -3480,15 +3480,32 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             offX = app.MachineBedPos(1);
 
-            % Indices
-            idxRapidEnd = app.SimRapidCutoffIndex;
-            idxProfStart = app.SimProfileStartIndex;
-            idxProfEnd   = app.SimFeedEndIndex;
+            % Indices for Phase Transitions
+            idxRapidEnd   = app.SimRapidCutoffIndex;
+            idxProfStart  = app.SimProfileStartIndex;
+            idxProfEnd    = app.SimFeedEndIndex;
             idxLeadOutEnd = app.SimLeadOutEndIndex;
 
-            % 1. Wire & Dots (Standard Update)
+            % --- HELPERS ---
+            function updateT(tag, data, s, e)
+                h = findobj(app.AxSim, 'Tag', tag);
+                if ~isempty(h)
+                    dt = data(s:e, :) - [offX, 0, 0];
+                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
+                end
+            end
+
+            function clearT(tags)
+                for i=1:numel(tags)
+                    h = findobj(app.AxSim, 'Tag', tags{i});
+                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
+                end
+            end
+
+            % 1. WIRE & DOTS (Always at current idx)
             pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
             pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
+
             hWire = findobj(app.AxSim, 'Tag', 'SimWire');
             if ~isempty(hWire), hWire.XData=[pTL(1),pTR(1)]; hWire.YData=[pTL(2),pTR(2)]; hWire.ZData=[pTL(3),pTR(3)]; end
 
@@ -3499,23 +3516,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL'); if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
             hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR'); if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
 
-            % HELPER
-            function updateT(tag, data, s, e)
-                h=findobj(app.AxSim,'Tag',tag);
-                if ~isempty(h), dt=data(s:e,:)-[offX,0,0]; h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3); end
-            end
-            function clearT(tags)
-                for i=1:numel(tags), h=findobj(app.AxSim,'Tag',tags{i}); if ~isempty(h), h.XData=[]; end; end
-            end
-
-            % 2. RAPID (Yellow) -> 1 to RapidEnd
+            % 2. PHASE 1: RAPID (Yellow Solid)
+            % Always draws from start to current (capped at RapidEnd)
             curEnd = min(idx, idxRapidEnd);
             updateT('SimTowerRapidL', app.SimTowerPathL, 1, curEnd);
             updateT('SimTowerRapidR', app.SimTowerPathR, 1, curEnd);
             updateT('SimModelRapidL', app.SimPathL, 1, curEnd);
             updateT('SimModelRapidR', app.SimPathR, 1, curEnd);
 
-            % 3. LEAD IN (Orange Solid) -> RapidEnd to ProfileStart
+            % 3. PHASE 2: LEAD IN (Orange Solid)
             if idx > idxRapidEnd
                 curEnd = min(idx, idxProfStart);
                 updateT('SimTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
@@ -3526,7 +3535,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 clearT({'SimTowerLeadInL','SimTowerLeadInR','SimModelLeadInL','SimModelLeadInR'});
             end
 
-            % 4. PROFILE (Red/Green) -> ProfileStart to ProfileEnd
+            % 4. PHASE 3: FEED PROFILE (Red/Green Solid)
             if idx > idxProfStart
                 curEnd = min(idx, idxProfEnd);
                 updateT('SimTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
@@ -3537,7 +3546,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 clearT({'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
             end
 
-            % 5. LEAD OUT (Orange Dashed) -> ProfileEnd to LeadOutEnd
+            % 5. PHASE 4: LEAD OUT (Orange Dashed)
             if idx > idxProfEnd
                 curEnd = min(idx, idxLeadOutEnd);
                 updateT('SimTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
@@ -3548,7 +3557,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 clearT({'SimTowerLeadOutL','SimTowerLeadOutR','SimModelLeadOutL','SimModelLeadOutR'});
             end
 
-            % 6. RETURN (Yellow Dashed) -> LeadOutEnd to End
+            % 6. PHASE 5: RETURN (Yellow Dashed)
             if idx > idxLeadOutEnd
                 updateT('SimTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
                 updateT('SimTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
@@ -3558,7 +3567,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 clearT({'SimTowerReturnL','SimTowerReturnR','SimModelReturnL','SimModelReturnR'});
             end
 
-            % Readouts
+            % 7. Readouts
             if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
             if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
             if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
