@@ -283,6 +283,33 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimLeadOutEndIndex  % NEW: Index where orange lead-out ends
         SimTimer % timer object for animation
 
+        % ---------- Post-Process Tab ----------
+        TabPostProcess
+        GLPostProcess
+        PostLeftPanel
+        AxPost
+
+        % Inputs
+        SpinFeedRate
+        SpinPower
+        FieldFilename
+
+        % Buttons
+        BtnPostProcess
+        BtnGCodePrev
+        BtnGCodeNext
+        BtnSaveGCode
+
+        % --- Post G-code UI ---
+        PanelGCode
+        GridGCode
+        ListGCode
+
+        % --- Post program data ---
+        PP_GCodeLines string = string.empty(0,1)     % full text, one line per row
+        PP_LineToPathIndex double = []              % maps gcode line -> motion path index (NaN for non-motion)
+        PP_PathXYZA double = []                     % Nx4 [X Y Z A] cumulative path
+        PP_SelectedLine (1,1) double = 1
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -360,6 +387,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
+            app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event); %key press on post tab to scroll code
 
             % --- 2. Theme & Colors ---
             t = app.getTheme();
@@ -952,13 +980,120 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblSSpacer = uilabel(app.SimLeftPanel, 'Text', '');
             lblSSpacer.Layout.Row = 5; % Spring
 
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Generate G-Code', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
-                'ButtonPushedFcn',@(~,~)app.onGenerateGCode());
+            % 6. CONTINUE (Updated to match other tabs)
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', ...
+                'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnSimContinue.Layout.Row = 6;
 
             % --- Right Panel: 3D Sim Plot ---
             app.AxSim = uiaxes(app.GLSimulation); app.AxSim.Layout.Column = 2; app.AxSim.BackgroundColor = [0.05 0.05 0.05];
             xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z'); grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
+
+            % ===========================================================
+            % 7. POST-PROCESSOR TAB
+            % ===========================================================
+            app.TabPostProcess = uitab(app.TabGroup, 'Title', 'Post-Process');
+
+            app.GLPostProcess = uigridlayout(app.TabPostProcess, [1 2]);
+            app.GLPostProcess.ColumnWidth   = {320, '1x'};
+            app.GLPostProcess.Padding       = [10 10 10 10];
+
+            % --- Left Control Panel ---
+            app.PostLeftPanel = uigridlayout(app.GLPostProcess, [6 1]);
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 'fit'};
+            app.PostLeftPanel.Padding = [10 10 10 10];
+            app.PostLeftPanel.BackgroundColor = sideBg;
+
+            % 1. VIEW CONTROLS
+            panPView = uipanel(app.PostLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            panPView.Layout.Row = 1;
+
+            gridPView = uigridlayout(panPView, [1 2]); gridPView.Padding=[5 5 5 5]; gridPView.BackgroundColor=panelBg;
+            btnPVM = uibutton(gridPView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetPostViewMachine());
+            btnPVB = uibutton(gridPView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetPostViewBillet());
+
+            % 2. SETTINGS (Feed & Power)
+            panPSettings = uipanel(app.PostLeftPanel, 'Title','Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            panPSettings.Layout.Row = 2;
+
+            gridPSet = uigridlayout(panPSettings, [2 2]);
+            gridPSet.ColumnWidth={'1x', 80};
+            gridPSet.Padding=[5 5 5 5]; gridPSet.BackgroundColor=panelBg;
+
+            % Feed Rate
+            lblFeed = uilabel(gridPSet, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblFeed.Layout.Row=1; lblFeed.Layout.Column=1;
+
+            app.SpinFeedRate = uispinner(gridPSet, 'Limits',[20 200], 'Value',100, 'Step',5, 'ValueDisplayFormat','%.0f');
+            app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=2;
+
+            % Power
+            lblPower = uilabel(gridPSet, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblPower.Layout.Row=2; lblPower.Layout.Column=1;
+
+            app.SpinPower = uispinner(gridPSet, 'Limits',[20 100], 'Value',60, 'Step',5, 'ValueDisplayFormat','%.0f');
+            app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=2;
+
+            % 3. EXPORT
+            panPExport = uipanel(app.PostLeftPanel, 'Title','Export', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            panPExport.Layout.Row = 3;
+
+            gridPExp = uigridlayout(panPExport, [3 1]);
+            gridPExp.RowHeight={'fit','fit','fit'};
+            gridPExp.Padding=[5 5 5 5]; gridPExp.BackgroundColor=panelBg;
+
+            % Filename
+            lblFile = uilabel(gridPExp, 'Text','Filename:', 'FontColor',labelCol);
+            app.FieldFilename = uieditfield(gridPExp, 'text', 'Value', 'GCode-V1-Output.gcode');
+
+            % Process Button
+            app.BtnPostProcess = uibutton(gridPExp, 'Text','Post-Process', 'FontWeight','bold', ...
+                'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
+            
+            % 4. G-CODE VIEWER (scroll + click lines)
+            app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','G-Code', ...
+                'FontWeight','bold', 'BorderType','line');
+            app.PanelGCode.Layout.Row = 4;
+
+            app.GridGCode = uigridlayout(app.PanelGCode, [2 2]);
+            app.GridGCode.RowHeight = {'1x', 28};
+            app.GridGCode.ColumnWidth = {'1x','1x'};
+            app.GridGCode.Padding = [5 5 5 5];
+
+            app.ListGCode = uilistbox(app.GridGCode, ...
+                'Items', {'(Generate to view G-code...)'}, ...
+                'ValueChangedFcn', @(src,~)app.onPostLineSelected(src));
+            app.ListGCode.Layout.Row = 1;
+            app.ListGCode.Layout.Column = [1 2];
+            app.ListGCode.FontName = 'Courier New';
+
+            app.BtnGCodePrev = uibutton(app.GridGCode,'push','Text','◀ Prev', ...
+                'ButtonPushedFcn', @(~,~)app.stepPostLine(-1));
+            app.BtnGCodePrev.Layout.Row = 2;
+            app.BtnGCodePrev.Layout.Column = 1;
+
+            app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', ...
+                'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
+            app.BtnGCodeNext.Layout.Row = 2;
+            app.BtnGCodeNext.Layout.Column = 2;
+
+            % 5. SPACER
+            lblPSpacer = uilabel(app.PostLeftPanel, 'Text', '');
+            lblPSpacer.Layout.Row = 5;
+
+            % 5. SAVE BUTTON
+            app.BtnSaveGCode = uibutton(app.PostLeftPanel, 'Text','Save G-Code', 'FontWeight','bold', ...
+                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'Enable','off', ...
+                'ButtonPushedFcn',@(~,~)app.onSaveGCode());
+            app.BtnSaveGCode.Layout.Row = 6;
+
+            % RIGHT PANEL (Plot Placeholder)
+            app.AxPost = uiaxes(app.GLPostProcess);
+            app.AxPost.Layout.Column = 2;
+            app.AxPost.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
+            grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
 
             % --- Final Theme Application ---
             app.applyTheme();
@@ -1467,6 +1602,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif evt.NewValue == app.TabSimulation
                 app.applyTheme();
                 app.generateSimulationData();
+            elseif evt.NewValue == app.TabPostProcess
+                app.updatePostProcessUI();
             end
         end
 
@@ -2083,6 +2220,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.TabGroup.SelectedTab = app.TabSimulation;
                 app.applyTheme();
                 app.generateSimulationData();
+            
+            elseif currTab == app.TabSimulation
+                % Transition Simulation -> Post Process
+                app.TabGroup.SelectedTab = app.TabPostProcess;
+                app.updatePostProcessUI();
+                % (We will add plotting init here later)
 
             end
         end
@@ -2832,10 +2975,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxCutLeft.ButtonDownFcn = [];
             app.AxCutRight.ButtonDownFcn = [];
             app.UIFigure.Pointer = 'arrow';
-        end
-
-        function onGenerateGCode(app)
-            uialert(app.UIFigure, 'G-Code Generation not yet implemented.', 'Info');
         end
 
         function onResetCuttingViewMachine(app)
@@ -3730,6 +3869,406 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
+        % POST-PROCESS TAB LOGIC
+        % ===========================================================
+
+        function updatePostProcessUI(app)
+            % Updates the Filename field based on loaded model
+            if isempty(app.FieldFilename.Value) || startsWith(app.FieldFilename.Value, 'GCode-V1-Output')
+                name = "Output";
+                if ~isempty(app.CurrentModelName)
+                    [~, name, ~] = fileparts(app.CurrentModelName);
+                end
+                app.FieldFilename.Value = sprintf("GCode-V1-%s", name);
+            end
+        end
+
+        function initPostPlot(app)
+            axP = app.AxPost;
+            cla(axP); hold(axP,'on');
+
+            % Ensure sim plot exists (and has the objects/tags we want)
+            if isempty(app.AxSim) || ~isvalid(app.AxSim)
+                error('AxSim invalid - cannot clone simulation scene.');
+            end
+
+            % If the sim scene hasn't been built yet, build it once
+            if isempty(app.AxSim.Children)
+                app.initSimulationPlot();
+            end
+
+            % Copy the entire scene from Sim axes into Post axes
+            copyobj(app.AxSim.Children, axP);
+
+            % Rename Sim* tags to Post* tags in the Post axes
+            h = findall(axP, '-property', 'Tag');
+            for i = 1:numel(h)
+                tg = string(h(i).Tag);
+                if startsWith(tg, "Sim")
+                    h(i).Tag = "Post" + extractAfter(tg, 3);
+                end
+            end
+
+            % Match formatting/view (copy key axes props)
+            axP.BackgroundColor = app.AxSim.BackgroundColor;
+            axP.XColor = app.AxSim.XColor;
+            axP.YColor = app.AxSim.YColor;
+            axP.ZColor = app.AxSim.ZColor;
+            axP.GridColor = app.AxSim.GridColor;
+            axP.GridAlpha = app.AxSim.GridAlpha;
+
+            grid(axP,'on');
+            axis(axP,'equal');
+            view(axP, app.AxSim.View);
+
+            hold(axP,'off');
+
+            drawnow;
+        end
+
+        function updatePostPlotForSelectedLine(app, k)
+            if isempty(app.PP_LineToPathIndex) || isempty(app.SimPathL)
+                return;
+            end
+
+            % Find motion idx for this selected G-code line (scan backward)
+            k = max(1, min(k, numel(app.PP_LineToPathIndex)));
+            idx = app.PP_LineToPathIndex(k);
+            kk = k;
+            while (isnan(idx) || idx <= 0) && kk > 1
+                kk = kk - 1;
+                idx = app.PP_LineToPathIndex(kk);
+            end
+            if isnan(idx) || idx <= 0, idx = 1; end
+            idx = min(idx, size(app.SimPathL,1));
+
+            ax = app.AxPost;
+            offX = app.MachineBedPos(1);
+
+            % Phase indices
+            idxRapidEnd   = app.SimRapidCutoffIndex;
+            idxProfStart  = app.SimProfileStartIndex;
+            idxProfEnd    = app.SimFeedEndIndex;
+            idxLeadOutEnd = app.SimLeadOutEndIndex;
+
+            % Helpers (same logic as sim, but Post tags + AxPost)
+            function updateT(tag, data, s, e)
+                h = findobj(ax, 'Tag', tag);
+                if ~isempty(h)
+                    dt = data(s:e,:) - [offX,0,0];
+                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
+                end
+            end
+            function clearT(tags)
+                for ii=1:numel(tags)
+                    h = findobj(ax,'Tag',tags{ii});
+                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
+                end
+            end
+
+            % Wire + dots at idx
+            pTL = app.SimTowerPathL(idx,:) - [offX,0,0];
+            pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
+
+            hWire = findobj(ax,'Tag','PostWire');
+            if ~isempty(hWire)
+                hWire.XData=[pTL(1),pTR(1)];
+                hWire.YData=[pTL(2),pTR(2)];
+                hWire.ZData=[pTL(3),pTR(3)];
+            end
+
+            hDotL = findobj(ax,'Tag','PostDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
+            hDotR = findobj(ax,'Tag','PostDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
+
+            % Phase 1 Rapid
+            curEnd = min(idx, idxRapidEnd);
+            updateT('PostTowerRapidL', app.SimTowerPathL, 1, curEnd);
+            updateT('PostTowerRapidR', app.SimTowerPathR, 1, curEnd);
+            updateT('PostModelRapidL', app.SimPathL,      1, curEnd);
+            updateT('PostModelRapidR', app.SimPathR,      1, curEnd);
+
+            % Phase 2 Lead In
+            if idx > idxRapidEnd
+                curEnd = min(idx, idxProfStart);
+                updateT('PostTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
+                updateT('PostTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
+                updateT('PostModelLeadInL', app.SimPathL,      idxRapidEnd, curEnd);
+                updateT('PostModelLeadInR', app.SimPathR,      idxRapidEnd, curEnd);
+            else
+                clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'});
+            end
+
+            % Phase 3 Feed profile
+            if idx > idxProfStart
+                curEnd = min(idx, idxProfEnd);
+                updateT('PostTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
+                updateT('PostTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
+                updateT('PostModelFeedL', app.SimPathL,      idxProfStart, curEnd);
+                updateT('PostModelFeedR', app.SimPathR,      idxProfStart, curEnd);
+            else
+                clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'});
+            end
+
+            % Phase 4 Lead out
+            if idx > idxProfEnd
+                curEnd = min(idx, idxLeadOutEnd);
+                updateT('PostTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
+                updateT('PostTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
+                updateT('PostModelLeadOutL', app.SimPathL,      idxProfEnd, curEnd);
+                updateT('PostModelLeadOutR', app.SimPathR,      idxProfEnd, curEnd);
+            else
+                clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'});
+            end
+
+            % Phase 5 Return
+            if idx > idxLeadOutEnd
+                updateT('PostTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
+                updateT('PostTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
+                updateT('PostModelReturnL', app.SimPathL,      idxLeadOutEnd, idx);
+                updateT('PostModelReturnR', app.SimPathR,      idxLeadOutEnd, idx);
+            else
+                clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'});
+            end
+
+            drawnow limitrate;
+        end
+
+        function onResetPostViewMachine(app)
+            app.resetViewToMachine(app.AxPost);
+        end
+
+        function onResetPostViewBillet(app)
+            app.resetViewToBillet(app.AxPost);
+        end
+
+        function onPostProcess(app)
+
+            %------------------------------------------------------------
+            % 1) Build / refresh simulation path data (source of truth)
+            %------------------------------------------------------------
+            app.generateSimulationData();
+
+            if isempty(app.SimPathL) || isempty(app.SimPathR) || ...
+                    isempty(app.SimTowerPathL) || isempty(app.SimTowerPathR)
+                uialert(app.UIFigure, 'No simulation path data available. Build a cut path first.', 'Post-Process');
+                return;
+            end
+
+            nPts = size(app.SimPathL, 1);
+            if nPts < 2
+                uialert(app.UIFigure, 'Simulation path is too short to post-process.', 'Post-Process');
+                return;
+            end
+
+            %------------------------------------------------------------
+            % 2) Read PP inputs
+            %------------------------------------------------------------
+            feed  = round(app.SpinFeedRate.Value);   % mm/min
+            power = round(app.SpinPower.Value);      % spindle PWM (S-value)
+
+            if isempty(feed)  || ~isfinite(feed)  || feed <= 0,  feed  = 500; end
+            if isempty(power) || ~isfinite(power) || power < 0, power = 0;   end
+
+            %------------------------------------------------------------
+            % 3) Machine-axis path (XYZA) from sim paths
+            %    Left carriage: machine X=left(Y), Y=left(Z)
+            %    Right carriage: machine Z=right(Y), A=right(Z)
+            %------------------------------------------------------------
+            X = app.SimPathL(:,2);
+            Y = app.SimPathL(:,3);
+            Z = app.SimPathR(:,2);
+            A = app.SimPathR(:,3);
+
+            %------------------------------------------------------------
+            % 4) Key phase indices from generateSimulationData()
+            %------------------------------------------------------------
+            idxRapidEnd   = app.SimRapidCutoffIndex;
+            idxProfStart  = app.SimProfileStartIndex;
+            idxProfEnd    = app.SimFeedEndIndex;
+            idxLeadOutEnd = app.SimLeadOutEndIndex;
+
+            % Clamp indices safely
+            idxRapidEnd   = max(1, min(idxRapidEnd,   nPts));
+            idxProfStart  = max(1, min(idxProfStart,  nPts));
+            idxProfEnd    = max(1, min(idxProfEnd,    nPts));
+            idxLeadOutEnd = max(1, min(idxLeadOutEnd, nPts));
+
+            % Ensure ordering is sensible (avoid edge cases)
+            idxProfStart  = max(idxProfStart, idxRapidEnd);
+            idxProfEnd    = max(idxProfEnd,   idxProfStart);
+            idxLeadOutEnd = max(idxLeadOutEnd,idxProfEnd);
+
+            %------------------------------------------------------------
+            % 5) Helpers
+            %------------------------------------------------------------
+            fmtMove = @(g,i) sprintf('%s X%.3f Y%.3f Z%.3f A%.3f', g, X(i), Y(i), Z(i), A(i));
+
+            lines = strings(0,1);
+            map   = zeros(0,1);  % line -> path index (NaN for non-motion)
+
+            %------------------------------------------------------------
+            % 6) Header / modal setup (Mach4-friendly)
+            %------------------------------------------------------------
+            lines(end+1) = "(HotWireSTEP Post-Processor)";
+            map(end+1)   = NaN;
+
+            lines(end+1) = "G21  (mm)";
+            map(end+1)   = NaN;
+
+            lines(end+1) = "G90  (absolute)";
+            map(end+1)   = NaN;
+
+            lines(end+1) = "G94  (feed per minute)";
+            map(end+1)   = NaN;
+
+            lines(end+1) = "";
+            map(end+1)   = NaN;
+
+            %------------------------------------------------------------
+            % 7) Emit moves + insert M301/M302 at the correct boundaries
+            %
+            % Strategy:
+            %   i <= idxRapidEnd                 => G0
+            %   idxRapidEnd < i <= idxLeadOutEnd => G1
+            %   i > idxLeadOutEnd                => G0
+            %
+            % Insert:
+            %   after idxRapidEnd:  S### M301  and then G1 F###
+            %   after idxLeadOutEnd: M302
+            %------------------------------------------------------------
+            for i = 1:nPts
+
+                if i <= idxRapidEnd
+                    g = "G0";
+                elseif i <= idxLeadOutEnd
+                    g = "G1";
+                else
+                    g = "G0";
+                end
+
+                lines(end+1) = string(fmtMove(g, i));
+                map(end+1)   = i;
+
+                if i == idxRapidEnd
+                    lines(end+1) = sprintf("S%d M301", power);
+                    map(end+1)   = NaN;
+
+                    lines(end+1) = sprintf("G1 F%d", feed);
+                    map(end+1)   = NaN;
+                end
+
+                if i == idxLeadOutEnd
+                    lines(end+1) = "M302";
+                    map(end+1)   = NaN;
+                end
+            end
+
+            lines(end+1) = "M30";
+            map(end+1)   = NaN;
+
+            %------------------------------------------------------------
+            % 8) Store + show in UI
+            %------------------------------------------------------------
+            app.PP_GCodeLines       = lines;
+            app.PP_LineToPathIndex  = map;
+
+            if ~isempty(app.ListGCode) && isvalid(app.ListGCode)
+                app.ListGCode.Items = cellstr(lines);
+                if ~isempty(app.ListGCode.Items)
+                    app.ListGCode.Value = app.ListGCode.Items{1};
+                end
+            end
+            app.PP_SelectedLine = 1;
+
+            if ~isempty(app.BtnSaveGCode) && isvalid(app.BtnSaveGCode)
+                app.BtnSaveGCode.Enable = 'on';
+            end
+
+            %------------------------------------------------------------
+            % 9) Plot init + update
+            %    Robust: clone sim scene into post scene.
+            %------------------------------------------------------------
+            % Ensure sim plot scene exists so AxSim has children to copy
+            if isempty(app.AxSim.Children)
+                app.initSimulationPlot();
+            end
+
+            % Clone to Post (your initPostPlot does copyobj + rename tags)
+            app.initPostPlot();
+
+            % Update dynamic elements based on selected line
+            app.updatePostPlotForSelectedLine(1);
+
+        end
+
+        function onPostLineSelected(app, src)
+            % Find selected line index
+            items = string(src.Items);
+            val   = string(src.Value);
+            k = find(items == val, 1, 'first');
+            if isempty(k), k = 1; end
+
+            app.PP_SelectedLine = k;
+            app.updatePostPlotForSelectedLine(k);
+        end
+
+        function stepPostLine(app, delta)
+            if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
+                return;
+            end
+
+            items = app.ListGCode.Items;
+            % Current index
+            cur = find(strcmp(items, app.ListGCode.Value), 1, 'first');
+            if isempty(cur), cur = 1; end
+
+            nxt = max(1, min(numel(items), cur + delta));
+
+            app.ListGCode.Value = items{nxt};
+            app.PP_SelectedLine = nxt;
+
+            % Trigger update (same as click)
+            app.updatePostPlotForSelectedLine(nxt);
+        end
+        
+        function onKeyPress(app, ~, event)
+            % Only handle keys when Post tab is active
+            if isempty(app.TabGroup) || app.TabGroup.SelectedTab ~= app.TabPostProcess
+                return;
+            end
+            if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
+                return;
+            end
+
+            switch event.Key
+                case 'downarrow'
+                    app.stepPostLine(+1);
+                case 'uparrow'
+                    app.stepPostLine(-1);
+                case 'pagedown'
+                    app.stepPostLine(+10);
+                case 'pageup'
+                    app.stepPostLine(-10);
+            end
+        end
+
+        function onSaveGCode(app)
+            if isempty(app.PP_GCodeLines)
+                uialert(app.UIFigure, 'No G-code generated yet. Click Generate first.', 'Save G-Code');
+                return;
+            end
+
+            filter = {'*.gcode';'*.nc';'*.txt'};
+            [file, path] = uiputfile(filter, 'Save G-Code', app.FieldFilename.Value);
+            if isequal(file,0), return; end
+
+            fullpath = fullfile(path, file);
+            writelines(app.PP_GCodeLines, fullpath);
+
+            uialert(app.UIFigure, ['Saved: ' fullpath], 'Save G-Code');
+        end
+
+        % ===========================================================
         % MOUSE-DRAG ROTATION FOR 3D AXES
         % ===========================================================
         function onMouseDown(app,~,~)
@@ -3792,7 +4331,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.UIFigure.Color = t.sideBg;
 
             % All sidebar containers
-            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel};
+            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel, app.SimLeftPanel, app.PostLeftPanel};
 
             for i = 1:numel(sidebars)
                 container = sidebars{i};
