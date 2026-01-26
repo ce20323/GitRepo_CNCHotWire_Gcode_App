@@ -282,6 +282,18 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimFeedEndIndex     % NEW: Index where profile ends and return begins
         SimLeadOutEndIndex  % NEW: Index where orange lead-out ends
         SimTimer % timer object for animation
+        % --- Truth / semantic toolpath data (NOT interpolated) ---
+        ProfileSyncL    % Nx2 [Y Z] after preparePlotData + syncPointCounts
+        ProfileSyncR    % Nx2 [Y Z] after preparePlotData + syncPointCounts
+
+        SimRawRapidL    % Mx2 [Y Z] semantic rapid-in points
+        SimRawRapidR
+        SimRawLeadInL   % 2x2 typically: [entry; start]
+        SimRawLeadInR
+        SimRawLeadOutL  % 2x2 typically: [end; entry]
+        SimRawLeadOutR
+        SimRawReturnL   % Kx2 semantic return points
+        SimRawReturnR
 
         % ---------- Post-Process Tab ----------
         TabPostProcess
@@ -310,6 +322,16 @@ classdef HotWireSTEPApp_v6_2 < handle
         PP_LineToPathIndex double = []              % maps gcode line -> motion path index (NaN for non-motion)
         PP_PathXYZA double = []                     % Nx4 [X Y Z A] cumulative path
         PP_SelectedLine (1,1) double = 1
+        % --- Post (truth-based) path for plotting / stepping ---
+        PP_PathL
+        PP_PathR
+        PP_TowerPathL
+        PP_TowerPathR
+
+        PP_RapidEndIndex
+        PP_ProfileStartIndex
+        PP_ProfileEndIndex
+        PP_LeadOutEndIndex
 
         % ---------- App state ----------
         % 0 = pre-profile (model only)
@@ -3353,11 +3375,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
             % 1. Process Profiles
-            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % 2. Sync
+            % 2. Sync (THIS is your "truth" matched profile)
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+
+            % ------------------------------------------------------------
+            % STORE TRUTH PROFILE (synced; do not modify in post)
+            % ------------------------------------------------------------
+            app.ProfileSyncL = [yL(:), zL(:)];   % Nx2 [Y Z]
+            app.ProfileSyncR = [yR(:), zR(:)];   % Nx2 [Y Z]
 
             % --- HELPERS ---
 
@@ -3409,7 +3437,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pts = [pts; pHomeY; pZero];
             end
 
-            % D. Interpolator
+            % D. Interpolator (Sim-only smoothing)
             function [upY, upZ] = interpolatePath(pts)
                 if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
                 dists = sqrt(sum(diff(pts,1,1).^2, 2));
@@ -3426,46 +3454,65 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- GENERATE SEGMENTS ---
 
             % 1. Rapid In (Yellow)
-            rawRapL = buildRapidIn(app.EntryPointL, app.EntryPoint2L);
-            rawRapR = buildRapidIn(app.EntryPointR, app.EntryPoint2R);
+            rawRapL = buildRapidIn(app.EntryPointL,  app.EntryPoint2L);
+            rawRapR = buildRapidIn(app.EntryPointR,  app.EntryPoint2R);
+
+            % ------------------------------------------------------------
+            % STORE SEMANTIC (RAW) SEGMENTS (for post-processor)
+            % ------------------------------------------------------------
+            app.SimRawRapidL = rawRapL;
+            app.SimRawRapidR = rawRapR;
+
             [rapY_L, rapZ_L] = interpolatePath(rawRapL); [rapY_R, rapZ_R] = interpolatePath(rawRapR);
 
             % 2. Lead In (Orange)
             rawLeadInL = buildLeadIn([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
             rawLeadInR = buildLeadIn([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
+
+            app.SimRawLeadInL = rawLeadInL;
+            app.SimRawLeadInR = rawLeadInR;
+
             [liY_L, liZ_L] = interpolatePath(rawLeadInL); [liY_R, liZ_R] = interpolatePath(rawLeadInR);
 
-            % 3. Profile
+            % 3. Profile (truth points)
             profY_L = yL; profZ_L = zL; profY_R = yR; profZ_R = zR;
 
             % 4. Lead Out (Orange Dashed)
             rawLeadOutL = buildLeadOut([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
             rawLeadOutR = buildLeadOut([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+
+            app.SimRawLeadOutL = rawLeadOutL;
+            app.SimRawLeadOutR = rawLeadOutR;
+
             [loY_L, loZ_L] = interpolatePath(rawLeadOutL); [loY_R, loZ_R] = interpolatePath(rawLeadOutR);
 
             % 5. Rapid Return (Yellow Dashed)
             rawRetL = buildRapidReturn([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
             rawRetR = buildRapidReturn([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
-            % Stitch for continuity
+
+            app.SimRawReturnL = rawRetL;
+            app.SimRawReturnR = rawRetR;
+
+            % Stitch for continuity (sim-only)
             rawRetL = [[loY_L(end), loZ_L(end)]; rawRetL];
             rawRetR = [[loY_R(end), loZ_R(end)]; rawRetR];
             [retY_L, retZ_L] = interpolatePath(rawRetL); [retY_R, retZ_R] = interpolatePath(rawRetR);
 
-            % --- INDICES ---
+            % --- INDICES (sim display indices) ---
             app.SimRapidCutoffIndex  = numel(rapY_L);
             app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(liY_L);
             app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(profY_L);
             app.SimLeadOutEndIndex   = app.SimFeedEndIndex + numel(loY_L);
 
-            % --- COMBINE ---
+            % --- COMBINE (sim display path) ---
             fullY_L = [rapY_L; liY_L; profY_L; loY_L; retY_L];
             fullZ_L = [rapZ_L; liZ_L; profZ_L; loZ_L; retZ_L];
 
             fullY_R = [rapY_R; liY_R; profY_R; loY_R; retY_R];
             fullZ_R = [rapZ_R; liZ_R; profZ_R; loZ_R; retZ_R];
 
-            % --- STORE ---
-            if ~isempty(app.LeftProfilePoints), baseXL = app.LeftProfilePoints(1,1); else, baseXL = app.MachineBilletPos(1); end
+            % --- STORE (sim display 3D paths) ---
+            if ~isempty(app.LeftProfilePoints),  baseXL = app.LeftProfilePoints(1,1);  else, baseXL = app.MachineBilletPos(1);    end
             if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
 
             xL_val = baseXL + app.BilletShift(1) + app.MachineBilletPos(1);
@@ -3474,7 +3521,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
             app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            % Towers
+            % Towers (sim)
             V = app.SimPathR - app.SimPathL;
             tL = -app.SimPathL(:,1) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
@@ -3927,7 +3974,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updatePostPlotForSelectedLine(app, k)
-            if isempty(app.PP_LineToPathIndex) || isempty(app.SimPathL)
+            % Uses PP_* paths (truth-based) so Post stepping matches real G-code moves
+
+            if isempty(app.PP_LineToPathIndex) || isempty(app.PP_PathL) || isempty(app.PP_TowerPathL)
                 return;
             end
 
@@ -3940,92 +3989,126 @@ classdef HotWireSTEPApp_v6_2 < handle
                 idx = app.PP_LineToPathIndex(kk);
             end
             if isnan(idx) || idx <= 0, idx = 1; end
-            idx = min(idx, size(app.SimPathL,1));
+            idx = min(idx, size(app.PP_PathL,1));
 
             ax = app.AxPost;
             offX = app.MachineBedPos(1);
 
-            % Phase indices
-            idxRapidEnd   = app.SimRapidCutoffIndex;
-            idxProfStart  = app.SimProfileStartIndex;
-            idxProfEnd    = app.SimFeedEndIndex;
-            idxLeadOutEnd = app.SimLeadOutEndIndex;
+            % Phase indices (PP indices, not sim indices)
+            idxRapidEnd   = app.PP_RapidEndIndex;
+            idxProfStart  = app.PP_ProfileStartIndex;
+            idxProfEnd    = app.PP_ProfileEndIndex;
+            idxLeadOutEnd = app.PP_LeadOutEndIndex;
+
+            % Local references to PP paths
+            pathL  = app.PP_PathL;
+            pathR  = app.PP_PathR;
+            towerL = app.PP_TowerPathL;
+            towerR = app.PP_TowerPathR;
 
             % Helpers (same logic as sim, but Post tags + AxPost)
             function updateT(tag, data, s, e)
                 h = findobj(ax, 'Tag', tag);
                 if ~isempty(h)
+                    s = max(1, min(s, size(data,1)));
+                    e = max(1, min(e, size(data,1)));
+                    if e < s
+                        h.XData=[]; h.YData=[]; h.ZData=[];
+                        return;
+                    end
                     dt = data(s:e,:) - [offX,0,0];
-                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
-                end
-            end
-            function clearT(tags)
-                for ii=1:numel(tags)
-                    h = findobj(ax,'Tag',tags{ii});
-                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
+                    h.XData = dt(:,1);
+                    h.YData = dt(:,2);
+                    h.ZData = dt(:,3);
                 end
             end
 
-            % Wire + dots at idx
-            pTL = app.SimTowerPathL(idx,:) - [offX,0,0];
-            pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
+            function clearT(tags)
+                for ii = 1:numel(tags)
+                    h = findobj(ax,'Tag',tags{ii});
+                    if ~isempty(h)
+                        h.XData=[]; h.YData=[]; h.ZData=[];
+                    end
+                end
+            end
+
+            % Wire + dots at idx (towers)
+            pTL = towerL(idx,:) - [offX,0,0];
+            pTR = towerR(idx,:) - [offX,0,0];
 
             hWire = findobj(ax,'Tag','PostWire');
             if ~isempty(hWire)
-                hWire.XData=[pTL(1),pTR(1)];
-                hWire.YData=[pTL(2),pTR(2)];
-                hWire.ZData=[pTL(3),pTR(3)];
+                hWire.XData = [pTL(1), pTR(1)];
+                hWire.YData = [pTL(2), pTR(2)];
+                hWire.ZData = [pTL(3), pTR(3)];
             end
 
-            hDotL = findobj(ax,'Tag','PostDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
-            hDotR = findobj(ax,'Tag','PostDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
+            hDotL = findobj(ax,'Tag','PostDotL');
+            if ~isempty(hDotL)
+                hDotL.XData = pTL(1); hDotL.YData = pTL(2); hDotL.ZData = pTL(3);
+            end
 
-            % Phase 1 Rapid
+            hDotR = findobj(ax,'Tag','PostDotR');
+            if ~isempty(hDotR)
+                hDotR.XData = pTR(1); hDotR.YData = pTR(2); hDotR.ZData = pTR(3);
+            end
+
+            % -----------------------------
+            % Phase 1: Rapid (1 -> idxRapidEnd)
+            % -----------------------------
             curEnd = min(idx, idxRapidEnd);
-            updateT('PostTowerRapidL', app.SimTowerPathL, 1, curEnd);
-            updateT('PostTowerRapidR', app.SimTowerPathR, 1, curEnd);
-            updateT('PostModelRapidL', app.SimPathL,      1, curEnd);
-            updateT('PostModelRapidR', app.SimPathR,      1, curEnd);
+            updateT('PostTowerRapidL', towerL, 1, curEnd);
+            updateT('PostTowerRapidR', towerR, 1, curEnd);
+            updateT('PostModelRapidL', pathL,  1, curEnd);
+            updateT('PostModelRapidR', pathR,  1, curEnd);
 
-            % Phase 2 Lead In
+            % -----------------------------
+            % Phase 2: Lead In (idxRapidEnd -> idxProfStart)
+            % -----------------------------
             if idx > idxRapidEnd
                 curEnd = min(idx, idxProfStart);
-                updateT('PostTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
-                updateT('PostTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
-                updateT('PostModelLeadInL', app.SimPathL,      idxRapidEnd, curEnd);
-                updateT('PostModelLeadInR', app.SimPathR,      idxRapidEnd, curEnd);
+                updateT('PostTowerLeadInL', towerL, idxRapidEnd, curEnd);
+                updateT('PostTowerLeadInR', towerR, idxRapidEnd, curEnd);
+                updateT('PostModelLeadInL', pathL,  idxRapidEnd, curEnd);
+                updateT('PostModelLeadInR', pathR,  idxRapidEnd, curEnd);
             else
                 clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'});
             end
 
-            % Phase 3 Feed profile
+            % -----------------------------
+            % Phase 3: Feed profile (idxProfStart -> idxProfEnd)
+            % -----------------------------
             if idx > idxProfStart
                 curEnd = min(idx, idxProfEnd);
-                updateT('PostTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
-                updateT('PostTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
-                updateT('PostModelFeedL', app.SimPathL,      idxProfStart, curEnd);
-                updateT('PostModelFeedR', app.SimPathR,      idxProfStart, curEnd);
+                updateT('PostTowerFeedL', towerL, idxProfStart, curEnd);
+                updateT('PostTowerFeedR', towerR, idxProfStart, curEnd);
+                updateT('PostModelFeedL', pathL,  idxProfStart, curEnd);
+                updateT('PostModelFeedR', pathR,  idxProfStart, curEnd);
             else
                 clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'});
             end
 
-            % Phase 4 Lead out
+            % -----------------------------
+            % Phase 4: Lead out (idxProfEnd -> idxLeadOutEnd)
+            % -----------------------------
             if idx > idxProfEnd
                 curEnd = min(idx, idxLeadOutEnd);
-                updateT('PostTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
-                updateT('PostTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
-                updateT('PostModelLeadOutL', app.SimPathL,      idxProfEnd, curEnd);
-                updateT('PostModelLeadOutR', app.SimPathR,      idxProfEnd, curEnd);
+                updateT('PostTowerLeadOutL', towerL, idxProfEnd, curEnd);
+                updateT('PostTowerLeadOutR', towerR, idxProfEnd, curEnd);
+                updateT('PostModelLeadOutL', pathL,  idxProfEnd, curEnd);
+                updateT('PostModelLeadOutR', pathR,  idxProfEnd, curEnd);
             else
                 clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'});
             end
 
-            % Phase 5 Return
+            % -----------------------------
+            % Phase 5: Return (idxLeadOutEnd -> idx)
+            % -----------------------------
             if idx > idxLeadOutEnd
-                updateT('PostTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
-                updateT('PostTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
-                updateT('PostModelReturnL', app.SimPathL,      idxLeadOutEnd, idx);
-                updateT('PostModelReturnR', app.SimPathR,      idxLeadOutEnd, idx);
+                updateT('PostTowerReturnL', towerL, idxLeadOutEnd, idx);
+                updateT('PostTowerReturnR', towerR, idxLeadOutEnd, idx);
+                updateT('PostModelReturnL', pathL,  idxLeadOutEnd, idx);
+                updateT('PostModelReturnR', pathR,  idxLeadOutEnd, idx);
             else
                 clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'});
             end
@@ -4043,134 +4126,171 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onPostProcess(app)
 
-            %------------------------------------------------------------
-            % 1) Build / refresh simulation path data (source of truth)
-            %------------------------------------------------------------
+            % Ensure truth/semantic arrays exist
             app.generateSimulationData();
 
-            if isempty(app.SimPathL) || isempty(app.SimPathR) || ...
-                    isempty(app.SimTowerPathL) || isempty(app.SimTowerPathR)
-                uialert(app.UIFigure, 'No simulation path data available. Build a cut path first.', 'Post-Process');
+            if isempty(app.ProfileSyncL) || isempty(app.ProfileSyncR)
+                uialert(app.UIFigure, 'No synced profile available. Build profiles first.', 'Post-Process');
+                return;
+            end
+            if isempty(app.SimRawRapidL) || isempty(app.SimRawRapidR) || ...
+                    isempty(app.SimRawLeadInL) || isempty(app.SimRawLeadInR) || ...
+                    isempty(app.SimRawLeadOutL) || isempty(app.SimRawLeadOutR) || ...
+                    isempty(app.SimRawReturnL) || isempty(app.SimRawReturnR)
+                uialert(app.UIFigure, 'No semantic entry/exit segments available. Set Entry points and try again.', 'Post-Process');
                 return;
             end
 
-            nPts = size(app.SimPathL, 1);
-            if nPts < 2
-                uialert(app.UIFigure, 'Simulation path is too short to post-process.', 'Post-Process');
-                return;
+            % Inputs
+            feed  = round(app.SpinFeedRate.Value);
+            power = round(app.SpinPower.Value);
+            if isempty(feed) || ~isfinite(feed) || feed <= 0, feed = 500; end
+            if isempty(power) || ~isfinite(power) || power < 0, power = 0; end
+
+            % ------------------------------------------------------------
+            % Build PP "truth" 2D paths (Y,Z) for L/R
+            % ------------------------------------------------------------
+            profL = app.ProfileSyncL;   % Nx2 [Y Z] (synced)
+            profR = app.ProfileSyncR;
+
+            rapL  = app.SimRawRapidL;
+            rapR  = app.SimRawRapidR;
+
+            liL   = app.SimRawLeadInL;   % 2x2 [lastEntry; start]
+            liR   = app.SimRawLeadInR;
+
+            loL   = app.SimRawLeadOutL;  % 2x2 [end; entry]
+            loR   = app.SimRawLeadOutR;
+
+            retL  = app.SimRawReturnL;
+            retR  = app.SimRawReturnR;
+
+            % De-duplicate junctions so PP stepping and G-code are clean
+            % Rapid ends at entry; LeadIn starts at entry -> keep only LeadIn(2)
+            % LeadOut starts at end -> keep only LeadOut(2)
+            % Return starts at entry -> drop return(1) if it equals leadOut(2)
+            liL_emit  = liL(2:end,:);
+            liR_emit  = liR(2:end,:);
+            loL_emit  = loL(2:end,:);
+            loR_emit  = loR(2:end,:);
+
+            if size(retL,1) >= 1 && norm(retL(1,:) - loL(end,:)) < 1e-9
+                retL_emit = retL(2:end,:);
+            else
+                retL_emit = retL;
+            end
+            if size(retR,1) >= 1 && norm(retR(1,:) - loR(end,:)) < 1e-9
+                retR_emit = retR(2:end,:);
+            else
+                retR_emit = retR;
             end
 
-            %------------------------------------------------------------
-            % 2) Read PP inputs
-            %------------------------------------------------------------
-            feed  = round(app.SpinFeedRate.Value);   % mm/min
-            power = round(app.SpinPower.Value);      % spindle PWM (S-value)
+            % Full PP point sequence (this is what the G-code will follow)
+            ppL_yz = [rapL; liL_emit; profL; loL_emit; retL_emit];
+            ppR_yz = [rapR; liR_emit; profR; loR_emit; retR_emit];
 
-            if isempty(feed)  || ~isfinite(feed)  || feed <= 0,  feed  = 500; end
-            if isempty(power) || ~isfinite(power) || power < 0, power = 0;   end
+            % Indices in this PP sequence
+            nRap  = size(rapL,1);
+            nLi   = size(liL_emit,1);
+            nProf = size(profL,1);
+            nLo   = size(loL_emit,1);
 
-            %------------------------------------------------------------
-            % 3) Machine-axis path (XYZA) from sim paths
-            %    Left carriage: machine X=left(Y), Y=left(Z)
-            %    Right carriage: machine Z=right(Y), A=right(Z)
-            %------------------------------------------------------------
-            X = app.SimPathL(:,2);
-            Y = app.SimPathL(:,3);
-            Z = app.SimPathR(:,2);
-            A = app.SimPathR(:,3);
+            app.PP_RapidEndIndex    = nRap;
+            app.PP_ProfileStartIndex= nRap + nLi;          % first profile point in PP path
+            app.PP_ProfileEndIndex  = nRap + nLi + nProf;  % last profile point in PP path
+            app.PP_LeadOutEndIndex  = nRap + nLi + nProf + nLo;
 
-            %------------------------------------------------------------
-            % 4) Key phase indices from generateSimulationData()
-            %------------------------------------------------------------
-            idxRapidEnd   = app.SimRapidCutoffIndex;
-            idxProfStart  = app.SimProfileStartIndex;
-            idxProfEnd    = app.SimFeedEndIndex;
-            idxLeadOutEnd = app.SimLeadOutEndIndex;
+            % ------------------------------------------------------------
+            % Convert PP points to 3D paths for plotting (constant X planes)
+            % ------------------------------------------------------------
+            if ~isempty(app.LeftProfilePoints),  baseXL = app.LeftProfilePoints(1,1);  else, baseXL = app.MachineBilletPos(1);    end
+            if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
 
-            % Clamp indices safely
-            idxRapidEnd   = max(1, min(idxRapidEnd,   nPts));
-            idxProfStart  = max(1, min(idxProfStart,  nPts));
-            idxProfEnd    = max(1, min(idxProfEnd,    nPts));
-            idxLeadOutEnd = max(1, min(idxLeadOutEnd, nPts));
+            xL_val = baseXL + app.BilletShift(1) + app.MachineBilletPos(1);
+            xR_val = baseXR + app.BilletShift(1) + app.MachineBilletPos(1);
 
-            % Ensure ordering is sensible (avoid edge cases)
-            idxProfStart  = max(idxProfStart, idxRapidEnd);
-            idxProfEnd    = max(idxProfEnd,   idxProfStart);
-            idxLeadOutEnd = max(idxLeadOutEnd,idxProfEnd);
+            app.PP_PathL = [repmat(xL_val, size(ppL_yz,1), 1), ppL_yz(:,1), ppL_yz(:,2)];
+            app.PP_PathR = [repmat(xR_val, size(ppR_yz,1), 1), ppR_yz(:,1), ppR_yz(:,2)];
 
-            %------------------------------------------------------------
-            % 5) Helpers
-            %------------------------------------------------------------
+            % Tower paths for Post plot
+            V = app.PP_PathR - app.PP_PathL;
+            tL = -app.PP_PathL(:,1) ./ V(:,1);
+            app.PP_TowerPathL = app.PP_PathL + tL .* V;
+
+            mSpan = app.MachineSpanX;
+            tR = (mSpan - app.PP_PathL(:,1)) ./ V(:,1);
+            app.PP_TowerPathR = app.PP_PathL + tR .* V;
+
+            % ------------------------------------------------------------
+            % Build Mach4 G-code from PP path
+            % ------------------------------------------------------------
+            % Machine mapping:
+            %   X = Left(Y),  Y = Left(Z),  Z = Right(Y),  A = Right(Z)
+            X = ppL_yz(:,1);
+            Y = ppL_yz(:,2);
+            Z = ppR_yz(:,1);
+            A = ppR_yz(:,2);
+
             fmtMove = @(g,i) sprintf('%s X%.3f Y%.3f Z%.3f A%.3f', g, X(i), Y(i), Z(i), A(i));
 
             lines = strings(0,1);
-            map   = zeros(0,1);  % line -> path index (NaN for non-motion)
+            map   = zeros(0,1);   % line -> PP path index (NaN for non-motion)
 
-            %------------------------------------------------------------
-            % 6) Header / modal setup (Mach4-friendly)
-            %------------------------------------------------------------
+            % Header
             lines(end+1) = "(HotWireSTEP Post-Processor)";
             map(end+1)   = NaN;
-
             lines(end+1) = "G21  (mm)";
             map(end+1)   = NaN;
-
             lines(end+1) = "G90  (absolute)";
             map(end+1)   = NaN;
-
             lines(end+1) = "G94  (feed per minute)";
             map(end+1)   = NaN;
-
             lines(end+1) = "";
             map(end+1)   = NaN;
 
-            %------------------------------------------------------------
-            % 7) Emit moves + insert M301/M302 at the correct boundaries
-            %
-            % Strategy:
-            %   i <= idxRapidEnd                 => G0
-            %   idxRapidEnd < i <= idxLeadOutEnd => G1
-            %   i > idxLeadOutEnd                => G0
-            %
-            % Insert:
-            %   after idxRapidEnd:  S### M301  and then G1 F###
-            %   after idxLeadOutEnd: M302
-            %------------------------------------------------------------
-            for i = 1:nPts
+            % Emit motion lines by phase
+            for i = 1:size(ppL_yz,1)
 
-                if i <= idxRapidEnd
-                    g = "G0";
-                elseif i <= idxLeadOutEnd
-                    g = "G1";
-                else
-                    g = "G0";
+                % Rapid phase (semantic): G0
+                if i <= app.PP_RapidEndIndex
+                    lines(end+1) = string(fmtMove("G0", i));
+                    map(end+1)   = i;
+
+                    % Insert ON after reaching last entry point
+                    if i == app.PP_RapidEndIndex
+                        lines(end+1) = sprintf("S%d M301", power);
+                        map(end+1)   = NaN;
+
+                        lines(end+1) = sprintf("G1 F%d", feed);
+                        map(end+1)   = NaN;
+                    end
+                    continue;
                 end
 
-                lines(end+1) = string(fmtMove(g, i));
+                % Lead-in + profile + lead-out: G1
+                if i <= app.PP_LeadOutEndIndex
+                    lines(end+1) = string(fmtMove("G1", i));
+                    map(end+1)   = i;
+
+                    % Insert OFF after reaching lead-out end (back to entry)
+                    if i == app.PP_LeadOutEndIndex
+                        lines(end+1) = "M302";
+                        map(end+1)   = NaN;
+                    end
+                    continue;
+                end
+
+                % Return: G0
+                lines(end+1) = string(fmtMove("G0", i));
                 map(end+1)   = i;
-
-                if i == idxRapidEnd
-                    lines(end+1) = sprintf("S%d M301", power);
-                    map(end+1)   = NaN;
-
-                    lines(end+1) = sprintf("G1 F%d", feed);
-                    map(end+1)   = NaN;
-                end
-
-                if i == idxLeadOutEnd
-                    lines(end+1) = "M302";
-                    map(end+1)   = NaN;
-                end
             end
 
             lines(end+1) = "M30";
             map(end+1)   = NaN;
 
-            %------------------------------------------------------------
-            % 8) Store + show in UI
-            %------------------------------------------------------------
-            app.PP_GCodeLines       = lines;
-            app.PP_LineToPathIndex  = map;
+            % Store + show in UI
+            app.PP_GCodeLines      = lines;
+            app.PP_LineToPathIndex = map;
 
             if ~isempty(app.ListGCode) && isvalid(app.ListGCode)
                 app.ListGCode.Items = cellstr(lines);
@@ -4184,19 +4304,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BtnSaveGCode.Enable = 'on';
             end
 
-            %------------------------------------------------------------
-            % 9) Plot init + update
-            %    Robust: clone sim scene into post scene.
-            %------------------------------------------------------------
-            % Ensure sim plot scene exists so AxSim has children to copy
+            % Plot init + first update
             if isempty(app.AxSim.Children)
                 app.initSimulationPlot();
             end
-
-            % Clone to Post (your initPostPlot does copyobj + rename tags)
             app.initPostPlot();
-
-            % Update dynamic elements based on selected line
             app.updatePostPlotForSelectedLine(1);
 
         end
