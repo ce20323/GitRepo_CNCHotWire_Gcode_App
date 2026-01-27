@@ -4314,11 +4314,26 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onPostLineSelected(app, src)
-            % Find selected line index
-            items = string(src.Items);
-            val   = string(src.Value);
-            k = find(items == val, 1, 'first');
-            if isempty(k), k = 1; end
+            % Use index, NOT string matching (lines repeat!)
+            items = src.Items;
+            if isempty(items)
+                return;
+            end
+
+            % App Designer listbox: Value is the selected item text
+            % Find ALL matches and choose the one closest to current index
+            val = src.Value;
+            matches = find(strcmp(items, val));
+
+            if isempty(matches)
+                k = 1;
+            elseif isempty(app.PP_SelectedLine)
+                k = matches(1);
+            else
+                % pick the closest match to current index
+                [~, ii] = min(abs(matches - app.PP_SelectedLine));
+                k = matches(ii);
+            end
 
             app.PP_SelectedLine = k;
             app.updatePostPlotForSelectedLine(k);
@@ -4329,20 +4344,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            items = app.ListGCode.Items;
-            % Current index
-            cur = find(strcmp(items, app.ListGCode.Value), 1, 'first');
-            if isempty(cur), cur = 1; end
+            n = numel(app.ListGCode.Items);
 
-            nxt = max(1, min(numel(items), cur + delta));
+            % Always step using the stored index
+            if isempty(app.PP_SelectedLine) || app.PP_SelectedLine < 1
+                cur = 1;
+            else
+                cur = app.PP_SelectedLine;
+            end
 
-            app.ListGCode.Value = items{nxt};
+            nxt = max(1, min(n, cur + delta));
+
+            % Update state FIRST
             app.PP_SelectedLine = nxt;
 
-            % Trigger update (same as click)
+            % Push index -> UI (never infer index from UI)
+            app.ListGCode.Value = app.ListGCode.Items{nxt};
+
+            % Update plot
             app.updatePostPlotForSelectedLine(nxt);
         end
-        
+
         function onKeyPress(app, ~, event)
             % Only handle keys when Post tab is active
             if isempty(app.TabGroup) || app.TabGroup.SelectedTab ~= app.TabPostProcess
@@ -4362,6 +4384,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 case 'pageup'
                     app.stepPostLine(-10);
             end
+
         end
 
         function onSaveGCode(app)
