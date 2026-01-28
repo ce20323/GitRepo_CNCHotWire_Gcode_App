@@ -294,6 +294,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimRawLeadOutR
         SimRawReturnL   % Kx2 semantic return points
         SimRawReturnR
+        % --- Distance-based simulation stepping ---
+        SimArcLenL          % cumulative arc length (model left)
+        SimArcLenR          % cumulative arc length (model right)
+        SimTotalLength      % total cut length (scalar)
+        SimStepDist = 2.0   % mm per simulation step (tweakable)
+        SimPlayDist = 0     % current distance cursor
 
         % ---------- Post-Process Tab ----------
         TabPostProcess
@@ -3367,7 +3373,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         % SIMULATION TAB LOGIC
         % ===========================================================
         function generateSimulationData(app)
-            % Compiles the full toolpath (Rapid + LeadIn + Feed + LeadOut + Return)
+            % Compiles toolpath and syncs L/R for simulation
+
+            fprintf('--- DEBUG: Generating Simulation Data ---\n');
 
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
@@ -3378,140 +3386,123 @@ classdef HotWireSTEPApp_v6_2 < handle
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % 2. Sync (THIS is your "truth" matched profile)
+            % 2. Sync Profiles
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
 
-            % ------------------------------------------------------------
-            % STORE TRUTH PROFILE (synced; do not modify in post)
-            % ------------------------------------------------------------
-            app.ProfileSyncL = [yL(:), zL(:)];   % Nx2 [Y Z]
-            app.ProfileSyncR = [yR(:), zR(:)];   % Nx2 [Y Z]
+            app.ProfileSyncL = [yL(:), zL(:)];
+            app.ProfileSyncR = [yR(:), zR(:)];
 
-            % --- HELPERS ---
-
-            % A1. Build Rapid In (Zero -> ... -> Last Entry)
+            % --- HELPERS (Raw Segments) ---
             function pts = buildRapidIn(entry1, entry2)
-                pZero    = [0, 0];
-                pSafe    = [10, 10];
-                pLoad    = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-                pRetract = [pLoad(1)-10, pLoad(2)];
-
-                pts = [pZero; pSafe; pLoad; pRetract];
-                if ~isempty(entry1), pts = [pts; entry1]; end
-                if ~isempty(entry2), pts = [pts; entry2]; end
+                pZero=[0,0]; pSafe=[10,10];
+                pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+                pRetract=[pLoad(1)-10, pLoad(2)];
+                pts=[pZero; pSafe; pLoad; pRetract];
+                if ~isempty(entry1), pts=[pts; entry1]; end
+                if ~isempty(entry2), pts=[pts; entry2]; end
             end
 
-            % A2. Build Lead In (Last Entry -> Start)
             function pts = buildLeadIn(startPt, entry1, entry2)
-                % Start where RapidIn ended
-                lastPt = [];
-                pLoad = [app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-                pRetract = [pLoad(1)-10, pLoad(2)];
-
-                if ~isempty(entry2), lastPt = entry2;
-                elseif ~isempty(entry1), lastPt = entry1;
-                else, lastPt = pRetract; end
-
-                pts = [lastPt; startPt];
+                lastPt=[];
+                pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
+                pRetract=[pLoad(1)-10, pLoad(2)];
+                if ~isempty(entry2), lastPt=entry2; elseif ~isempty(entry1), lastPt=entry1; else, lastPt=pRetract; end
+                pts=[lastPt; startPt];
             end
 
-            % B. Lead Out (End -> First Return Point)
             function pts = buildLeadOut(endPt, entry1, entry2)
-                firstRet = endPt;
-                if ~isempty(entry2), firstRet = entry2;
-                elseif ~isempty(entry1), firstRet = entry1; end
-                pts = [endPt; firstRet];
+                firstRet=endPt;
+                if ~isempty(entry2), firstRet=entry2; elseif ~isempty(entry1), firstRet=entry1; end
+                pts=[endPt; firstRet];
             end
 
-            % C. Rapid Return (First Return Point -> Home)
             function pts = buildRapidReturn(endPt, entry1, entry2)
-                pZero = [0,0];
-                firstRet = endPt;
-                if ~isempty(entry2), firstRet = entry2;
-                elseif ~isempty(entry1), firstRet = entry1; end
-
-                pts = firstRet;
+                pZero=[0,0]; firstRet=endPt;
+                if ~isempty(entry2), firstRet=entry2; elseif ~isempty(entry1), firstRet=entry1; end
+                pts=firstRet;
                 if ~isempty(entry2) && ~isempty(entry1), pts=[pts; entry1]; end
-
-                pHomeY = [0, pts(end,2)];
-                pts = [pts; pHomeY; pZero];
+                pHomeY=[0, pts(end,2)]; pts=[pts; pHomeY; pZero];
             end
 
-            % D. Interpolator (Sim-only smoothing)
-            function [upY, upZ] = interpolatePath(pts)
-                if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
-                dists = sqrt(sum(diff(pts,1,1).^2, 2));
-                pts = pts([true; dists > 1e-6], :);
-                if size(pts,1) < 2, upY=pts(:,1); upZ=pts(:,2); return; end
-                d = [0; cumsum(sqrt(sum(diff(pts,1,1).^2, 2)))];
-                stepSize = 2.0;
-                numSteps = max(20, round(d(end) / stepSize));
-                query = linspace(0, d(end), numSteps)';
-                upY = interp1(d, pts(:,1), query);
-                upZ = interp1(d, pts(:,2), query);
-            end
+            % --- GENERATE RAW SEGMENTS ---
+            rawRapL = buildRapidIn(app.EntryPointL, app.EntryPoint2L);
+            rawRapR = buildRapidIn(app.EntryPointR, app.EntryPoint2R);
+            app.SimRawRapidL = rawRapL; app.SimRawRapidR = rawRapR;
 
-            % --- GENERATE SEGMENTS ---
-
-            % 1. Rapid In (Yellow)
-            rawRapL = buildRapidIn(app.EntryPointL,  app.EntryPoint2L);
-            rawRapR = buildRapidIn(app.EntryPointR,  app.EntryPoint2R);
-
-            % ------------------------------------------------------------
-            % STORE SEMANTIC (RAW) SEGMENTS (for post-processor)
-            % ------------------------------------------------------------
-            app.SimRawRapidL = rawRapL;
-            app.SimRawRapidR = rawRapR;
-
-            [rapY_L, rapZ_L] = interpolatePath(rawRapL); [rapY_R, rapZ_R] = interpolatePath(rawRapR);
-
-            % 2. Lead In (Orange)
             rawLeadInL = buildLeadIn([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
             rawLeadInR = buildLeadIn([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
+            app.SimRawLeadInL = rawLeadInL; app.SimRawLeadInR = rawLeadInR;
 
-            app.SimRawLeadInL = rawLeadInL;
-            app.SimRawLeadInR = rawLeadInR;
-
-            [liY_L, liZ_L] = interpolatePath(rawLeadInL); [liY_R, liZ_R] = interpolatePath(rawLeadInR);
-
-            % 3. Profile (truth points)
             profY_L = yL; profZ_L = zL; profY_R = yR; profZ_R = zR;
 
-            % 4. Lead Out (Orange Dashed)
             rawLeadOutL = buildLeadOut([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
             rawLeadOutR = buildLeadOut([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+            app.SimRawLeadOutL = rawLeadOutL; app.SimRawLeadOutR = rawLeadOutR;
 
-            app.SimRawLeadOutL = rawLeadOutL;
-            app.SimRawLeadOutR = rawLeadOutR;
-
-            [loY_L, loZ_L] = interpolatePath(rawLeadOutL); [loY_R, loZ_R] = interpolatePath(rawLeadOutR);
-
-            % 5. Rapid Return (Yellow Dashed)
             rawRetL = buildRapidReturn([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
             rawRetR = buildRapidReturn([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+            app.SimRawReturnL = rawRetL; app.SimRawReturnR = rawRetR;
 
-            app.SimRawReturnL = rawRetL;
-            app.SimRawReturnR = rawRetR;
+            % Helper: Resample and Sync Two Paths to matching step count
+            function [L_out, R_out] = interpolateSynced(L_pts, R_pts)
+                if size(L_pts,1)<2 || size(R_pts,1)<2
+                    L_out = L_pts; R_out = R_pts; return;
+                end
 
-            % Stitch for continuity (sim-only)
-            rawRetL = [[loY_L(end), loZ_L(end)]; rawRetL];
-            rawRetR = [[loY_R(end), loZ_R(end)]; rawRetR];
-            [retY_L, retZ_L] = interpolatePath(rawRetL); [retY_R, retZ_R] = interpolatePath(rawRetR);
+                % Lengths
+                dL = sum(sqrt(sum(diff(L_pts).^2, 2)));
+                dR = sum(sqrt(sum(diff(R_pts).^2, 2)));
+                maxLen = max(dL, dR);
 
-            % --- INDICES (sim display indices) ---
-            app.SimRapidCutoffIndex  = numel(rapY_L);
-            app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(liY_L);
+                % Step size 2mm -> N steps
+                N = max(20, round(maxLen / 2.0));
+
+                % Interpolate L
+                distL = [0; cumsum(sqrt(sum(diff(L_pts).^2, 2)))];
+                % Guard against duplicate points causing distL to have repeats (interp1 error)
+                [distL, uIdx] = unique(distL, 'stable');
+                L_pts = L_pts(uIdx, :);
+
+                targetL = linspace(0, distL(end), N)';
+                yL_new = interp1(distL, L_pts(:,1), targetL);
+                zL_new = interp1(distL, L_pts(:,2), targetL);
+                L_out = [yL_new, zL_new];
+
+                % Interpolate R (forcing same N)
+                distR = [0; cumsum(sqrt(sum(diff(R_pts).^2, 2)))];
+                [distR, uIdxR] = unique(distR, 'stable');
+                R_pts = R_pts(uIdxR, :);
+
+                targetR = linspace(0, distR(end), N)';
+                yR_new = interp1(distR, R_pts(:,1), targetR);
+                zR_new = interp1(distR, R_pts(:,2), targetR);
+                R_out = [yR_new, zR_new];
+            end
+
+            % --- INTERPOLATE & SYNC PHASES ---
+            [rapL_i, rapR_i] = interpolateSynced(rawRapL, rawRapR);
+            [liL_i,  liR_i]  = interpolateSynced(rawLeadInL, rawLeadInR);
+            [loL_i,  loR_i]  = interpolateSynced(rawLeadOutL, rawLeadOutR);
+
+            % Return stitch (manual)
+            retL_stitch = [[loL_i(end,:)]; rawRetL];
+            retR_stitch = [[loR_i(end,:)]; rawRetR];
+            [retL_i, retR_i] = interpolateSynced(retL_stitch, retR_stitch);
+
+            % --- INDICES ---
+            app.SimRapidCutoffIndex  = size(rapL_i, 1);
+            app.SimProfileStartIndex = app.SimRapidCutoffIndex + size(liL_i, 1);
             app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(profY_L);
-            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + numel(loY_L);
+            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + size(loL_i, 1);
 
-            % --- COMBINE (sim display path) ---
-            fullY_L = [rapY_L; liY_L; profY_L; loY_L; retY_L];
-            fullZ_L = [rapZ_L; liZ_L; profZ_L; loZ_L; retZ_L];
+            % --- COMBINE ---
+            fullY_L = [rapL_i(:,1); liL_i(:,1); profY_L; loL_i(:,1); retL_i(:,1)];
+            fullZ_L = [rapL_i(:,2); liL_i(:,2); profZ_L; loL_i(:,2); retL_i(:,2)];
 
-            fullY_R = [rapY_R; liY_R; profY_R; loY_R; retY_R];
-            fullZ_R = [rapZ_R; liZ_R; profZ_R; loZ_R; retZ_R];
+            fullY_R = [rapR_i(:,1); liR_i(:,1); profY_R; loR_i(:,1); retR_i(:,1)];
+            fullZ_R = [rapR_i(:,2); liR_i(:,2); profZ_R; loR_i(:,2); retR_i(:,2)];
 
-            % --- STORE (sim display 3D paths) ---
+            % --- STORE 3D PATHS ---
             if ~isempty(app.LeftProfilePoints),  baseXL = app.LeftProfilePoints(1,1);  else, baseXL = app.MachineBilletPos(1);    end
             if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
 
@@ -3520,6 +3511,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
             app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
+
+            % --- CALCULATE ARC LENGTH ---
+            dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL))=0;
+            dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR))=0;
+
+            app.SimArcLenL = [0; cumsum(dL)];
+            app.SimArcLenR = [0; cumsum(dR)];
+            app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
+            app.SimPlayDist = 0;
+
+            fprintf('DEBUG: Sim Generated. Points L:%d R:%d. Len: %.2f mm\n', ...
+                size(app.SimPathL,1), size(app.SimPathR,1), app.SimTotalLength);
 
             % Towers (sim)
             V = app.SimPathR - app.SimPathL;
@@ -3530,7 +3533,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             tR = (mSpan - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % Init
+            % Init Slider
             app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
             app.SimSlider.Value = 1;
             app.initSimulationPlot();
@@ -3677,106 +3680,22 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onSimSliderChanging(app, src)
+            % USER INTERACTION: User drags slider -> Update Distance & Plot
+
             idx = round(src.Value);
+
+            % Validating index
             if isempty(app.SimPathL), return; end
-            idx = min(idx, size(app.SimPathL, 1));
+            idx = max(1, min(idx, size(app.SimPathL, 1)));
 
-            offX = app.MachineBedPos(1);
-
-            % Indices for Phase Transitions
-            idxRapidEnd   = app.SimRapidCutoffIndex;
-            idxProfStart  = app.SimProfileStartIndex;
-            idxProfEnd    = app.SimFeedEndIndex;
-            idxLeadOutEnd = app.SimLeadOutEndIndex;
-
-            % --- HELPERS ---
-            function updateT(tag, data, s, e)
-                h = findobj(app.AxSim, 'Tag', tag);
-                if ~isempty(h)
-                    dt = data(s:e, :) - [offX, 0, 0];
-                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
-                end
+            % SYNC: Since USER moved the slider, we must update the physics distance
+            % to match this new location, so Play resumes from here.
+            if ~isempty(app.SimArcLenL) && idx <= numel(app.SimArcLenL)
+                app.SimPlayDist = app.SimArcLenL(idx);
             end
 
-            function clearT(tags)
-                for i=1:numel(tags)
-                    h = findobj(app.AxSim, 'Tag', tags{i});
-                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
-                end
-            end
-
-            % 1. WIRE & DOTS (Always at current idx)
-            pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
-            pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
-
-            hWire = findobj(app.AxSim, 'Tag', 'SimWire');
-            if ~isempty(hWire), hWire.XData=[pTL(1),pTR(1)]; hWire.YData=[pTL(2),pTR(2)]; hWire.ZData=[pTL(3),pTR(3)]; end
-
-            hDotL = findobj(app.AxSim, 'Tag', 'SimDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
-            hDotR = findobj(app.AxSim, 'Tag', 'SimDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
-
-            pML = app.SimPathL(idx, :) - [offX, 0, 0]; pMR = app.SimPathR(idx, :) - [offX, 0, 0];
-            hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL'); if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
-            hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR'); if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
-
-            % 2. PHASE 1: RAPID (Yellow Solid)
-            % Always draws from start to current (capped at RapidEnd)
-            curEnd = min(idx, idxRapidEnd);
-            updateT('SimTowerRapidL', app.SimTowerPathL, 1, curEnd);
-            updateT('SimTowerRapidR', app.SimTowerPathR, 1, curEnd);
-            updateT('SimModelRapidL', app.SimPathL, 1, curEnd);
-            updateT('SimModelRapidR', app.SimPathR, 1, curEnd);
-
-            % 3. PHASE 2: LEAD IN (Orange Solid)
-            if idx > idxRapidEnd
-                curEnd = min(idx, idxProfStart);
-                updateT('SimTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
-                updateT('SimTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
-                updateT('SimModelLeadInL', app.SimPathL, idxRapidEnd, curEnd);
-                updateT('SimModelLeadInR', app.SimPathR, idxRapidEnd, curEnd);
-            else
-                clearT({'SimTowerLeadInL','SimTowerLeadInR','SimModelLeadInL','SimModelLeadInR'});
-            end
-
-            % 4. PHASE 3: FEED PROFILE (Red/Green Solid)
-            if idx > idxProfStart
-                curEnd = min(idx, idxProfEnd);
-                updateT('SimTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
-                updateT('SimTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
-                updateT('SimModelFeedL', app.SimPathL, idxProfStart, curEnd);
-                updateT('SimModelFeedR', app.SimPathR, idxProfStart, curEnd);
-            else
-                clearT({'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
-            end
-
-            % 5. PHASE 4: LEAD OUT (Orange Dashed)
-            if idx > idxProfEnd
-                curEnd = min(idx, idxLeadOutEnd);
-                updateT('SimTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
-                updateT('SimTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
-                updateT('SimModelLeadOutL', app.SimPathL, idxProfEnd, curEnd);
-                updateT('SimModelLeadOutR', app.SimPathR, idxProfEnd, curEnd);
-            else
-                clearT({'SimTowerLeadOutL','SimTowerLeadOutR','SimModelLeadOutL','SimModelLeadOutR'});
-            end
-
-            % 6. PHASE 5: RETURN (Yellow Dashed)
-            if idx > idxLeadOutEnd
-                updateT('SimTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
-                updateT('SimTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
-                updateT('SimModelReturnL', app.SimPathL, idxLeadOutEnd, idx);
-                updateT('SimModelReturnR', app.SimPathR, idxLeadOutEnd, idx);
-            else
-                clearT({'SimTowerReturnL','SimTowerReturnR','SimModelReturnL','SimModelReturnR'});
-            end
-
-            % 7. Readouts
-            if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
-            if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
-            if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
-            if ~isempty(app.LblReadoutA), app.LblReadoutA.Text = sprintf('%.2f', pTR(3)); end
-
-            drawnow limitrate;
+            % Update Visuals
+            app.updateSimVisuals(idx);
         end
 
         % HELPER: Update Trail Data
@@ -3846,13 +3765,41 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(ax, 'on');
         end
 
+        function idx = simIndexAtDistance(app, dist)
+            % Returns the simulation path index corresponding to the physical travel distance.
+
+            % Clamp to valid range
+            dist = max(0, min(dist, app.SimTotalLength));
+
+            % Find last index whose cumulative arc length <= distance
+            % Using Left tower as reference, or Left arc lengths
+            if isempty(app.SimArcLenL)
+                idx = 1;
+                return;
+            end
+
+            idx = find(app.SimArcLenL <= dist, 1, 'last');
+
+            if isempty(idx)
+                idx = 1;
+            end
+
+            % Safety clamp
+            idx = min(idx, size(app.SimPathL,1));
+        end
+
         % ===========================================================
         % SIMULATION PLAYBACK
         % ===========================================================
         function onSimPlay(app)
             % Start/Resume Timer
+            
             if isempty(app.SimPathL), return; end
-
+            % Auto-rewind if at end
+            if app.SimPlayDist >= app.SimTotalLength - 1e-3
+                app.SimPlayDist = 0;
+            end
+            
             if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
                 app.SimTimer = timer(...
                     'ExecutionMode', 'fixedRate', ...
@@ -3866,6 +3813,108 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+        function updateSimVisuals(app, idx)
+            % Updates the 3D scene elements to match the given path index
+            if isempty(app.SimPathL), return; end
+
+            idx = max(1, min(idx, size(app.SimPathL, 1)));
+            offX = app.MachineBedPos(1);
+
+            % Phase Indices
+            idxRapidEnd   = app.SimRapidCutoffIndex;
+            idxProfStart  = app.SimProfileStartIndex;
+            idxProfEnd    = app.SimFeedEndIndex;
+            idxLeadOutEnd = app.SimLeadOutEndIndex;
+
+            % --- HELPERS (Local to this function) ---
+            function updateT(tag, data, s, e)
+                h = findobj(app.AxSim, 'Tag', tag);
+                if ~isempty(h)
+                    dt = data(s:e, :) - [offX, 0, 0];
+                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
+                end
+            end
+
+            function clearT(tags)
+                for i=1:numel(tags)
+                    h = findobj(app.AxSim, 'Tag', tags{i});
+                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
+                end
+            end
+
+            % 1. MOVING ELEMENTS (Wire & Dots)
+            pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
+            pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
+
+            hWire = findobj(app.AxSim, 'Tag', 'SimWire');
+            if ~isempty(hWire), hWire.XData=[pTL(1),pTR(1)]; hWire.YData=[pTL(2),pTR(2)]; hWire.ZData=[pTL(3),pTR(3)]; end
+
+            hDotL = findobj(app.AxSim, 'Tag', 'SimDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
+            hDotR = findobj(app.AxSim, 'Tag', 'SimDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
+
+            pML = app.SimPathL(idx, :) - [offX, 0, 0]; pMR = app.SimPathR(idx, :) - [offX, 0, 0];
+            hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL'); if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
+            hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR'); if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
+
+            % 2. RAPID TRAILS (Always active up to current)
+            curEnd = min(idx, idxRapidEnd);
+            updateT('SimTowerRapidL', app.SimTowerPathL, 1, curEnd);
+            updateT('SimTowerRapidR', app.SimTowerPathR, 1, curEnd);
+            updateT('SimModelRapidL', app.SimPathL, 1, curEnd);
+            updateT('SimModelRapidR', app.SimPathR, 1, curEnd);
+
+            % 3. LEAD IN
+            if idx > idxRapidEnd
+                curEnd = min(idx, idxProfStart);
+                updateT('SimTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
+                updateT('SimTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
+                updateT('SimModelLeadInL', app.SimPathL, idxRapidEnd, curEnd);
+                updateT('SimModelLeadInR', app.SimPathR, idxRapidEnd, curEnd);
+            else
+                clearT({'SimTowerLeadInL','SimTowerLeadInR','SimModelLeadInL','SimModelLeadInR'});
+            end
+
+            % 4. FEED PROFILE
+            if idx > idxProfStart
+                curEnd = min(idx, idxProfEnd);
+                updateT('SimTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
+                updateT('SimTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
+                updateT('SimModelFeedL', app.SimPathL, idxProfStart, curEnd);
+                updateT('SimModelFeedR', app.SimPathR, idxProfStart, curEnd);
+            else
+                clearT({'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
+            end
+
+            % 5. LEAD OUT
+            if idx > idxProfEnd
+                curEnd = min(idx, idxLeadOutEnd);
+                updateT('SimTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
+                updateT('SimTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
+                updateT('SimModelLeadOutL', app.SimPathL, idxProfEnd, curEnd);
+                updateT('SimModelLeadOutR', app.SimPathR, idxProfEnd, curEnd);
+            else
+                clearT({'SimTowerLeadOutL','SimTowerLeadOutR','SimModelLeadOutL','SimModelLeadOutR'});
+            end
+
+            % 6. RETURN
+            if idx > idxLeadOutEnd
+                updateT('SimTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
+                updateT('SimTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
+                updateT('SimModelReturnL', app.SimPathL, idxLeadOutEnd, idx);
+                updateT('SimModelReturnR', app.SimPathR, idxLeadOutEnd, idx);
+            else
+                clearT({'SimTowerReturnL','SimTowerReturnR','SimModelReturnL','SimModelReturnR'});
+            end
+
+            % 7. Readouts
+            if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
+            if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
+            if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
+            if ~isempty(app.LblReadoutA), app.LblReadoutA.Text = sprintf('%.2f', pTR(3)); end
+
+            drawnow limitrate;
+        end
+
         function onSimPause(app)
             if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
                 stop(app.SimTimer);
@@ -3875,27 +3924,41 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onSimStop(app)
             app.onSimPause();
-            app.SimSlider.Value = 1;
+            app.SimPlayDist = 0;          % Reset distance
+            app.SimSlider.Value = 1;      % Reset index
             app.onSimSliderChanging(app.SimSlider); % Reset Visuals
         end
 
         function onSimTimerTick(app)
-            % Advance Slider
-            current = app.SimSlider.Value;
-            limit   = app.SimSlider.Limits(2);
+            % Distance-Based Update Logic
 
-            % Speed Multiplier
-            step = 1 + round(app.SimSpeedSpinner.Value * 5);
+            % 1. Advance distance
+            step = app.SimStepDist * app.SimSpeedSpinner.Value;
+            app.SimPlayDist = app.SimPlayDist + step;
 
-            nextVal = current + step;
-
-            if nextVal >= limit
-                nextVal = limit;
-                app.onSimPause(); % Stop at end
+            % 2. Cap at end
+            isDone = false;
+            if app.SimPlayDist >= app.SimTotalLength
+                app.SimPlayDist = app.SimTotalLength;
+                isDone = true;
             end
 
-            app.SimSlider.Value = nextVal;
-            app.onSimSliderChanging(app.SimSlider);
+            % 3. Map distance -> Index
+            idx = app.simIndexAtDistance(app.SimPlayDist);
+
+            % 4. Update Slider (Visually only)
+            app.SimSlider.Value = idx;
+
+            % 5. Update Plot (Directly, bypassing slider callback logic)
+            app.updateSimVisuals(idx);
+
+            % Debug print (Verify loop is broken)
+            % fprintf('TICK: Dist=%.1f, Idx=%d\n', app.SimPlayDist, idx);
+
+            if isDone
+                fprintf('DEBUG: Simulation Finished.\n');
+                app.onSimPause();
+            end
         end
 
         % Ensure Timer is killed when app closes
