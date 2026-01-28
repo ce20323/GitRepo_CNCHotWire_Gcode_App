@@ -946,68 +946,109 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 1. View Controls
             pnlSView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSView.Layout.Row = 1;
-            gridSView = uigridlayout(pnlSView, [1 2]); gridSView.Padding=[5 5 5 5]; gridSView.BackgroundColor=panelBg;
-            uibutton(gridSView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
-            uibutton(gridSView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
+
+            gridSView = uigridlayout(pnlSView, [1 2]);
+            gridSView.Padding=[5 5 5 5];
+            gridSView.BackgroundColor=panelBg;
+
+            btnSimViewMach = uibutton(gridSView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            btnSimViewBill = uibutton(gridSView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
 
             % 2. Playback Controls
             pnlSPlay = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSPlay.Layout.Row = 2;
 
-            % Layout: Buttons on top row, Slider + Spinner on bottom row
             gridSPlay = uigridlayout(pnlSPlay, [2 3]);
             gridSPlay.ColumnWidth={'1x','1x','1x'};
             gridSPlay.RowHeight={'fit','fit'};
-            gridSPlay.Padding=[5 5 5 5]; gridSPlay.BackgroundColor=panelBg;
+            gridSPlay.Padding=[5 5 5 5];
+            gridSPlay.BackgroundColor=panelBg;
 
             % Row 1: Buttons
             app.SimPlayBtn = uibutton(gridSPlay, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
-            uibutton(gridSPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+
+            btnSimPause = uibutton(gridSPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+
             app.SimStopBtn = uibutton(gridSPlay, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
 
-            % Row 2: Slider (Span 2) + Spinner (Span 1)
+            % Row 2: Slider + Spinner
             app.SimSlider = uislider(gridSPlay, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
-            app.SimSlider.Layout.Row = 2; app.SimSlider.Layout.Column = [1 2];
+            app.SimSlider.Layout.Row = 2;
+            app.SimSlider.Layout.Column = [1 2];
 
-            % NEW: Step Spinner
             app.SimIndexSpinner = uispinner(gridSPlay, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
-            app.SimIndexSpinner.Layout.Row = 2; app.SimIndexSpinner.Layout.Column = 3;
+            app.SimIndexSpinner.Layout.Row = 2;
+            app.SimIndexSpinner.Layout.Column = 3;
 
             % 3. Settings
             pnlSSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSSet.Layout.Row = 3;
-            gridSSet = uigridlayout(pnlSSet, [1 2]); gridSSet.ColumnWidth={'fit','1x'}; gridSSet.Padding=[5 5 5 5]; gridSSet.BackgroundColor=panelBg;
-            uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
+            gridSSet = uigridlayout(pnlSSet, [1 2]);
+            gridSSet.ColumnWidth={'fit','1x'};
+            gridSSet.Padding=[5 5 5 5];
+            gridSSet.BackgroundColor=panelBg;
+
+            lblSimSpeed = uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+
             app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
 
             % 4. Live Coordinates
             pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSCoord.Layout.Row = 4;
-            gridSCoord = uigridlayout(pnlSCoord, [3 5]); gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60}; gridSCoord.RowHeight = {'fit','fit','fit'}; gridSCoord.Padding = [5 5 5 5]; gridSCoord.BackgroundColor = panelBg;
 
-            uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center').Layout.Column = [1 2];
-            uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center').Layout.Column = [4 5];
+            gridSCoord = uigridlayout(pnlSCoord, [3 5]);
+            gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
+            gridSCoord.RowHeight = {'fit','fit','fit'};
+            gridSCoord.Padding = [5 5 5 5];
+            gridSCoord.BackgroundColor = panelBg;
 
-            uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=2;
-            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
+            lblSimHeadL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblSimHeadL.Layout.Column = [1 2];
 
-            uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=3;
-            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
+            lblSimHeadR = uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblSimHeadR.Layout.Column = [4 5];
 
-            uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=2; app.LblReadoutZ.Layout.Column=4;
-            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
+            % Row 2: X/Z
+            lblSimX = uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblSimX.Layout.Row=2;
 
-            uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=3; app.LblReadoutA.Layout.Column=4;
-            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
+            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
+
+            lblSimZ = uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblSimZ.Layout.Row=2; lblSimZ.Layout.Column=4;
+
+            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
+
+            % Row 3: Y/A
+            lblSimY = uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblSimY.Layout.Row=3;
+
+            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
+
+            lblSimA = uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblSimA.Layout.Row=3; lblSimA.Layout.Column=4;
+
+            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
             % 5. Spacer & Continue
-            uilabel(app.SimLeftPanel, 'Text', '').Layout.Row = 5;
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
+            lblSimSpacer.Layout.Row = 5;
+
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnSimContinue.Layout.Row = 6;
 
             % --- Right Panel: 3D Sim Plot ---
-            app.AxSim = uiaxes(app.GLSimulation); app.AxSim.Layout.Column = 2; app.AxSim.BackgroundColor = [0.05 0.05 0.05];
-            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z'); grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
+            app.AxSim = uiaxes(app.GLSimulation);
+            app.AxSim.Layout.Column = 2;
+            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
+            grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
 
             % ===========================================================
             % 7. POST-PROCESSOR TAB
