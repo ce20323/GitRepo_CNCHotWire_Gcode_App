@@ -211,7 +211,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetMachinePlot
         BtnMachineContinue
         MachineMessageLabel
-        
+
         % ===========================================================
         % ---------- Cutting / Passes Tab ----------
         % ===========================================================
@@ -271,7 +271,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         LblReadoutY
         LblReadoutZ
         LblReadoutA
-        
+
         % Simulation Data
         SimPathL % Nx3 Array [x, y, z] (Machine Coords)
         SimPathR % Nx3 Array [x, y, z] (Machine Coords)
@@ -943,75 +943,66 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimLeftPanel.Padding = [10 10 10 10];
             app.SimLeftPanel.BackgroundColor = sideBg;
 
-            % -- View --
+            % 1. View Controls
             pnlSView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSView.Layout.Row = 1;
-
             gridSView = uigridlayout(pnlSView, [1 2]); gridSView.Padding=[5 5 5 5]; gridSView.BackgroundColor=panelBg;
             uibutton(gridSView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
             uibutton(gridSView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
 
-            % -- Playback --
+            % 2. Playback Controls
             pnlSPlay = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSPlay.Layout.Row = 2;
 
-            % [FIX] Explicit RowHeight to keep buttons from stretching and cropping the slider
+            % Layout: Buttons on top row, Slider + Spinner on bottom row
             gridSPlay = uigridlayout(pnlSPlay, [2 3]);
             gridSPlay.ColumnWidth={'1x','1x','1x'};
-            gridSPlay.RowHeight={'fit','fit'}; % <-- ADDED
-            gridSPlay.Padding=[5 5 5 5];
-            gridSPlay.BackgroundColor=panelBg;
+            gridSPlay.RowHeight={'fit','fit'};
+            gridSPlay.Padding=[5 5 5 5]; gridSPlay.BackgroundColor=panelBg;
 
+            % Row 1: Buttons
             app.SimPlayBtn = uibutton(gridSPlay, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
             uibutton(gridSPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
             app.SimStopBtn = uibutton(gridSPlay, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
 
+            % Row 2: Slider (Span 2) + Spinner (Span 1)
             app.SimSlider = uislider(gridSPlay, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
-            app.SimSlider.Layout.Row = 2; app.SimSlider.Layout.Column = [1 3];
+            app.SimSlider.Layout.Row = 2; app.SimSlider.Layout.Column = [1 2];
 
-            % -- Settings --
+            % NEW: Step Spinner
+            app.SimIndexSpinner = uispinner(gridSPlay, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
+            app.SimIndexSpinner.Layout.Row = 2; app.SimIndexSpinner.Layout.Column = 3;
+
+            % 3. Settings
             pnlSSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSSet.Layout.Row = 3;
-
             gridSSet = uigridlayout(pnlSSet, [1 2]); gridSSet.ColumnWidth={'fit','1x'}; gridSSet.Padding=[5 5 5 5]; gridSSet.BackgroundColor=panelBg;
-
-            lblSSpeed = uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
             app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
 
-            % -- Readouts --
+            % 4. Live Coordinates
             pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSCoord.Layout.Row = 4;
-
             gridSCoord = uigridlayout(pnlSCoord, [3 5]); gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60}; gridSCoord.RowHeight = {'fit','fit','fit'}; gridSCoord.Padding = [5 5 5 5]; gridSCoord.BackgroundColor = panelBg;
 
-            lblHeaderL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblHeaderL.Layout.Column = [1 2];
-            lblHeaderR = uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center'); lblHeaderR.Layout.Column = [4 5];
+            uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center').Layout.Column = [1 2];
+            uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center').Layout.Column = [4 5];
 
-            % [FIX] Explicit Column=1 for labels to prevent misalignment
-            % Left X/Y
-            lblXL = uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblXL.Layout.Row = 2; lblXL.Layout.Column = 1; % <-- Explicit
-            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
+            uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=2;
+            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
 
-            lblYL = uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblYL.Layout.Row = 3; lblYL.Layout.Column = 1; % <-- Explicit
-            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
+            uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=3;
+            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
 
-            % Right Z/A
-            lblZR = uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right'); lblZR.Layout.Row = 2; lblZR.Layout.Column=4;
-            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
+            uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=2; app.LblReadoutZ.Layout.Column=4;
+            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
 
-            lblAR = uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right'); lblAR.Layout.Row = 3; lblAR.Layout.Column=4;
-            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'HorizontalAlignment','left'); app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
+            uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right').Layout.Row=3; app.LblReadoutA.Layout.Column=4;
+            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol); app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
-            % -- Generate G-Code --
-            lblSSpacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lblSSpacer.Layout.Row = 5; % Spring
-
-            % 6. CONTINUE (Updated to match other tabs)
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', ...
-                'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
+            % 5. Spacer & Continue
+            uilabel(app.SimLeftPanel, 'Text', '').Layout.Row = 5;
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnSimContinue.Layout.Row = 6;
 
             % --- Right Panel: 3D Sim Plot ---
@@ -1078,7 +1069,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Process Button
             app.BtnPostProcess = uibutton(gridPExp, 'Text','Post-Process', 'FontWeight','bold', ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
-            
+
             % 4. G-CODE VIEWER (scroll + click lines)
             app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','G-Code', ...
                 'FontWeight','bold', 'BorderType','line');
@@ -1278,7 +1269,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value,'Tapered');
-            app.clearProfiles(); app.clearProfiles2D(); 
+            app.clearProfiles(); app.clearProfiles2D();
             app.SelectedStartIdxL = 1; app.SelectedStartIdxR = 1;
             V = app.ModelPatch.Vertices; F = app.ModelPatch.Faces;
             spanX = max(V(:,1)) - min(V(:,1)); epsX = 1e-6 * max(spanX, 1);
@@ -2233,14 +2224,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif currTab == app.TabMachine
                 % Transition Machine -> Cutting
                 app.TabGroup.SelectedTab = app.TabCutting;
-                
+
                 % Auto-Execute
-                app.onAutoStart(); 
+                app.onAutoStart();
                 app.onAutoEntry();
-                
+
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();;
-            
+
             elseif currTab == app.TabCutting
                 % Leave Cutting -> Enter Simulation
                 app.resetInteractionState(); % <--- ADD THIS
@@ -2248,7 +2239,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.TabGroup.SelectedTab = app.TabSimulation;
                 app.applyTheme();
                 app.generateSimulationData();
-            
+
             elseif currTab == app.TabSimulation
                 % Transition Simulation -> Post Process
                 app.TabGroup.SelectedTab = app.TabPostProcess;
@@ -3329,18 +3320,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             v = pNext - pCurrent;
             len = norm(v);
             if len < 1e-6, return; end
-            
+
             % Normalize
             u = v / len;
             scale = 4; % Size mm
-            
+
             % Geometry
             if strcmp(type, 'start')
                 % Forward pointing triangle (Green)
                 % Tip at (0,0), base at (-1, 0.5)
                 % To point "along" the line, we want the tip pointing in direction U
                 % So geometry: Base at back, Tip at front
-                xPoly = [0, -1, -1] * scale; 
+                xPoly = [0, -1, -1] * scale;
                 yPoly = [0, 0.5, -0.5] * scale;
                 colFill = 'none'; colEdge = [0 1 0]; % Hollow Green
             else
@@ -3350,15 +3341,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 yPoly = [0, 0.5, -0.5] * scale;
                 colFill = 'none'; colEdge = [1 0 0]; % Hollow Red
             end
-            
+
             % Rotation
             theta = atan2(u(2), u(1));
             R = [cos(theta), -sin(theta); sin(theta), cos(theta)];
             ptsRot = R * [xPoly; yPoly];
-            
+
             % Translate
             ptsFinal = ptsRot + pCurrent(:);
-            
+
             hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), 'k', ...
                 'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
         end
@@ -3370,612 +3361,334 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
-        % SIMULATION TAB LOGIC
+        % SIMULATION LOGIC (Final Clean Version)
         % ===========================================================
+
         function generateSimulationData(app)
-            % Compiles toolpath and syncs L/R for simulation
-
-            fprintf('--- DEBUG: Generating Simulation Data ---\n');
-
+            % 1. Setup & Profile Extraction
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % 1. Process Profiles
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % 2. Sync Profiles
+            % Sync Geometry (TRUTH)
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
-
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
-            % --- HELPERS (Raw Segments) ---
-            function pts = buildRapidIn(entry1, entry2)
+            % 2. Define Helper Functions for Segments
+            function pts = mkRapid(e1, e2)
                 pZero=[0,0]; pSafe=[10,10];
-                pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-                pRetract=[pLoad(1)-10, pLoad(2)];
-                pts=[pZero; pSafe; pLoad; pRetract];
-                if ~isempty(entry1), pts=[pts; entry1]; end
-                if ~isempty(entry2), pts=[pts; entry2]; end
+                pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
+                pRet=[pLoad(1)-10, pLoad(2)];
+                pts=[pZero; pSafe; pLoad; pRet];
+                if ~isempty(e1), pts=[pts; e1]; end
+                if ~isempty(e2), pts=[pts; e2]; end
             end
 
-            function pts = buildLeadIn(startPt, entry1, entry2)
-                lastPt=[];
-                pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3) + app.BilletSize(3)/2];
-                pRetract=[pLoad(1)-10, pLoad(2)];
-                if ~isempty(entry2), lastPt=entry2; elseif ~isempty(entry1), lastPt=entry1; else, lastPt=pRetract; end
-                pts=[lastPt; startPt];
+            function pts = mkLeadIn(start, e1, e2)
+                pRet=[app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2];
+                if ~isempty(e2), last=e2; elseif ~isempty(e1), last=e1; else, last=pRet; end
+                pts=[last; start];
             end
 
-            function pts = buildLeadOut(endPt, entry1, entry2)
-                firstRet=endPt;
-                if ~isempty(entry2), firstRet=entry2; elseif ~isempty(entry1), firstRet=entry1; end
-                pts=[endPt; firstRet];
+            function pts = mkLeadOut(en, e1, e2)
+                first=en;
+                if ~isempty(e2), first=e2; elseif ~isempty(e1), first=e1; end
+                pts=[en; first];
             end
 
-            function pts = buildRapidReturn(endPt, entry1, entry2)
-                pZero=[0,0]; firstRet=endPt;
-                if ~isempty(entry2), firstRet=entry2; elseif ~isempty(entry1), firstRet=entry1; end
-                pts=firstRet;
-                if ~isempty(entry2) && ~isempty(entry1), pts=[pts; entry1]; end
-                pHomeY=[0, pts(end,2)]; pts=[pts; pHomeY; pZero];
+            function pts = mkReturn(en, e1, e2)
+                pts=en;
+                if ~isempty(e2) && ~isempty(e1), pts=[pts; e1]; end
+                pts=[pts; [0, pts(end,2)]; [0,0]];
             end
 
-            % --- GENERATE RAW SEGMENTS ---
-            rawRapL = buildRapidIn(app.EntryPointL, app.EntryPoint2L);
-            rawRapR = buildRapidIn(app.EntryPointR, app.EntryPoint2R);
-            app.SimRawRapidL = rawRapL; app.SimRawRapidR = rawRapR;
+            % 3. Generate Raw Semantic Segments
+            app.SimRawRapidL = mkRapid(app.EntryPointL, app.EntryPoint2L);
+            app.SimRawRapidR = mkRapid(app.EntryPointR, app.EntryPoint2R);
 
-            rawLeadInL = buildLeadIn([yL(1), zL(1)], app.EntryPointL, app.EntryPoint2L);
-            rawLeadInR = buildLeadIn([yR(1), zR(1)], app.EntryPointR, app.EntryPoint2R);
-            app.SimRawLeadInL = rawLeadInL; app.SimRawLeadInR = rawLeadInR;
+            app.SimRawLeadInL = mkLeadIn([yL(1),zL(1)], app.EntryPointL, app.EntryPoint2L);
+            app.SimRawLeadInR = mkLeadIn([yR(1),zR(1)], app.EntryPointR, app.EntryPoint2R);
 
-            profY_L = yL; profZ_L = zL; profY_R = yR; profZ_R = zR;
+            app.SimRawLeadOutL = mkLeadOut([yL(end),zL(end)], app.EntryPointL, app.EntryPoint2L);
+            app.SimRawLeadOutR = mkLeadOut([yR(end),zR(end)], app.EntryPointR, app.EntryPoint2R);
 
-            rawLeadOutL = buildLeadOut([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
-            rawLeadOutR = buildLeadOut([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
-            app.SimRawLeadOutL = rawLeadOutL; app.SimRawLeadOutR = rawLeadOutR;
-
-            rawRetL = buildRapidReturn([yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
-            rawRetR = buildRapidReturn([yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+            % Returns connect from LeadOut end
+            rawRetL = mkReturn(app.SimRawLeadOutL(end,:), app.EntryPointL, app.EntryPoint2L);
+            rawRetR = mkReturn(app.SimRawLeadOutR(end,:), app.EntryPointR, app.EntryPoint2R);
             app.SimRawReturnL = rawRetL; app.SimRawReturnR = rawRetR;
 
-            % Helper: Resample and Sync Two Paths to matching step count
-            function [L_out, R_out] = interpolateSynced(L_pts, R_pts)
-                if size(L_pts,1)<2 || size(R_pts,1)<2
-                    L_out = L_pts; R_out = R_pts; return;
-                end
-
-                % Lengths
-                dL = sum(sqrt(sum(diff(L_pts).^2, 2)));
-                dR = sum(sqrt(sum(diff(R_pts).^2, 2)));
-                maxLen = max(dL, dR);
-
-                % Step size 2mm -> N steps
-                N = max(20, round(maxLen / 2.0));
+            % 4. Interpolate & Sync for Animation (L/R lockstep)
+            function [Lo, Ro] = interp(Li, Ri)
+                if size(Li,1)<2 || size(Ri,1)<2, Lo=Li; Ro=Ri; return; end
+                len = max(sum(sqrt(sum(diff(Li).^2,2))), sum(sqrt(sum(diff(Ri).^2,2))));
+                N = max(20, round(len/2.0)); % 2mm steps
 
                 % Interpolate L
-                distL = [0; cumsum(sqrt(sum(diff(L_pts).^2, 2)))];
-                % Guard against duplicate points causing distL to have repeats (interp1 error)
-                [distL, uIdx] = unique(distL, 'stable');
-                L_pts = L_pts(uIdx, :);
+                dL = [0; cumsum(sqrt(sum(diff(Li).^2,2)))]; [dL, u]=unique(dL,'stable'); Li=Li(u,:);
+                Lo = [interp1(dL,Li(:,1),linspace(0,dL(end),N)'), interp1(dL,Li(:,2),linspace(0,dL(end),N)')];
 
-                targetL = linspace(0, distL(end), N)';
-                yL_new = interp1(distL, L_pts(:,1), targetL);
-                zL_new = interp1(distL, L_pts(:,2), targetL);
-                L_out = [yL_new, zL_new];
-
-                % Interpolate R (forcing same N)
-                distR = [0; cumsum(sqrt(sum(diff(R_pts).^2, 2)))];
-                [distR, uIdxR] = unique(distR, 'stable');
-                R_pts = R_pts(uIdxR, :);
-
-                targetR = linspace(0, distR(end), N)';
-                yR_new = interp1(distR, R_pts(:,1), targetR);
-                zR_new = interp1(distR, R_pts(:,2), targetR);
-                R_out = [yR_new, zR_new];
+                % Interpolate R
+                dR = [0; cumsum(sqrt(sum(diff(Ri).^2,2)))]; [dR, u]=unique(dR,'stable'); Ri=Ri(u,:);
+                Ro = [interp1(dR,Ri(:,1),linspace(0,dR(end),N)'), interp1(dR,Ri(:,2),linspace(0,dR(end),N)')];
             end
 
-            % --- INTERPOLATE & SYNC PHASES ---
-            [rapL_i, rapR_i] = interpolateSynced(rawRapL, rawRapR);
-            [liL_i,  liR_i]  = interpolateSynced(rawLeadInL, rawLeadInR);
-            [loL_i,  loR_i]  = interpolateSynced(rawLeadOutL, rawLeadOutR);
+            [rapL, rapR] = interp(app.SimRawRapidL, app.SimRawRapidR);
+            [liL,  liR]  = interp(app.SimRawLeadInL,  app.SimRawLeadInR);
+            [loL,  loR]  = interp(app.SimRawLeadOutL, app.SimRawLeadOutR);
 
             % Return stitch (manual)
-            retL_stitch = [[loL_i(end,:)]; rawRetL];
-            retR_stitch = [[loR_i(end,:)]; rawRetR];
-            [retL_i, retR_i] = interpolateSynced(retL_stitch, retR_stitch);
+            retL_stitch = [[loL(end,:)]; rawRetL];
+            retR_stitch = [[loR(end,:)]; rawRetR];
+            [retL, retR] = interp(retL_stitch, retR_stitch);
 
-            % --- INDICES ---
-            app.SimRapidCutoffIndex  = size(rapL_i, 1);
-            app.SimProfileStartIndex = app.SimRapidCutoffIndex + size(liL_i, 1);
-            app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(profY_L);
-            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + size(loL_i, 1);
+            % 5. Combine into Visual Arrays
+            app.SimRapidCutoffIndex  = size(rapL,1);
+            app.SimProfileStartIndex = size(rapL,1) + size(liL,1);
+            app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(yL);
+            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + size(loL,1);
 
-            % --- COMBINE ---
-            fullY_L = [rapL_i(:,1); liL_i(:,1); profY_L; loL_i(:,1); retL_i(:,1)];
-            fullZ_L = [rapL_i(:,2); liL_i(:,2); profZ_L; loL_i(:,2); retL_i(:,2)];
+            fullY_L = [rapL(:,1); liL(:,1); yL; loL(:,1); retL(:,1)];
+            fullZ_L = [rapL(:,2); liL(:,2); zL; loL(:,2); retL(:,2)];
+            fullY_R = [rapR(:,1); liR(:,1); yR; loR(:,1); retR(:,1)];
+            fullZ_R = [rapR(:,2); liR(:,2); zR; loR(:,2); retR(:,2)];
 
-            fullY_R = [rapR_i(:,1); liR_i(:,1); profY_R; loR_i(:,1); retR_i(:,1)];
-            fullZ_R = [rapR_i(:,2); liR_i(:,2); profZ_R; loR_i(:,2); retR_i(:,2)];
+            % 6. Map to 3D Machine Space
+            if ~isempty(app.LeftProfilePoints),  xL = app.LeftProfilePoints(1,1);  else, xL = app.MachineBilletPos(1); end
+            if ~isempty(app.RightProfilePoints), xR = app.RightProfilePoints(1,1); else, xR = app.MachineBilletPos(1)+10; end
 
-            % --- STORE 3D PATHS ---
-            if ~isempty(app.LeftProfilePoints),  baseXL = app.LeftProfilePoints(1,1);  else, baseXL = app.MachineBilletPos(1);    end
-            if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
+            xL = xL + app.BilletShift(1) + app.MachineBilletPos(1);
+            xR = xR + app.BilletShift(1) + app.MachineBilletPos(1);
 
-            xL_val = baseXL + app.BilletShift(1) + app.MachineBilletPos(1);
-            xR_val = baseXR + app.BilletShift(1) + app.MachineBilletPos(1);
+            app.SimPathL = [repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
+            app.SimPathR = [repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            app.SimPathL = [repmat(xL_val, numel(fullY_L), 1), fullY_L, fullZ_L];
-            app.SimPathR = [repmat(xR_val, numel(fullY_R), 1), fullY_R, fullZ_R];
-
-            % --- CALCULATE ARC LENGTH ---
-            dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL))=0;
-            dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR))=0;
-
+            % 7. Calculate Physics (Arc Length)
+            dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL)) = 0;
+            dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR)) = 0;
             app.SimArcLenL = [0; cumsum(dL)];
             app.SimArcLenR = [0; cumsum(dR)];
             app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
             app.SimPlayDist = 0;
 
-            fprintf('DEBUG: Sim Generated. Points L:%d R:%d. Len: %.2f mm\n', ...
-                size(app.SimPathL,1), size(app.SimPathR,1), app.SimTotalLength);
-
-            % Towers (sim)
+            % 8. Tower Projections
             V = app.SimPathR - app.SimPathL;
             tL = -app.SimPathL(:,1) ./ V(:,1);
+            tR = (app.MachineSpanX - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
-
-            mSpan = app.MachineSpanX;
-            tR = (mSpan - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % Init Slider
-            app.SimSlider.Limits = [1, size(app.SimPathL, 1)];
+            % 9. UI Init
+            nPoints = size(app.SimPathL, 1);
+            app.SimSlider.Limits = [1, nPoints];
             app.SimSlider.Value = 1;
+
+            if isprop(app, 'SimIndexSpinner') && ~isempty(app.SimIndexSpinner)
+                app.SimIndexSpinner.Limits = [1, nPoints];
+                app.SimIndexSpinner.Value = 1;
+            end
+
             app.initSimulationPlot();
         end
 
+        % --- View Management ---
         function initSimulationPlot(app)
-            % Sets up the 3D environment for simulation
+            % Draws static elements (Bed, Billet, Ghost Model)
+            ax = app.AxSim; cla(ax); hold(ax,'on'); t=app.getTheme();
 
-            ax = app.AxSim;
-            cla(ax); hold(ax, 'on');
-            t = app.getTheme();
-
-            offX  = app.MachineBedPos(1);
-            mSpan = app.MachineSpanX;
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize;
-
-            % --- CRITICAL FIX: Correct Variable Assignments ---
-            bedPos = app.MachineBedPos;    % Physical Bed
-            bp     = app.MachineBilletPos; % Stock Position (Fixed)
-
-            % 1. STATIC GEOMETRY
-            % Bed (Uses bedPos)
-            [xb, yb, zb] = app.makeBoxVertices(0, bedPos(2), -bs(3), bs(1), bs(2), bs(3));
-            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
-
-            % Limits
-            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mSpan, mLimY, mLimZ);
-            patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+            % Setup Geometry
+            offX=app.MachineBedPos(1); mSpan=app.MachineSpanX; bp=app.MachineBilletPos;
+            [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -20, 1000, 700, 20); % Bed
+            patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
             % Towers
-            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
-                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
-            hTowerR = patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;mLimY;mLimY;0], 'ZData',[0;0;mLimZ;mLimZ], ...
-                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
+            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
+            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
 
-            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize', 9);
-            text(ax, mSpan-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize', 9);
+            % Billet & Model
+            bX=bp(1)-offX; bY=bp(2); bZ=bp(3); bS=app.BilletSize;
+            [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bS(1),bS(2),bS(3));
+            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--');
 
-            % 2. BILLET & MODEL
-            % Plot X = BilletMachineX - BedOffsetX
-            bPlotX = bp(1) - offX;
-            bPlotPos = [bPlotX, bp(2), bp(3)];
-
-            % Billet
-            [xm, ym, zm] = app.makeBoxVertices(bPlotX, bp(2), bp(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-            hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, 'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 0.5);
-
-            % Model Mesh
-            hModel = gobjects(0);
-            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                modelShift = bPlotPos + app.BilletShift;
-                Vplot = app.ModelPatch.Vertices + modelShift;
-                hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', 0.3, 'EdgeColor', 'none', 'Tag', 'SimModel');
+            if ~isempty(app.ModelPatch)
+                patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
+                    'FaceColor',[0.6 0.6 0.7], 'FaceAlpha',0.3, 'EdgeColor','none', 'Tag','SimModel');
             end
 
-            % 3. GHOST PROFILES
-            offsetY = bp(2) + app.BilletShift(2);
-            offsetZ = bp(3) + app.BilletShift(3);
-            % Shift X: (BilletMachineX + InternalShiftX) - BedOffsetX
-            shiftX = (bp(1) + app.BilletShift(1)) - offX;
+            % Pre-create Dynamic Elements (Wires/Dots/Trails)
+            plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.2, 'Tag','SimWire');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimDotL');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimDotR');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimModelDotL');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimModelDotR');
 
-            hGhostL = gobjects(0);
-            if ~isempty(app.LeftProfilePoints)
-                xPL = app.LeftProfilePoints(:,1) + shiftX;
-                hGhostL = plot3(ax, xPL, app.LeftProfilePoints(:,2)+offsetY, app.LeftProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 0.5);
-            end
-            if ~isempty(app.RightProfilePoints)
-                xPR = app.RightProfilePoints(:,1) + shiftX;
-                plot3(ax, xPR, app.RightProfilePoints(:,2)+offsetY, app.RightProfilePoints(:,3)+offsetZ, ...
-                    '-', 'Color', t.rawMeshCol, 'LineWidth', 0.5);
-            end
+            % Trails (Yellow=Rapid/Ret, Orange=Lead, Red/Green=Feed)
+            tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
+            cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed, [1 0.5 0], [0.9 0.8 0]};
+            styles = {'-','-','-','--','--'};
 
-            % 4. DYNAMIC ELEMENTS
-            hWire=gobjects(0); hRapids=gobjects(0); hTrails=gobjects(0);
-
-            if ~isempty(app.SimPathL)
-                % --- TOWER TRAILS (Projected) ---
-                % Rapid (Yellow)
-                hRapids = plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerRapidR');
-                % Lead In (Orange Solid) - NEW
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadInL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadInR');
-
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadInL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadInR');
-                % Feed (Red/Green) - FIX: Green color corrected
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.8 0 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0 0.8 0],   'LineWidth', 0.5, 'Tag', 'SimTowerFeedR');
-                % Lead Out (Orange Dashed)
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadOutL');
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimTowerLeadOutR');
-                % Return (Yellow Dashed)
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnL');
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimTowerReturnR');
-
-                % --- MODEL TRAILS (On Block) ---
-                % Rapid (Yellow)
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelRapidR');
-                % Feed (Red/Green)
-                hTrails = plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeRed,   'LineWidth', 0.5, 'Tag', 'SimModelFeedL');
-                plot3(ax, NaN, NaN, NaN, '-', 'Color', t.planeGreen, 'LineWidth', 0.5, 'Tag', 'SimModelFeedR');
-                % Lead Out (Orange Dashed)
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadOutL');
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [1 0.5 0], 'LineWidth', 0.5, 'Tag', 'SimModelLeadOutR');
-                % Return (Yellow Dashed)
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelReturnL');
-                plot3(ax, NaN, NaN, NaN, '--', 'Color', [0.9 0.8 0], 'LineWidth', 0.5, 'Tag', 'SimModelReturnR');
-
-                % --- WIRE (Thin: 0.2) ---
-                hWire = plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.2, 'Tag', 'SimWire');
-
-                % --- DOTS (Small: 4) ---
-                % Tower
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimDotR');
-                % Model
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeRed,   'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotL');
-                plot3(ax, NaN, NaN, NaN, 'o', 'MarkerSize', 4, 'MarkerFaceColor', t.planeGreen, 'MarkerEdgeColor', 'none', 'Tag', 'SimModelDotR');
-
-                app.onSimSliderChanging(app.SimSlider);
+            for i=1:5
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
+                colR = cols{i}; if i==3, colR=t.planeGreen; end % Feed Right is Green
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
             end
 
-            % 5. LEGEND
-            handles = [hBed, hTowerL, hTowerR, hBillet, hModel, hGhostL, hRapids, hTrails, hWire];
-            labels  = {'Machine Bed', 'Left Tower', 'Right Tower', 'Billet', 'Model', 'Ghost Profile', 'Rapid Path', 'Cut Path', 'Wire'};
-
-            valid = isgraphics(handles);
-            if any(valid)
-                lgd = legend(ax, handles(valid), labels(valid), 'Location','northeast');
-                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
-            end
-
+            app.updateSimVisuals(1);
             app.onResetSimViewMachine();
-            ax.BackgroundColor = [0.05 0.05 0.05];
-            set(ax, 'XColor', [0.6 0.6 0.6], 'YColor', [0.6 0.6 0.6], 'ZColor', [0.6 0.6 0.6]);
         end
 
-        function onSimSliderChanging(app, src)
-            % USER INTERACTION: User drags slider -> Update Distance & Plot
-
-            idx = round(src.Value);
-
-            % Validating index
+        % --- Core Visualization Loop ---
+        function updateSimVisuals(app, idx)
+            % Efficiently updates coordinates of existing plot objects
             if isempty(app.SimPathL), return; end
-            idx = max(1, min(idx, size(app.SimPathL, 1)));
-
-            % SYNC: Since USER moved the slider, we must update the physics distance
-            % to match this new location, so Play resumes from here.
-            if ~isempty(app.SimArcLenL) && idx <= numel(app.SimArcLenL)
-                app.SimPlayDist = app.SimArcLenL(idx);
-            end
-
-            % Update Visuals
-            app.updateSimVisuals(idx);
-        end
-
-        % HELPER: Update Trail Data
-        function updateTrail(app, tag, dataSrc, startIdx, endIdx, offX)
-            h = findobj(app.AxSim, 'Tag', tag);
-            if ~isempty(h)
-                dat = dataSrc(startIdx:endIdx, :) - [offX, 0, 0];
-                h.XData=dat(:,1); h.YData=dat(:,2); h.ZData=dat(:,3);
-            end
-        end
-
-        function clearTrails(app, tags)
-            for i=1:numel(tags)
-                h = findobj(app.AxSim, 'Tag', tags{i});
-                if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
-            end
-        end
-
-        function onResetSimViewMachine(app)
-            app.resetViewToMachine(app.AxSim);
-        end
-
-        function onResetSimViewBillet(app)
-            app.resetViewToBillet(app.AxSim);
-        end
-
-        % --- Shared Helpers ---
-        function resetViewToMachine(app, ax)
+            idx = max(1, min(idx, size(app.SimPathL,1)));
             offX = app.MachineBedPos(1);
-            mX = app.MachineSpanX;
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize;
 
-            view(ax, 3); axis(ax, 'equal');
-            xlim(ax, [-offX - 100, mX - offX + 100]);
-            ylim(ax, [-50, mLimY + 50]);
-            zlim(ax, [-bs(3)-20, mLimZ + 80]);
-        end
+            % Update Wire & Dots
+            pTL = app.SimTowerPathL(idx,:) - [offX,0,0]; pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
+            set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pTR(1)], 'YData',[pTL(2) pTR(2)], 'ZData',[pTL(3) pTR(3)]);
+            set(findobj(app.AxSim,'Tag','SimDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
+            set(findobj(app.AxSim,'Tag','SimDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
 
-        function resetViewToBillet(app, ax)
-            % Centers view on the Billet with a dynamic buffer
+            pML = app.SimPathL(idx,:) - [offX,0,0]; pMR = app.SimPathR(idx,:) - [offX,0,0];
+            set(findobj(app.AxSim,'Tag','SimModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
+            set(findobj(app.AxSim,'Tag','SimModelDotR'), 'XData',pMR(1), 'YData',pMR(2), 'ZData',pMR(3));
 
-            offX = app.MachineBedPos(1);
-            bp   = app.MachineBilletPos; % [X Y Z] absolute machine coords
-            bs   = app.BilletSize;       % [W D H]
-
-            % Billet Bounds in Plot Coords
-            % Plot X = MachineX - BedOffset
-            bMin = [bp(1)-offX, bp(2), bp(3)];
-            bMax = bMin + bs;
-
-            % Calculate a relative buffer (20% of the largest dimension)
-            maxDim = max(bs);
-            if maxDim < 1, maxDim = 100; end % Fallback
-            buffer = maxDim * 0.2;
-
-            % 1. Set Aspect Ratio FIRST (Prevents limit reset)
-            daspect(ax, [1 1 1]);
-
-            % 2. Apply Limits
-            xlim(ax, [bMin(1)-buffer, bMax(1)+buffer]);
-            ylim(ax, [bMin(2)-buffer, bMax(2)+buffer]);
-            zlim(ax, [bMin(3)-buffer, bMax(3)+buffer]);
-
-            % 3. Standard View Settings
-            view(ax, 3);
-            grid(ax, 'on');
-        end
-
-        function idx = simIndexAtDistance(app, dist)
-            % Returns the simulation path index corresponding to the physical travel distance.
-
-            % Clamp to valid range
-            dist = max(0, min(dist, app.SimTotalLength));
-
-            % Find last index whose cumulative arc length <= distance
-            % Using Left tower as reference, or Left arc lengths
-            if isempty(app.SimArcLenL)
-                idx = 1;
-                return;
+            % Helpers for Trails
+            function upT(tag, data, s, e)
+                h=findobj(app.AxSim,'Tag',tag);
+                if ~isempty(h)
+                    if s>e, h.XData=[]; h.YData=[]; h.ZData=[]; else
+                        dt=data(s:e,:)-[offX,0,0]; h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
+                    end
+                end
             end
 
-            idx = find(app.SimArcLenL <= dist, 1, 'last');
+            % Update Phase Trails
+            phases = {
+                1, app.SimRapidCutoffIndex, 'Rapid';
+                app.SimRapidCutoffIndex, app.SimProfileStartIndex, 'LeadIn';
+                app.SimProfileStartIndex, app.SimFeedEndIndex, 'Feed';
+                app.SimFeedEndIndex, app.SimLeadOutEndIndex, 'LeadOut';
+                app.SimLeadOutEndIndex, idx, 'Return'
+                };
 
-            if isempty(idx)
-                idx = 1;
+            for i=1:5
+                startIdx = phases{i,1}; endLimit = phases{i,2}; tagName = phases{i,3};
+
+                % Logic: Draw from start up to current idx (clamped by limit)
+                if idx > startIdx
+                    currEnd = min(idx, endLimit);
+                    upT(['SimTower' tagName 'L'], app.SimTowerPathL, startIdx, currEnd);
+                    upT(['SimTower' tagName 'R'], app.SimTowerPathR, startIdx, currEnd);
+                    upT(['SimModel' tagName 'L'], app.SimPathL, startIdx, currEnd);
+                    upT(['SimModel' tagName 'R'], app.SimPathR, startIdx, currEnd);
+                else
+                    % Clear if not reached yet
+                    upT(['SimTower' tagName 'L'], [], 1, 0);
+                    upT(['SimTower' tagName 'R'], [], 1, 0);
+                    upT(['SimModel' tagName 'L'], [], 1, 0);
+                    upT(['SimModel' tagName 'R'], [], 1, 0);
+                end
             end
 
-            % Safety clamp
-            idx = min(idx, size(app.SimPathL,1));
+            % Readouts
+            app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); app.LblReadoutY.Text = sprintf('%.2f', pTL(3));
+            app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); app.LblReadoutA.Text = sprintf('%.2f', pTR(3));
         end
 
-        % ===========================================================
-        % SIMULATION PLAYBACK
-        % ===========================================================
+        % --- Interaction Handlers ---
         function onSimPlay(app)
-            % Start/Resume Timer
-            
             if isempty(app.SimPathL), return; end
-            % Auto-rewind if at end
-            if app.SimPlayDist >= app.SimTotalLength - 1e-3
-                app.SimPlayDist = 0;
-            end
-            
-            if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
-                app.SimTimer = timer(...
-                    'ExecutionMode', 'fixedRate', ...
-                    'Period', 0.05, ... % 20 FPS base
-                    'TimerFcn', @(~,~)app.onSimTimerTick());
-            end
+            if app.SimPlayDist >= app.SimTotalLength - 1e-3, app.SimPlayDist = 0; end
 
+            if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
+                app.SimTimer = timer('ExecutionMode', 'fixedRate', 'Period', 0.05, 'TimerFcn', @(~,~)app.onSimTimerTick());
+            end
             if strcmp(app.SimTimer.Running, 'off')
                 start(app.SimTimer);
-                app.SimPlayBtn.Enable = 'off'; % Disable Play while running
+                app.SimPlayBtn.Enable = 'off';
             end
-        end
-
-        function updateSimVisuals(app, idx)
-            % Updates the 3D scene elements to match the given path index
-            if isempty(app.SimPathL), return; end
-
-            idx = max(1, min(idx, size(app.SimPathL, 1)));
-            offX = app.MachineBedPos(1);
-
-            % Phase Indices
-            idxRapidEnd   = app.SimRapidCutoffIndex;
-            idxProfStart  = app.SimProfileStartIndex;
-            idxProfEnd    = app.SimFeedEndIndex;
-            idxLeadOutEnd = app.SimLeadOutEndIndex;
-
-            % --- HELPERS (Local to this function) ---
-            function updateT(tag, data, s, e)
-                h = findobj(app.AxSim, 'Tag', tag);
-                if ~isempty(h)
-                    dt = data(s:e, :) - [offX, 0, 0];
-                    h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
-                end
-            end
-
-            function clearT(tags)
-                for i=1:numel(tags)
-                    h = findobj(app.AxSim, 'Tag', tags{i});
-                    if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
-                end
-            end
-
-            % 1. MOVING ELEMENTS (Wire & Dots)
-            pTL = app.SimTowerPathL(idx, :) - [offX, 0, 0];
-            pTR = app.SimTowerPathR(idx, :) - [offX, 0, 0];
-
-            hWire = findobj(app.AxSim, 'Tag', 'SimWire');
-            if ~isempty(hWire), hWire.XData=[pTL(1),pTR(1)]; hWire.YData=[pTL(2),pTR(2)]; hWire.ZData=[pTL(3),pTR(3)]; end
-
-            hDotL = findobj(app.AxSim, 'Tag', 'SimDotL'); if ~isempty(hDotL), hDotL.XData=pTL(1); hDotL.YData=pTL(2); hDotL.ZData=pTL(3); end
-            hDotR = findobj(app.AxSim, 'Tag', 'SimDotR'); if ~isempty(hDotR), hDotR.XData=pTR(1); hDotR.YData=pTR(2); hDotR.ZData=pTR(3); end
-
-            pML = app.SimPathL(idx, :) - [offX, 0, 0]; pMR = app.SimPathR(idx, :) - [offX, 0, 0];
-            hMDotL = findobj(app.AxSim, 'Tag', 'SimModelDotL'); if ~isempty(hMDotL), hMDotL.XData=pML(1); hMDotL.YData=pML(2); hMDotL.ZData=pML(3); end
-            hMDotR = findobj(app.AxSim, 'Tag', 'SimModelDotR'); if ~isempty(hMDotR), hMDotR.XData=pMR(1); hMDotR.YData=pMR(2); hMDotR.ZData=pMR(3); end
-
-            % 2. RAPID TRAILS (Always active up to current)
-            curEnd = min(idx, idxRapidEnd);
-            updateT('SimTowerRapidL', app.SimTowerPathL, 1, curEnd);
-            updateT('SimTowerRapidR', app.SimTowerPathR, 1, curEnd);
-            updateT('SimModelRapidL', app.SimPathL, 1, curEnd);
-            updateT('SimModelRapidR', app.SimPathR, 1, curEnd);
-
-            % 3. LEAD IN
-            if idx > idxRapidEnd
-                curEnd = min(idx, idxProfStart);
-                updateT('SimTowerLeadInL', app.SimTowerPathL, idxRapidEnd, curEnd);
-                updateT('SimTowerLeadInR', app.SimTowerPathR, idxRapidEnd, curEnd);
-                updateT('SimModelLeadInL', app.SimPathL, idxRapidEnd, curEnd);
-                updateT('SimModelLeadInR', app.SimPathR, idxRapidEnd, curEnd);
-            else
-                clearT({'SimTowerLeadInL','SimTowerLeadInR','SimModelLeadInL','SimModelLeadInR'});
-            end
-
-            % 4. FEED PROFILE
-            if idx > idxProfStart
-                curEnd = min(idx, idxProfEnd);
-                updateT('SimTowerFeedL', app.SimTowerPathL, idxProfStart, curEnd);
-                updateT('SimTowerFeedR', app.SimTowerPathR, idxProfStart, curEnd);
-                updateT('SimModelFeedL', app.SimPathL, idxProfStart, curEnd);
-                updateT('SimModelFeedR', app.SimPathR, idxProfStart, curEnd);
-            else
-                clearT({'SimTowerFeedL','SimTowerFeedR','SimModelFeedL','SimModelFeedR'});
-            end
-
-            % 5. LEAD OUT
-            if idx > idxProfEnd
-                curEnd = min(idx, idxLeadOutEnd);
-                updateT('SimTowerLeadOutL', app.SimTowerPathL, idxProfEnd, curEnd);
-                updateT('SimTowerLeadOutR', app.SimTowerPathR, idxProfEnd, curEnd);
-                updateT('SimModelLeadOutL', app.SimPathL, idxProfEnd, curEnd);
-                updateT('SimModelLeadOutR', app.SimPathR, idxProfEnd, curEnd);
-            else
-                clearT({'SimTowerLeadOutL','SimTowerLeadOutR','SimModelLeadOutL','SimModelLeadOutR'});
-            end
-
-            % 6. RETURN
-            if idx > idxLeadOutEnd
-                updateT('SimTowerReturnL', app.SimTowerPathL, idxLeadOutEnd, idx);
-                updateT('SimTowerReturnR', app.SimTowerPathR, idxLeadOutEnd, idx);
-                updateT('SimModelReturnL', app.SimPathL, idxLeadOutEnd, idx);
-                updateT('SimModelReturnR', app.SimPathR, idxLeadOutEnd, idx);
-            else
-                clearT({'SimTowerReturnL','SimTowerReturnR','SimModelReturnL','SimModelReturnR'});
-            end
-
-            % 7. Readouts
-            if ~isempty(app.LblReadoutX), app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); end
-            if ~isempty(app.LblReadoutY), app.LblReadoutY.Text = sprintf('%.2f', pTL(3)); end
-            if ~isempty(app.LblReadoutZ), app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); end
-            if ~isempty(app.LblReadoutA), app.LblReadoutA.Text = sprintf('%.2f', pTR(3)); end
-
-            drawnow limitrate;
         end
 
         function onSimPause(app)
-            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
-                stop(app.SimTimer);
-                app.SimPlayBtn.Enable = 'on';
-            end
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer), stop(app.SimTimer); end
+            app.SimPlayBtn.Enable = 'on';
         end
 
         function onSimStop(app)
             app.onSimPause();
-            app.SimPlayDist = 0;          % Reset distance
-            app.SimSlider.Value = 1;      % Reset index
-            app.onSimSliderChanging(app.SimSlider); % Reset Visuals
+            app.SimPlayDist = 0;
+            app.syncSimControls(1);
+            app.updateSimVisuals(1);
         end
 
         function onSimTimerTick(app)
-            % Distance-Based Update Logic
-
-            % 1. Advance distance
+            % Timer Updates Distance -> Updates UI (One Way)
             step = app.SimStepDist * app.SimSpeedSpinner.Value;
             app.SimPlayDist = app.SimPlayDist + step;
 
-            % 2. Cap at end
             isDone = false;
             if app.SimPlayDist >= app.SimTotalLength
                 app.SimPlayDist = app.SimTotalLength;
                 isDone = true;
             end
 
-            % 3. Map distance -> Index
             idx = app.simIndexAtDistance(app.SimPlayDist);
 
-            % 4. Update Slider (Visually only)
-            app.SimSlider.Value = idx;
-
-            % 5. Update Plot (Directly, bypassing slider callback logic)
+            % Update visual + controls WITHOUT triggering their callbacks (Value update only)
+            app.syncSimControls(idx);
             app.updateSimVisuals(idx);
 
-            % Debug print (Verify loop is broken)
-            % fprintf('TICK: Dist=%.1f, Idx=%d\n', app.SimPlayDist, idx);
+            if isDone, app.onSimPause(); end
+        end
 
-            if isDone
-                fprintf('DEBUG: Simulation Finished.\n');
-                app.onSimPause();
+        function onSimSliderChanging(app, src)
+            % User Interacts with Slider -> Update Distance
+            idx = round(src.Value);
+            app.setSimFromIndex(idx);
+        end
+
+        function onSimIndexSpinnerChanged(app, src)
+            % User Interacts with Spinner -> Update Distance
+            idx = round(src.Value);
+            app.setSimFromIndex(idx);
+        end
+
+        function setSimFromIndex(app, idx)
+            % Common handler for UI inputs
+            if isempty(app.SimPathL), return; end
+            idx = max(1, min(idx, size(app.SimPathL, 1)));
+
+            % Update physics distance to match user selection
+            if idx <= numel(app.SimArcLenL)
+                app.SimPlayDist = app.SimArcLenL(idx);
+            end
+
+            app.syncSimControls(idx);
+            app.updateSimVisuals(idx);
+        end
+
+        function syncSimControls(app, idx)
+            % Updates UI elements to match index (Visual sync only)
+            app.SimSlider.Value = idx;
+            if isprop(app, 'SimIndexSpinner') && ~isempty(app.SimIndexSpinner)
+                app.SimIndexSpinner.Value = idx;
             end
         end
 
-        % Ensure Timer is killed when app closes
-        function delete(app)
-            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
-                stop(app.SimTimer);
-                delete(app.SimTimer);
-            end
-        end
-
-        function onAppClose(app, src)
-            % Cleanup Timer
-            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
-                stop(app.SimTimer);
-                delete(app.SimTimer);
-            end
-            delete(src); % Close window
+        function idx = simIndexAtDistance(app, dist)
+            dist = max(0, min(dist, app.SimTotalLength));
+            if isempty(app.SimArcLenL), idx=1; return; end
+            idx = find(app.SimArcLenL <= dist, 1, 'last');
+            if isempty(idx), idx=1; end
+            idx = min(idx, size(app.SimPathL,1));
         end
 
         % ===========================================================
@@ -4520,10 +4233,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsDragging   = false;
             app.LastMousePos = [NaN NaN];
         end
-        
+
         % ===========================================================
         % THEME HELPERS
-        % ===========================================================         
+        % ===========================================================
         function applyTheme(app)
             t = app.getTheme();
             app.UIFigure.Color = t.sideBg;
