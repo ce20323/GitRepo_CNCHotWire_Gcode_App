@@ -4039,6 +4039,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
 
+            % --- FIX: Calculate Model Dimensions (Matching Billet Tab logic) ---
+            if ~isempty(app.ModelPatch)
+                % Calculate X based on the actual cut length (between planes)
+                xL = app.ModelXMin + app.NumLeftOffset.Value;
+                xR = app.ModelXMin + app.NumRightOffset.Value;
+
+                mDim = [abs(xR - xL), ...               % X (Cut Length)
+                    app.ModelYMax - app.ModelYMin, ... % Y (Full Mesh)
+                    app.ModelZMax - app.ModelZMin];    % Z (Full Mesh)
+            else
+                mDim = [0 0 0];
+            end
+
+            % --------------------------------------------------
+
             % 2. Setup Indices
             idxRapidEnd   = app.SimRapidCutoffIndex;
             idxProfStart  = app.SimProfileStartIndex;
