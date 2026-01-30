@@ -3984,192 +3984,175 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onPostProcess(app)
+            % Generates Semantic G-Code and maps lines to Simulation Indices
 
-            % Ensure truth/semantic arrays exist
-            app.generateSimulationData();
-
-            if isempty(app.ProfileSyncL) || isempty(app.ProfileSyncR)
-                uialert(app.UIFigure, 'No synced profile available. Build profiles first.', 'Post-Process');
-                return;
-            end
-            if isempty(app.SimRawRapidL) || isempty(app.SimRawRapidR) || ...
-                    isempty(app.SimRawLeadInL) || isempty(app.SimRawLeadInR) || ...
-                    isempty(app.SimRawLeadOutL) || isempty(app.SimRawLeadOutR) || ...
-                    isempty(app.SimRawReturnL) || isempty(app.SimRawReturnR)
-                uialert(app.UIFigure, 'No semantic entry/exit segments available. Set Entry points and try again.', 'Post-Process');
-                return;
+            % 1. Ensure Simulation Data Exists
+            if isempty(app.SimPathL) || isempty(app.ProfileSyncL)
+                app.generateSimulationData();
+                if isempty(app.SimPathL)
+                    uialert(app.UIFigure, 'No path data available.', 'Error'); return;
+                end
             end
 
-            % Inputs
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
-            if isempty(feed) || ~isfinite(feed) || feed <= 0, feed = 500; end
-            if isempty(power) || ~isfinite(power) || power < 0, power = 0; end
 
-            % ------------------------------------------------------------
-            % Build PP "truth" 2D paths (Y,Z) for L/R
-            % ------------------------------------------------------------
-            profL = app.ProfileSyncL;   % Nx2 [Y Z] (synced)
-            profR = app.ProfileSyncR;
+            % 2. Setup Indices
+            idxRapidEnd   = app.SimRapidCutoffIndex;
+            idxProfStart  = app.SimProfileStartIndex;
+            idxProfEnd    = app.SimFeedEndIndex;
+            idxLeadOutEnd = app.SimLeadOutEndIndex;
 
-            rapL  = app.SimRawRapidL;
-            rapR  = app.SimRawRapidR;
+            % 3. Projector Setup
+            offL = app.NumLeftOffset.Value; offR = app.NumRightOffset.Value;
+            shiftX = app.BilletShift(1);
+            pos = app.MachineBilletPos;
 
-            liL   = app.SimRawLeadInL;   % 2x2 [lastEntry; start]
-            liR   = app.SimRawLeadInR;
+            xM_L = pos(1) + offL + shiftX;
+            xM_R = pos(1) + offR + shiftX;
+            xT_L = 0; xT_R = app.MachineSpanX;
 
-            loL   = app.SimRawLeadOutL;  % 2x2 [end; entry]
-            loR   = app.SimRawLeadOutR;
-
-            retL  = app.SimRawReturnL;
-            retR  = app.SimRawReturnR;
-
-            % De-duplicate junctions so PP stepping and G-code are clean
-            % Rapid ends at entry; LeadIn starts at entry -> keep only LeadIn(2)
-            % LeadOut starts at end -> keep only LeadOut(2)
-            % Return starts at entry -> drop return(1) if it equals leadOut(2)
-            liL_emit  = liL(2:end,:);
-            liR_emit  = liR(2:end,:);
-            loL_emit  = loL(2:end,:);
-            loR_emit  = loR(2:end,:);
-
-            if size(retL,1) >= 1 && norm(retL(1,:) - loL(end,:)) < 1e-9
-                retL_emit = retL(2:end,:);
-            else
-                retL_emit = retL;
-            end
-            if size(retR,1) >= 1 && norm(retR(1,:) - loR(end,:)) < 1e-9
-                retR_emit = retR(2:end,:);
-            else
-                retR_emit = retR;
+            function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
+                rL = (xT_L - xM_L) / (xM_R - xM_L);
+                tyL = yL + (yR - yL) * rL;
+                tzL = zL + (zR - zL) * rL;
+                rR = (xT_R - xM_L) / (xM_R - xM_L);
+                tyR = yL + (yR - yL) * rR;
+                tzR = zL + (zR - zL) * rR;
+                tx = tyL; ty = tzL; tz = tyR; ta = tzR;
             end
 
-            % Full PP point sequence (this is what the G-code will follow)
-            ppL_yz = [rapL; liL_emit; profL; loL_emit; retL_emit];
-            ppR_yz = [rapR; liR_emit; profR; loR_emit; retR_emit];
+            function idx = findSimIdx(targetY, targetZ, searchRange)
+                if nargin < 3, searchRange = 1:idxRapidEnd; end
+                pathY = app.SimPathL(searchRange, 2); pathZ = app.SimPathL(searchRange, 3);
+                d2 = (pathY - targetY).^2 + (pathZ - targetZ).^2;
+                [~, localIdx] = min(d2);
+                idx = searchRange(1) + localIdx - 1;
+            end
 
-            % Indices in this PP sequence
-            nRap  = size(rapL,1);
-            nLi   = size(liL_emit,1);
-            nProf = size(profL,1);
-            nLo   = size(loL_emit,1);
+            lines = strings(0,1); map = zeros(0,1);
+            function add(code, comment, idx)
+                if nargin < 3, idx = 1; end
+                if nargin < 2 || isempty(comment), s=code; else, s=sprintf('%-35s (%s)', code, comment); end
+                lines(end+1) = s; map(end+1) = idx;
+            end
 
-            app.PP_RapidEndIndex    = nRap;
-            app.PP_ProfileStartIndex= nRap + nLi;          % first profile point in PP path
-            app.PP_ProfileEndIndex  = nRap + nLi + nProf;  % last profile point in PP path
-            app.PP_LeadOutEndIndex  = nRap + nLi + nProf + nLo;
-
-            % ------------------------------------------------------------
-            % Convert PP points to 3D paths for plotting (constant X planes)
-            % ------------------------------------------------------------
-            if ~isempty(app.LeftProfilePoints),  baseXL = app.LeftProfilePoints(1,1);  else, baseXL = app.MachineBilletPos(1);    end
-            if ~isempty(app.RightProfilePoints), baseXR = app.RightProfilePoints(1,1); else, baseXR = app.MachineBilletPos(1)+10; end
-
-            xL_val = baseXL + app.BilletShift(1) + app.MachineBilletPos(1);
-            xR_val = baseXR + app.BilletShift(1) + app.MachineBilletPos(1);
-
-            app.PP_PathL = [repmat(xL_val, size(ppL_yz,1), 1), ppL_yz(:,1), ppL_yz(:,2)];
-            app.PP_PathR = [repmat(xR_val, size(ppR_yz,1), 1), ppR_yz(:,1), ppR_yz(:,2)];
-
-            % Tower paths for Post plot
-            V = app.PP_PathR - app.PP_PathL;
-            tL = -app.PP_PathL(:,1) ./ V(:,1);
-            app.PP_TowerPathL = app.PP_PathL + tL .* V;
-
-            mSpan = app.MachineSpanX;
-            tR = (mSpan - app.PP_PathL(:,1)) ./ V(:,1);
-            app.PP_TowerPathR = app.PP_PathL + tR .* V;
-
-            % ------------------------------------------------------------
-            % Build Mach4 G-code from PP path
-            % ------------------------------------------------------------
-            % Machine mapping:
-            %   X = Left(Y),  Y = Left(Z),  Z = Right(Y),  A = Right(Z)
-            X = ppL_yz(:,1);
-            Y = ppL_yz(:,2);
-            Z = ppR_yz(:,1);
-            A = ppR_yz(:,2);
-
-            fmtMove = @(g,i) sprintf('%s X%.3f Y%.3f Z%.3f A%.3f', g, X(i), Y(i), Z(i), A(i));
-
-            lines = strings(0,1);
-            map   = zeros(0,1);   % line -> PP path index (NaN for non-motion)
+            % --- 4. G-CODE GENERATION ---
 
             % Header
-            lines(end+1) = "(HotWireSTEP Post-Processor)";
-            map(end+1)   = NaN;
-            lines(end+1) = "G21  (mm)";
-            map(end+1)   = NaN;
-            lines(end+1) = "G90  (absolute)";
-            map(end+1)   = NaN;
-            lines(end+1) = "G94  (feed per minute)";
-            map(end+1)   = NaN;
-            lines(end+1) = "";
-            map(end+1)   = NaN;
+            add('% ------------------------------------------');
+            add(sprintf('%%     File: %s', app.FieldFilename.Value)); % User filename
+            add(sprintf('%%    Model: %s', app.CurrentModelName));    % Original model name
+            add(sprintf('%%     Date: %s', string(datetime('now'))));
+            add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
+            add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
+            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.MachineBilletPos));
+            add('% ------------------------------------------');
+            add('G21','Metric');
+            add('G90','Absolute');
+            add('G94','Feed/min');
+            add('G28','Home All Axes', 1);
 
-            % Emit motion lines by phase
-            for i = 1:size(ppL_yz,1)
+            % --- PHASE 1: LOAD ---
+            add('%% --- LOADING ---', '', 1);
 
-                % Rapid phase (semantic): G0
-                if i <= app.PP_RapidEndIndex
-                    lines(end+1) = string(fmtMove("G0", i));
-                    map(end+1)   = i;
+            % 1. Safe Move (10,10) - Matches Sim Data "pSafe"
+            idxSafe = findSimIdx(10, 10);
+            add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', idxSafe);
 
-                    % Insert ON after reaching last entry point
-                    if i == app.PP_RapidEndIndex
-                        lines(end+1) = sprintf("S%d M301", power);
-                        map(end+1)   = NaN;
+            % 2. Load Position (Mid-Billet Front)
+            bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
+            idxLoad = findSimIdx(bY, bZ);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', idxLoad);
+            add('M1', 'STOP: Load Block', idxLoad);
 
-                        lines(end+1) = sprintf("G1 F%d", feed);
-                        map(end+1)   = NaN;
-                    end
-                    continue;
-                end
+            % 3. Retract 10mm
+            bY_Ret = bY - 10;
+            idxRet = findSimIdx(bY_Ret, bZ);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', idxRet);
 
-                % Lead-in + profile + lead-out: G1
-                if i <= app.PP_LeadOutEndIndex
-                    lines(end+1) = string(fmtMove("G1", i));
-                    map(end+1)   = i;
+            % --- PHASE 2: APPROACH ---
+            add('%% --- APPROACH ---', '', idxRet);
 
-                    % Insert OFF after reaching lead-out end (back to entry)
-                    if i == app.PP_LeadOutEndIndex
-                        lines(end+1) = "M302";
-                        map(end+1)   = NaN;
-                    end
-                    continue;
-                end
+            e1L = app.EntryPointL; e1R = app.EntryPointR;
+            e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
 
-                % Return: G0
-                lines(end+1) = string(fmtMove("G0", i));
-                map(end+1)   = i;
+            if ~isempty(e1L)
+                [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
+                idxE1 = findSimIdx(e1L(1), e1L(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 1', idxE1);
             end
 
-            lines(end+1) = "M30";
-            map(end+1)   = NaN;
+            if ~isempty(e2L)
+                [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                idxE2 = findSimIdx(e2L(1), e2L(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 2', idxE2);
+            end
 
-            % Store + show in UI
-            app.PP_GCodeLines      = lines;
+            % Heat Sequence
+            add(sprintf('S%d', power), 'Sets Hot Wire Power', idxRapidEnd);
+            add('M301', 'Extraction ON > Wait 5s > Hot Wire Power ON', idxRapidEnd);
+            add(sprintf('F%d', feed), 'Set Cut Feedrate', idxRapidEnd);
+
+            % --- PHASE 3: LEAD IN ---
+            add('%% --- LEAD IN ---', '', idxRapidEnd);
+
+            pSyncL = app.ProfileSyncL; pSyncR = app.ProfileSyncR;
+            [tx, ty, tz, ta] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
+            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Start Point', idxProfStart);
+
+            % --- PHASE 4: PROFILE ---
+            add('%% --- PROFILE CUT ---', '', idxProfStart);
+
+            N = size(pSyncL, 1);
+            for i = 2:N
+                [tx, ty, tz, ta] = project(pSyncL(i,1), pSyncL(i,2), pSyncR(i,1), pSyncR(i,2));
+                simIdx = idxProfStart + i;
+                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', simIdx);
+            end
+
+            % --- PHASE 5: EXIT ---
+            add('%% --- EXIT SEQUENCE ---', '', idxProfEnd);
+
+            lastE_L = e1L; lastE_R = e1R;
+            exitLabel = 'Lead Out (Entry 1)';
+
+            if ~isempty(e2L)
+                lastE_L = e2L; lastE_R = e2R;
+                exitLabel = 'Lead Out (Entry 2)';
+            end
+
+            if ~isempty(lastE_L)
+                [tx, ty, tz, ta] = project(lastE_L(1), lastE_L(2), lastE_R(1), lastE_R(2));
+                % Map to start of LeadOut segment in simulation
+                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, idxProfEnd + 1);
+            end
+
+            add('M302', 'Hot Wire Power OFF > Wait 60s > Extraction OFF', idxLeadOutEnd);
+
+            % Return to Entry 1 (if used 2)
+            if ~isempty(e2L) && ~isempty(e1L)
+                [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', idxLeadOutEnd + 10);
+            end
+
+            % Home Y first
+            endSim = size(app.SimPathL, 1);
+
+            add('G28', 'Return Home', endSim);
+            add('M30', 'End Program', endSim);
+
+            % --- FINALIZE ---
+            app.PP_GCodeLines = lines;
             app.PP_LineToPathIndex = map;
 
-            if ~isempty(app.ListGCode) && isvalid(app.ListGCode)
-                app.ListGCode.Items = cellstr(lines);
-                if ~isempty(app.ListGCode.Items)
-                    app.ListGCode.Value = app.ListGCode.Items{1};
-                end
-            end
-            app.PP_SelectedLine = 1;
+            app.ListGCode.Items = cellstr(lines);
+            app.ListGCode.ItemsData = 1:numel(lines);
+            app.ListGCode.Value = 1;
 
-            if ~isempty(app.BtnSaveGCode) && isvalid(app.BtnSaveGCode)
-                app.BtnSaveGCode.Enable = 'on';
-            end
-
-            % Plot init + first update
-            if isempty(app.AxSim.Children)
-                app.initSimulationPlot();
-            end
+            if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
-
         end
 
         function onPostLineSelected(app, src)
