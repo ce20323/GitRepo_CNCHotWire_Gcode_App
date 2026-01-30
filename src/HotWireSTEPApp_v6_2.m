@@ -3364,7 +3364,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % Sync Geometry (TRUTH)
+            % Sync Geometry (TRUTH) - Preserves L/R Index Linking
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
@@ -3413,6 +3413,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimRawReturnL = rawRetL; app.SimRawReturnR = rawRetR;
 
             % 4. Interpolate & Sync for Animation (L/R lockstep)
+            % This step ONLY smooths the Rapid/Lead-in moves (which are straight lines)
+            % It does NOT touch the Profile geometry.
             function [Lo, Ro] = interp(Li, Ri)
                 if size(Li,1)<2 || size(Ri,1)<2, Lo=Li; Ro=Ri; return; end
                 len = max(sum(sqrt(sum(diff(Li).^2,2))), sum(sqrt(sum(diff(Ri).^2,2))));
@@ -3457,11 +3459,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimPathL = [repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
             app.SimPathR = [repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            % 7. Calculate Physics (Arc Length)
+            % 7. Calculate Physics (Arc Length) for DISTANCE STEPPING
             dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL)) = 0;
             dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR)) = 0;
             app.SimArcLenL = [0; cumsum(dL)];
             app.SimArcLenR = [0; cumsum(dR)];
+
+            % Master length is the max of the two towers (Critical for Taper)
             app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
             app.SimPlayDist = 0;
 
@@ -3621,6 +3625,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onSimTimerTick(app)
             % Timer Updates Distance -> Updates UI (One Way)
+
+            % Calculate step based on speed multiplier
             step = app.SimStepDist * app.SimSpeedSpinner.Value;
             app.SimPlayDist = app.SimPlayDist + step;
 
@@ -3630,6 +3636,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isDone = true;
             end
 
+            % Map physical distance back to array index
             idx = app.simIndexAtDistance(app.SimPlayDist);
 
             % Update visual + controls WITHOUT triggering their callbacks (Value update only)
@@ -3652,13 +3659,26 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function setSimFromIndex(app, idx)
-            % Common handler for UI inputs
+            % Updates simulation state based on a specific index (from Slider/Spinner).
             if isempty(app.SimPathL), return; end
             idx = max(1, min(idx, size(app.SimPathL, 1)));
 
-            % Update physics distance to match user selection
-            if idx <= numel(app.SimArcLenL)
-                app.SimPlayDist = app.SimArcLenL(idx);
+            % Determine Master Length array for Taper correctness
+            lenL = 0; lenR = 0;
+            if ~isempty(app.SimArcLenL), lenL = app.SimArcLenL(end); end
+            if ~isempty(app.SimArcLenR), lenR = app.SimArcLenR(end); end
+
+            if lenR > lenL
+                targetArr = app.SimArcLenR;
+            else
+                targetArr = app.SimArcLenL;
+            end
+
+            % Sync Physics Distance to User Selection
+            if idx <= numel(targetArr)
+                app.SimPlayDist = targetArr(idx);
+            else
+                app.SimPlayDist = app.SimTotalLength;
             end
 
             app.syncSimControls(idx);
@@ -3674,13 +3694,35 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function idx = simIndexAtDistance(app, dist)
+            % Returns the simulation index corresponding to a physical distance.
+            % Handles TAPER by checking which path is the 'master' (longer) path.
+
             dist = max(0, min(dist, app.SimTotalLength));
-            if isempty(app.SimArcLenL), idx=1; return; end
-            idx = find(app.SimArcLenL <= dist, 1, 'last');
-            if isempty(idx), idx=1; end
-            idx = min(idx, size(app.SimPathL,1));
+
+            if isempty(app.SimArcLenL) || isempty(app.SimArcLenR)
+                idx = 1;
+                return;
+            end
+
+            % Identify which tower path dictates the total length
+            lenL = app.SimArcLenL(end);
+            lenR = app.SimArcLenR(end);
+
+            % If Right tower path is significantly longer, use it for lookup.
+            % Otherwise default to Left.
+            if lenR > lenL
+                masterLenArr = app.SimArcLenR;
+            else
+                masterLenArr = app.SimArcLenL;
+            end
+
+            % Find the last index where distance is <= current playback distance
+            idx = find(masterLenArr <= dist, 1, 'last');
+
+            if isempty(idx), idx = 1; end
+            idx = min(idx, size(app.SimPathL, 1));
         end
-        
+
         % ===========================================================
         % VIEW & HELPER METHODS
         % ===========================================================
