@@ -579,29 +579,27 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlKerf.Layout.Row = 4;
 
-            gridKerf = uigridlayout(pnlKerf,[2 2]);
-            gridKerf.ColumnWidth = {'1x',90}; gridKerf.Padding = [10 5 10 5];
+            gridKerf = uigridlayout(pnlKerf,[3 2]);
+            gridKerf.ColumnWidth = {'1x',90};
+            gridKerf.RowHeight = {'fit','fit','fit'};
+            gridKerf.Padding = [10 5 10 5];
 
             lblKerf = uilabel(gridKerf, 'Text','Kerf [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+            lblKerf.Layout.Row = 1; lblKerf.Layout.Column = 1;
 
             app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
+            app.KerfSpinner.Layout.Row = 1; app.KerfSpinner.Layout.Column = 2;
             app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
 
-            app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
-            app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
-
-            % --- NEW: Kerf Point Count Label ---
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Points: --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', 10);
-            app.KerfPointCountLabel.Layout.Row = 1;
-            app.KerfPointCountLabel.Layout.Column = 3; % Adjust grid column width below if needed
-
-            % Update grid layout to accommodate the new label
-            gridKerf.ColumnWidth = {'1x', 60, 80}; % Adjusted widths
+            % Label matches Profile Sampling block style
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): -- / --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            app.KerfPointCountLabel.Layout.Row = 2;
+            app.KerfPointCountLabel.Layout.Column = [1 2];
 
             app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
-            app.BtnApplyKerf.Layout.Row = 2; app.BtnApplyKerf.Layout.Column = [1 2];
+            app.BtnApplyKerf.Layout.Row = 3;
+            app.BtnApplyKerf.Layout.Column = [1 2];
 
             % -- Spacer --
             lblProfSpacer = uilabel(app.profilesLeft, 'Text','');
@@ -1366,184 +1364,91 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % Axis limits: union of left & right, with padding
-            yAll = [yL(:); yR(:)];
-            zAll = [zL(:); zR(:)];
-
-            if isempty(yAll) || isempty(zAll)
-                return;
-            end
+            % Axis limits
+            yAll = [yL(:); yR(:)]; zAll = [zL(:); zR(:)];
+            if isempty(yAll) || isempty(zAll), return; end
 
             yMin = min(yAll); yMax = max(yAll);
             zMin = min(zAll); zMax = max(zAll);
+            dy = max(yMax - yMin, 1); dz = max(zMax - zMin, 1);
+            padY = 0.1 * dy; padZ = 0.1 * dz;
+            yLim = [yMin - padY, yMax + padY]; zLim = [zMin - padZ, zMax + padZ];
 
-            dy = yMax - yMin;
-            dz = zMax - zMin;
-            if dy <= 0, dy = 1; end
-            if dz <= 0, dz = 1; end
-
-            padY = 0.1 * dy;
-            padZ = 0.1 * dz;
-
-            yLim = [yMin - padY, yMax + padY];
-            zLim = [zMin - padZ, zMax + padZ];
-
-            % --- GET CENTRALIZED THEME ---
             t = app.getTheme();
-
-            % Clear only profile lines (labels/titles persist)
             app.clearProfiles2D();
 
-            % Initialize Kerf Point Counters
+            % Initialize Counters for Label
             nLk = 0; nRk = 0;
 
             % ----- LEFT AXIS -----
             hold(app.AxLeftProfile,'on');
-
-            % Raw mesh slice (background - turns Black in Light Mode)
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, ...
-                    rawL(:,1), rawL(:,2), ...
-                    'Color', t.rawMeshCol, ...
-                    'LineStyle',':', ...
-                    'LineWidth',2.5);
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), ...
+                    'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
             end
-
-            % Resampled main loop (geometry, no kerf)
             if ~isempty(yL)
-                app.LeftProfile2DLine = plot(app.AxLeftProfile, ...
-                    yL, zL, ...
-                    'Color', t.planeRed, ...
-                    'LineWidth',0.75);
+                app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
             end
 
-            % Kerf-compensated path (wire centreline)
+            % Left Kerf Calc & Plot
             if app.KerfEnabled && ~isempty(yL) && app.KerfValue > 0
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
-                    yL, zL, app.KerfValue);
-
-                % Update Count
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
                 if ~isempty(yKerfL), nLk = numel(yKerfL); end
 
-                app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
-                    yKerfL, zKerfL, ...
-                    'Color', t.wireKerf, ...
-                    'LineWidth',0.75);
+                app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
-
             hold(app.AxLeftProfile,'off');
 
             % ----- RIGHT AXIS -----
             hold(app.AxRightProfile,'on');
-
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, ...
-                    rawR(:,1), rawR(:,2), ...
-                    'Color', t.rawMeshCol, ...
-                    'LineStyle',':', ...
-                    'LineWidth',2.5);
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), ...
+                    'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
             end
-
             if ~isempty(yR)
-                app.RightProfile2DLine = plot(app.AxRightProfile, ...
-                    yR, zR, ...
-                    'Color', t.planeGreen, ...
-                    'LineWidth',0.75);
+                app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
             end
 
+            % Right Kerf Calc & Plot
             if app.KerfEnabled && ~isempty(yR) && app.KerfValue > 0
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
-                    yR, zR, app.KerfValue);
-
-                % Update Count
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
                 if ~isempty(yKerfR), nRk = numel(yKerfR); end
 
-                app.RightKerf2DLine = plot(app.AxRightProfile, ...
-                    yKerfR, zKerfR, ...
-                    'Color', t.wireKerf, ...
-                    'LineWidth',0.75);
+                app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
-
             hold(app.AxRightProfile,'off');
 
-            % ----- UPDATE KERF LABEL -----
-            % This ensures the label updates whenever the plot redraws (Tolerance, Kerf, or Reset)
+            % ----- UPDATE LABEL (Dynamic) -----
             if app.KerfEnabled && isgraphics(app.KerfPointCountLabel)
-                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nLk, nRk);
+                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nLk, nRk);
             end
 
-            % Legend / key for left profile
-            leftLegendHandles = gobjects(0);
-            leftLegendLabels  = {};
+            % ----- LEGENDS & VIEW -----
+            % Left Legend
+            hL = gobjects(0); txtL = {};
+            if isgraphics(app.LeftProfile2DMeshLine), hL(end+1)=app.LeftProfile2DMeshLine; txtL{end+1}='Model mesh slice'; end
+            if isgraphics(app.LeftProfile2DLine), hL(end+1)=app.LeftProfile2DLine; txtL{end+1}='Extracted profile'; end
+            if isgraphics(app.LeftKerf2DLine), hL(end+1)=app.LeftKerf2DLine; txtL{end+1}='Kerf path'; end
+            if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; end
 
-            if ~isempty(app.LeftProfile2DMeshLine) && isgraphics(app.LeftProfile2DMeshLine)
-                leftLegendHandles(end+1) = app.LeftProfile2DMeshLine;
-                leftLegendLabels{end+1}  = 'Model mesh slice';
-            end
-            if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
-                leftLegendHandles(end+1) = app.LeftProfile2DLine;
-                leftLegendLabels{end+1}  = 'Extracted cutting profile';
-            end
-            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
-                leftLegendHandles(end+1) = app.LeftKerf2DLine;
-                leftLegendLabels{end+1}  = 'Kerf path';
-            end
+            % Right Legend
+            hR = gobjects(0); txtR = {};
+            if isgraphics(app.RightProfile2DMeshLine), hR(end+1)=app.RightProfile2DMeshLine; txtR{end+1}='Model mesh slice'; end
+            if isgraphics(app.RightProfile2DLine), hR(end+1)=app.RightProfile2DLine; txtR{end+1}='Extracted profile'; end
+            if isgraphics(app.RightKerf2DLine), hR(end+1)=app.RightKerf2DLine; txtR{end+1}='Kerf path'; end
+            if ~isempty(hR), l=legend(app.AxRightProfile, hR, txtR, 'Location','northeast'); l.Box='off'; end
 
-            if ~isempty(leftLegendHandles)
-                lgdL = legend(app.AxLeftProfile, leftLegendHandles, leftLegendLabels, ...
-                    'Location','northeast');
-                lgdL.Box = 'off';
-            end
-
-            % Legend / key for right profile
-            rightLegendHandles = gobjects(0);
-            rightLegendLabels  = {};
-
-            if ~isempty(app.RightProfile2DMeshLine) && isgraphics(app.RightProfile2DMeshLine)
-                rightLegendHandles(end+1) = app.RightProfile2DMeshLine;
-                rightLegendLabels{end+1}  = 'Model mesh slice';
-            end
-            if ~isempty(app.RightProfile2DLine) && isgraphics(app.RightProfile2DLine)
-                rightLegendHandles(end+1) = app.RightProfile2DLine;
-                rightLegendLabels{end+1}  = 'Extracted cutting profile';
-            end
-            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
-                rightLegendHandles(end+1) = app.RightKerf2DLine;
-                rightLegendLabels{end+1}  = 'Kerf path';
-            end
-            if ~isempty(rightLegendHandles)
-                lgdR = legend(app.AxRightProfile, rightLegendHandles, rightLegendLabels, ...
-                    'Location','northeast');
-                lgdR.Box = 'off';
-            end
-
-            % Shared limits (only reset when not locked)
             if ~app.ProfileAxesLocked
-                xlim(app.AxLeftProfile,  yLim);
-                ylim(app.AxLeftProfile,  zLim);
-                xlim(app.AxRightProfile, yLim);
-                ylim(app.AxRightProfile, zLim);
+                xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
+                xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
             end
+            daspect(app.AxLeftProfile, [1 1 1]); daspect(app.AxRightProfile,[1 1 1]);
 
-            % Always keep Y–Z true-scale, even after zoom / tolerance changes
-            daspect(app.AxLeftProfile, [1 1 1]);
-            daspect(app.AxRightProfile,[1 1 1]);
-
-            % Titles / labels (use offsets relative to model left face)
-            offsetLeft  = app.NumLeftOffset.Value;
-            offsetRight = app.NumRightOffset.Value;
-
-            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)',  offsetLeft));
-            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', offsetRight));
-            xlabel(app.AxLeftProfile,'Y (mm)');
-            ylabel(app.AxLeftProfile,'Z (mm)');
-            xlabel(app.AxRightProfile,'Y (mm)');
-            ylabel(app.AxRightProfile,'Z (mm)');
-
-            grid(app.AxLeftProfile,'on');
-            grid(app.AxRightProfile,'on');
+            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value));
+            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value));
+            grid(app.AxLeftProfile,'on'); grid(app.AxRightProfile,'on');
         end
 
         function resetProfilesView(app)
@@ -1717,7 +1622,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % currently extracted profiles, WITHOUT changing zoom/pan.
 
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
-                % No profiles yet (user hasn't generated them)
                 return;
             end
 
@@ -1725,10 +1629,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- ACTIVATE CONTINUE BUTTON ---
             app.BtnProfilesContinue.Enable = 'on';
-            app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1]; % Light up Green
+            app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1];
             app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            % --- 1. EXTRACT DATA FIRST (Fixes 'Unrecognized variable' error) ---
+            % --- 1. EXTRACT DATA FIRST ---
             yL = []; zL = []; xLeft  = 0;
             yR = []; zR = []; xRight = 0;
 
@@ -1744,27 +1648,25 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % --- 2. UPDATE POINTS LABEL ---
+            % --- 2. CALCULATE COUNTS ---
             nL_k = 0; nR_k = 0;
 
-            % Compute Left Kerf Count
             if ~isempty(yL) && app.KerfValue > 0
                 [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
                 if ~isempty(yk), nL_k = numel(yk); end
             end
 
-            % Compute Right Kerf Count
             if ~isempty(yR) && app.KerfValue > 0
                 [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
+            % --- 3. UPDATE LABEL (New Format) ---
             if isgraphics(app.KerfPointCountLabel)
-                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nL_k, nR_k);
+                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
             end
 
-            % --- 3. REFRESH PLOT ---
-            % Just update the 2D plots; keep current zoom.
+            % --- 4. REFRESH PLOT ---
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
             app.ProfileAxesLocked = false;
