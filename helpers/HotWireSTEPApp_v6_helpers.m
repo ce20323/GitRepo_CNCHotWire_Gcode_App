@@ -158,36 +158,99 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function [yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
-            % Align start points
+            % Clean Inputs (Remove duplicates/micro-steps < 0.001mm)
+            function [x,y] = clean_path(x,y)
+                if numel(x) < 2, return; end
+                d2 = [1; (diff(x).^2 + diff(y).^2)];
+                keep = d2 > 1e-8;
+                x = x(keep); y = y(keep);
+                if (x(1)~=x(end) || y(1)~=y(end)), x(end+1)=x(1); y(end+1)=y(1); end
+            end
+
+            [yL, zL] = clean_path(yL, zL);
+            [yR, zR] = clean_path(yR, zR);
+
+            % 1. Align Start Points & Winding
             [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
             [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
-            % --- FIX: ENFORCE MATCHING WINDING ORDER ---
-            % We calculate the 'Signed Area'. If L is positive and R is negative,
-            % the wires will cross. We force both to be CCW.
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
             areaR = sum((yR(1:end-1).*zR(2:end)) - (yR(2:end).*zR(1:end-1)));
-
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR); zR = flipud(zR);
-                % Re-align nose after flip
                 [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
-            % --- Standard Arc-Length Mapping ---
-            distL = [0; cumsum(sqrt(diff(yL).^2 + diff(zL).^2))];
-            distR = [0; cumsum(sqrt(diff(yR).^2 + diff(zR).^2))];
-            sL = distL / distL(end); sR = distR / distR(end);
+            % 2. Baseline Generation (Oversample)
+            distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
+            distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+            maxLen = max(distL(end), distR(end));
 
-            N = ceil(max(distL(end), distR(end)) / tol);
-            N = max(N, 100);
-            sTarget = linspace(0, 1, N)';
+            baselineRes = 0.1;
+            N = ceil(maxLen / baselineRes);
+            N = max(N, 1000);
 
-            [sLu, iL] = unique(sL, 'stable'); [sRu, iR] = unique(sR, 'stable');
-            yLS = interp1(sLu, yL(iL), sTarget, 'linear');
-            zLS = interp1(sLu, zL(iL), sTarget, 'linear');
-            yRS = interp1(sRu, yR(iR), sTarget, 'linear');
-            zRS = interp1(sRu, zR(iR), sTarget, 'linear');
+            s_rawL = distL / distL(end); s_rawR = distR / distR(end);
+            s_fine = linspace(0, 1, N)';
+
+            [suL, iuL] = unique(s_rawL,'stable'); [suR, iuR] = unique(s_rawR,'stable');
+
+            yLf = interp1(suL, yL(iuL), s_fine, 'linear');
+            zLf = interp1(suL, zL(iuL), s_fine, 'linear');
+            yRf = interp1(suR, yR(iuR), s_fine, 'linear');
+            zRf = interp1(suR, zR(iuR), s_fine, 'linear');
+
+            % 3. RDP Reduction (Iterative 4D)
+            pts4D = [yLf, zLf, yRf, zRf];
+            keepMask = false(N, 1);
+            keepMask(1) = true; keepMask(end) = true;
+
+            stack = [1, N];
+
+            while ~isempty(stack)
+                idxEnd = stack(end);
+                idxStart = stack(end-1);
+                stack(end-1:end) = [];
+
+                if idxEnd - idxStart < 2
+                    continue;
+                end
+
+                P1 = pts4D(idxStart, :);
+                P2 = pts4D(idxEnd, :);
+
+                rng = (idxStart+1):(idxEnd-1);
+                Pts = pts4D(rng, :);
+
+                V = P2 - P1;
+                lenSq = sum(V.^2);
+                W = bsxfun(@minus, Pts, P1);
+
+                if lenSq < 1e-12
+                    distsSq = sum(W.^2, 2);
+                else
+                    t = (W * V') / lenSq;
+                    t = max(0, min(1, t)); % Clamp
+                    Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
+                    distsSq = sum((Pts - Closest).^2, 2);
+                end
+
+                [maxSq, localIdx] = max(distsSq);
+
+                if maxSq > (tol^2)
+                    splitIdx = rng(localIdx);
+                    keepMask(splitIdx) = true;
+                    stack = [stack, splitIdx, idxEnd];
+                    stack = [stack, idxStart, splitIdx];
+                end
+            end
+
+            % 4. Final Extract
+            yLS = pts4D(keepMask, 1); zLS = pts4D(keepMask, 2);
+            yRS = pts4D(keepMask, 3); zRS = pts4D(keepMask, 4);
+
+            yLS(end) = yLS(1); zLS(end) = zLS(1);
+            yRS(end) = yRS(1); zRS(end) = zRS(1);
         end
 
         function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)

@@ -1276,47 +1276,45 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value,'Tapered');
+
+            % Clear old data
             app.clearProfiles(); app.clearProfiles2D();
             app.SelectedStartIdxL = 1; app.SelectedStartIdxR = 1;
+
+            % Setup Geometry
             V = app.ModelPatch.Vertices; F = app.ModelPatch.Faces;
             spanX = max(V(:,1)) - min(V(:,1)); epsX = 1e-6 * max(spanX, 1);
 
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
 
-            % --- 2. EXTRACT RAW LOOPS ---
+            % --- 1. EXTRACT RAW LOOPS ---
+            % Left is always extracted
             [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
             if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
             [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
 
+            % Right: Extract if Taper, otherwise Copy Left
             yLoopR = []; zLoopR = [];
             if isTaper
                 [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
                 if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ = [ysR(:), zsR(:)]; end
                 [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
-            end
-
-            % --- 3. RESAMPLING LOGIC ---
-            if ~isTaper
-                % STRAIGHT MODE identity
-                if ~isempty(yLoopL)
-                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.resampleProfileByTolerance(yLoopL, zLoopL, app.ProfileTolerance);
-                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopL, zLoopL);
-                end
-                yLoopR = yLoopL; zLoopR = zLoopL;
             else
-                % TAPERED MODE sync
-                if ~isempty(yLoopL) && ~isempty(yLoopR)
-                    [yLoopL, zLoopL, yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
-                        yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
-
-                    % Crucial: reorder both independently AFTER sync to align starting clock position
-                    [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopL, zLoopL);
-                    [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yLoopR, zLoopR);
-                end
+                % Straight Mode: Right = Left
+                yLoopR = yLoopL; zLoopR = zLoopL;
+                app.RightProfileRawYZ = app.LeftProfileRawYZ;
             end
 
-            % --- 4. DATA STORAGE & PLOTTING ---
+            % --- 2. RESAMPLING (The Fix) ---
+            % Use the Smart RDP Sync for BOTH Straight and Tapered modes.
+            % This ensures squares get reduced to corners (~5 pts) instead of 1000 pts.
+            if ~isempty(yLoopL) && ~isempty(yLoopR)
+                [yLoopL, zLoopL, yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                    yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
+            end
+
+            % --- 3. DATA STORAGE & PLOTTING ---
             if ~isempty(yLoopL)
                 xVecL = xLeft * ones(numel(yLoopL),1);
                 app.LeftProfileLine3D = plot3(app.AxModel, xVecL, yLoopL, zLoopL, 'Color', t.planeRed, 'LineWidth', 1.4);
@@ -1340,15 +1338,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
             drawnow limitrate nocallbacks;
-
-            % --- FINAL SYNC DIAGNOSTIC ---
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                v = app.RightProfilePoints(:,2:3) - app.LeftProfilePoints(:,2:3);
-                % On a straight model, the variance in this vector should be near ZERO
-                drift = max(v) - min(v);
-                fprintf('Sync Debug: Points=%d, Y-Drift=%.4fmm, Z-Drift=%.4fmm\n', ...
-                    size(v,1), drift(1), drift(2));
-            end
         end
 
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
@@ -2826,8 +2815,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
 
-                app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)], [yL(2), zL(2)], 'start');
-                hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
+                % --- FIX: Robust Start Triangle (Left) ---
+                if numel(yL) > 1
+                    idxNext = 2;
+                    % Look ahead until we find a distinct point
+                    while idxNext < numel(yL) && norm([yL(idxNext),zL(idxNext)] - [yL(1),zL(1)]) < 1e-4
+                        idxNext = idxNext + 1;
+                    end
+                    app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)], [yL(idxNext), zL(idxNext)], 'start');
+                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
+                end
             end
 
             hRapidR=gobjects(0); hLeadR=gobjects(0); hStartR=gobjects(0); hPathDummyR=gobjects(0); hEntryDotR=gobjects(0); hLoadR=gobjects(0);
@@ -2838,8 +2835,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
 
-                app.drawRotatedMarker(app.AxCutRight, [yR(1), zR(1)], [yR(2), zR(2)], 'start');
-                hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [0 1 0], 'none');
+                % --- FIX: Robust Start Triangle (Right) ---
+                if numel(yR) > 1
+                    idxNext = 2;
+                    % Look ahead until we find a distinct point
+                    while idxNext < numel(yR) && norm([yR(idxNext),zR(idxNext)] - [yR(1),zR(1)]) < 1e-4
+                        idxNext = idxNext + 1;
+                    end
+                    app.drawRotatedMarker(app.AxCutRight, [yR(1), zR(1)], [yR(idxNext), zR(idxNext)], 'start');
+                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [0 1 0], 'none');
+                end
             end
 
             % 6. Legends
@@ -3305,11 +3310,24 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function hMarker = drawRotatedMarker(app, ax, pCurrent, pNext, type)
-            % Draws a rotated triangle at pCurrent, pointing towards pNext
+            % Draws a rotated triangle at pCurrent
+            % NOTE: 'pNext' is usually just the adjacent point, but if they are too close,
+            % this function needs to be robust. Ideally, the caller should provide a valid vector.
+
+            % But since we are calling it with y(1), y(2), let's robustify it here:
+            % (This assumes the caller passed valid points, but if norm is 0, we can't draw)
+
             hMarker = gobjects(0);
             v = pNext - pCurrent;
             len = norm(v);
-            if len < 1e-6, return; end
+
+            % Robustness: If points are identical, drawing is impossible.
+            % (In a perfect world, we would scan forward, but we don't have the full array here).
+            % However, if len is tiny, just skip drawing to avoid errors,
+            % OR use a default direction (e.g. Up).
+            if len < 1e-6
+                return;
+            end
 
             % Normalize
             u = v / len;
@@ -3318,15 +3336,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Geometry
             if strcmp(type, 'start')
                 % Forward pointing triangle (Green)
-                % Tip at (0,0), base at (-1, 0.5)
-                % To point "along" the line, we want the tip pointing in direction U
-                % So geometry: Base at back, Tip at front
                 xPoly = [0, -1, -1] * scale;
                 yPoly = [0, 0.5, -0.5] * scale;
                 colFill = 'none'; colEdge = [0 1 0]; % Hollow Green
             else
                 % Exit (Reverse/Stop) Triangle (Red)
-                % Just a standard triangle
                 xPoly = [0, -1, -1] * scale;
                 yPoly = [0, 0.5, -0.5] * scale;
                 colFill = 'none'; colEdge = [1 0 0]; % Hollow Red
@@ -3340,7 +3354,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Translate
             ptsFinal = ptsRot + pCurrent(:);
 
-            hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), 'k', ...
+            % Z-Buffer Safety: Lift it slightly towards camera so it sits on top of lines
+            zLift = 0.1;
+
+            hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), ptsFinal(2,:)*0 + zLift, ...
                 'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
         end
 
