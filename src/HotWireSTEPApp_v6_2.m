@@ -4036,25 +4036,37 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
+            % --- FIX 1: SYNC SIM DATA TO POST PROPERTIES ---
+            % The Post plot functions (updatePostPlotForSelectedLine) rely on these
+            % properties being populated. We copy the "Truth" from Sim to Post.
+            app.PP_PathL = app.SimPathL;
+            app.PP_PathR = app.SimPathR;
+            app.PP_TowerPathL = app.SimTowerPathL;
+            app.PP_TowerPathR = app.SimTowerPathR;
+
+            app.PP_RapidEndIndex     = app.SimRapidCutoffIndex;
+            app.PP_ProfileStartIndex = app.SimProfileStartIndex;
+            app.PP_ProfileEndIndex   = app.SimFeedEndIndex;
+            app.PP_LeadOutEndIndex   = app.SimLeadOutEndIndex;
+            % ---------------------------------------------
+
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
 
-            % --- FIX: Calculate Model Dimensions (Matching Billet Tab logic) ---
+            % --- FIX 2: Calculate Model Dimensions Locally ---
+            % Matches Billet Tab logic exactly
             if ~isempty(app.ModelPatch)
-                % Calculate X based on the actual cut length (between planes)
                 xL = app.ModelXMin + app.NumLeftOffset.Value;
                 xR = app.ModelXMin + app.NumRightOffset.Value;
-
                 mDim = [abs(xR - xL), ...               % X (Cut Length)
                     app.ModelYMax - app.ModelYMin, ... % Y (Full Mesh)
                     app.ModelZMax - app.ModelZMin];    % Z (Full Mesh)
             else
                 mDim = [0 0 0];
             end
+            % ---------------------------------------------
 
-            % --------------------------------------------------
-
-            % 2. Setup Indices
+            % 2. Indices for G-Code Mapping
             idxRapidEnd   = app.SimRapidCutoffIndex;
             idxProfStart  = app.SimProfileStartIndex;
             idxProfEnd    = app.SimFeedEndIndex;
@@ -4098,8 +4110,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Header
             add('% ------------------------------------------');
-            add(sprintf('%%     File: %s', app.FieldFilename.Value)); % User filename
-            add(sprintf('%%    Model: %s', app.CurrentModelName));    % Original model name
+            add(sprintf('%%     File: %s', app.FieldFilename.Value));
+            add(sprintf('%%    Model: %s', app.CurrentModelName));
             add(sprintf('%%     Date: %s', string(datetime('now'))));
             add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
             add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
@@ -4113,17 +4125,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- PHASE 1: LOAD ---
             add('%% --- LOADING ---', '', 1);
 
-            % 1. Safe Move (10,10) - Matches Sim Data "pSafe"
+            % Safe Move (10,10)
             idxSafe = findSimIdx(10, 10);
             add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', idxSafe);
 
-            % 2. Load Position (Mid-Billet Front)
+            % Load Position
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
             idxLoad = findSimIdx(bY, bZ);
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', idxLoad);
             add('M1', 'STOP: Load Block', idxLoad);
 
-            % 3. Retract 10mm
+            % Retract
             bY_Ret = bY - 10;
             idxRet = findSimIdx(bY_Ret, bZ);
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', idxRet);
@@ -4181,21 +4193,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(lastE_L)
                 [tx, ty, tz, ta] = project(lastE_L(1), lastE_L(2), lastE_R(1), lastE_R(2));
-                % Map to start of LeadOut segment in simulation
                 add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, idxProfEnd + 1);
             end
 
             add('M302', 'Hot Wire Power OFF > Wait 60s > Extraction OFF', idxLeadOutEnd);
 
-            % Return to Entry 1 (if used 2)
+            % Return to Entry 1
             if ~isempty(e2L) && ~isempty(e1L)
                 [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', idxLeadOutEnd + 10);
             end
 
-            % Home Y first
             endSim = size(app.SimPathL, 1);
-
             add('G28', 'Return Home', endSim);
             add('M30', 'End Program', endSim);
 
@@ -4213,54 +4222,42 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onPostLineSelected(app, src)
-            % Use index, NOT string matching (lines repeat!)
-            items = src.Items;
-            if isempty(items)
+            % Direct index mapping (robust against duplicate G-code lines)
+            val = src.Value;
+
+            if isempty(val)
                 return;
             end
 
-            % App Designer listbox: Value is the selected item text
-            % Find ALL matches and choose the one closest to current index
-            val = src.Value;
-            matches = find(strcmp(items, val));
+            % val is already the numeric index (double) because we set ItemsData
+            app.PP_SelectedLine = val;
 
-            if isempty(matches)
-                k = 1;
-            elseif isempty(app.PP_SelectedLine)
-                k = matches(1);
-            else
-                % pick the closest match to current index
-                [~, ii] = min(abs(matches - app.PP_SelectedLine));
-                k = matches(ii);
-            end
-
-            app.PP_SelectedLine = k;
-            app.updatePostPlotForSelectedLine(k);
+            % Update plot
+            app.updatePostPlotForSelectedLine(val);
         end
 
         function stepPostLine(app, delta)
-            if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
+            % Check if data exists
+            if isempty(app.ListGCode.ItemsData)
                 return;
             end
 
-            n = numel(app.ListGCode.Items);
+            % Get limits
+            n = numel(app.ListGCode.ItemsData);
 
-            % Always step using the stored index
-            if isempty(app.PP_SelectedLine) || app.PP_SelectedLine < 1
-                cur = 1;
-            else
-                cur = app.PP_SelectedLine;
-            end
+            % Determine current and next index
+            cur = app.PP_SelectedLine;
+            if isempty(cur) || cur < 1, cur = 1; end
 
             nxt = max(1, min(n, cur + delta));
 
-            % Update state FIRST
+            % Update State
             app.PP_SelectedLine = nxt;
 
-            % Push index -> UI (never infer index from UI)
-            app.ListGCode.Value = app.ListGCode.Items{nxt};
+            % Update UI (Pass the NUMBER, not the text)
+            app.ListGCode.Value = nxt;
 
-            % Update plot
+            % Update Plot
             app.updatePostPlotForSelectedLine(nxt);
         end
 
