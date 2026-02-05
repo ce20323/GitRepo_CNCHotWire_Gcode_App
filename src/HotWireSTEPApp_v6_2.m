@@ -169,6 +169,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % --- Kerf ---
         KerfValue (1,1) double = 0.5          % [mm] Positive = shrink profile
         KerfSpinner                           % UI handle for kerf control
+        KerfPointCountLabel                   % New label for kerf stats
         BtnApplyKerf                          % Button to apply kerf offset
         KerfEnabled (1,1) logical = false     % Only draw kerf when true
         LeftKerf2DLine; RightKerf2DLine       % 2D kerf path lines
@@ -586,6 +587,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
             app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
+
+            app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
+            app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
+
+            % --- NEW: Kerf Point Count Label ---
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Points: --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', 10);
+            app.KerfPointCountLabel.Layout.Row = 1;
+            app.KerfPointCountLabel.Layout.Column = 3; % Adjust grid column width below if needed
+
+            % Update grid layout to accommodate the new label
+            gridKerf.ColumnWidth = {'1x', 60, 80}; % Adjusted widths
 
             app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
             app.BtnApplyKerf.Layout.Row = 2; app.BtnApplyKerf.Layout.Column = [1 2];
@@ -1381,6 +1394,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Clear only profile lines (labels/titles persist)
             app.clearProfiles2D();
 
+            % Initialize Kerf Point Counters
+            nLk = 0; nRk = 0;
+
             % ----- LEFT AXIS -----
             hold(app.AxLeftProfile,'on');
 
@@ -1406,6 +1422,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.KerfEnabled && ~isempty(yL) && app.KerfValue > 0
                 [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
                     yL, zL, app.KerfValue);
+
+                % Update Count
+                if ~isempty(yKerfL), nLk = numel(yKerfL); end
 
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, ...
                     yKerfL, zKerfL, ...
@@ -1437,6 +1456,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.KerfEnabled && ~isempty(yR) && app.KerfValue > 0
                 [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop( ...
                     yR, zR, app.KerfValue);
+
+                % Update Count
+                if ~isempty(yKerfR), nRk = numel(yKerfR); end
+
                 app.RightKerf2DLine = plot(app.AxRightProfile, ...
                     yKerfR, zKerfR, ...
                     'Color', t.wireKerf, ...
@@ -1444,6 +1467,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             hold(app.AxRightProfile,'off');
+
+            % ----- UPDATE KERF LABEL -----
+            % This ensures the label updates whenever the plot redraws (Tolerance, Kerf, or Reset)
+            if app.KerfEnabled && isgraphics(app.KerfPointCountLabel)
+                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nLk, nRk);
+            end
 
             % Legend / key for left profile
             leftLegendHandles = gobjects(0);
@@ -1699,7 +1728,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1]; % Light up Green
             app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            % Use the stored 3D profile points to rebuild the 2D view.
+            % --- 1. EXTRACT DATA FIRST (Fixes 'Unrecognized variable' error) ---
             yL = []; zL = []; xLeft  = 0;
             yR = []; zR = []; xRight = 0;
 
@@ -1715,6 +1744,26 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
+            % --- 2. UPDATE POINTS LABEL ---
+            nL_k = 0; nR_k = 0;
+
+            % Compute Left Kerf Count
+            if ~isempty(yL) && app.KerfValue > 0
+                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
+                if ~isempty(yk), nL_k = numel(yk); end
+            end
+
+            % Compute Right Kerf Count
+            if ~isempty(yR) && app.KerfValue > 0
+                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
+                if ~isempty(ykR), nR_k = numel(ykR); end
+            end
+
+            if isgraphics(app.KerfPointCountLabel)
+                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nL_k, nR_k);
+            end
+
+            % --- 3. REFRESH PLOT ---
             % Just update the 2D plots; keep current zoom.
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
@@ -3372,7 +3421,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function generateSimulationData(app)
-            % 1. Setup & Profile Extraction
+            % 1. Setup & Profile Extraction (Sparse / Truth)
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
@@ -3381,12 +3430,29 @@ classdef HotWireSTEPApp_v6_2 < handle
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
-            % Sync Geometry (TRUTH) - Preserves L/R Index Linking
+            % Sync Geometry (TRUTH for G-Code)
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
-            % 2. Define Helper Functions for Segments
+            % --- Helper: Densify for Visual Smoothness (Visual Only) ---
+            function [yD, zD] = densify(y, z, step)
+                if nargin < 3, step = 2.0; end % 2mm visual resolution
+                d = [0; cumsum(hypot(diff(y), diff(z)))];
+                if d(end) < 1e-3, yD=y; zD=z; return; end
+
+                % Create dense grid
+                d_fine = (0:step:d(end))';
+                if d_fine(end) ~= d(end), d_fine = [d_fine; d(end)]; end
+
+                % Interpolate (Linear preserves corners, just adds dots between them)
+                [du, iu] = unique(d,'stable');
+                yD = interp1(du, y(iu), d_fine, 'linear');
+                zD = interp1(du, z(iu), d_fine, 'linear');
+            end
+            % -----------------------------------------------------------
+
+            % Helper Segments
             function pts = mkRapid(e1, e2)
                 pZero=[0,0]; pSafe=[10,10];
                 pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
@@ -3414,59 +3480,60 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pts=[pts; [0, pts(end,2)]; [0,0]];
             end
 
-            % 3. Generate Raw Semantic Segments
-            app.SimRawRapidL = mkRapid(app.EntryPointL, app.EntryPoint2L);
-            app.SimRawRapidR = mkRapid(app.EntryPointR, app.EntryPoint2R);
+            % 2. Generate Raw Segments (Sparse)
+            rawRapL = mkRapid(app.EntryPointL, app.EntryPoint2L);
+            rawRapR = mkRapid(app.EntryPointR, app.EntryPoint2R);
 
-            app.SimRawLeadInL = mkLeadIn([yL(1),zL(1)], app.EntryPointL, app.EntryPoint2L);
-            app.SimRawLeadInR = mkLeadIn([yR(1),zR(1)], app.EntryPointR, app.EntryPoint2R);
+            rawLiL = mkLeadIn([yL(1),zL(1)], app.EntryPointL, app.EntryPoint2L);
+            rawLiR = mkLeadIn([yR(1),zR(1)], app.EntryPointR, app.EntryPoint2R);
 
-            app.SimRawLeadOutL = mkLeadOut([yL(end),zL(end)], app.EntryPointL, app.EntryPoint2L);
-            app.SimRawLeadOutR = mkLeadOut([yR(end),zR(end)], app.EntryPointR, app.EntryPoint2R);
+            rawLoL = mkLeadOut([yL(end),zL(end)], app.EntryPointL, app.EntryPoint2L);
+            rawLoR = mkLeadOut([yR(end),zR(end)], app.EntryPointR, app.EntryPoint2R);
 
-            % Returns connect from LeadOut end
-            rawRetL = mkReturn(app.SimRawLeadOutL(end,:), app.EntryPointL, app.EntryPoint2L);
-            rawRetR = mkReturn(app.SimRawLeadOutR(end,:), app.EntryPointR, app.EntryPoint2R);
-            app.SimRawReturnL = rawRetL; app.SimRawReturnR = rawRetR;
+            rawRetL = mkReturn(rawLoL(end,:), app.EntryPointL, app.EntryPoint2L);
+            rawRetR = mkReturn(rawLoR(end,:), app.EntryPointR, app.EntryPoint2R);
 
-            % 4. Interpolate & Sync for Animation (L/R lockstep)
-            % This step ONLY smooths the Rapid/Lead-in moves (which are straight lines)
-            % It does NOT touch the Profile geometry.
-            function [Lo, Ro] = interp(Li, Ri)
-                if size(Li,1)<2 || size(Ri,1)<2, Lo=Li; Ro=Ri; return; end
-                len = max(sum(sqrt(sum(diff(Li).^2,2))), sum(sqrt(sum(diff(Ri).^2,2))));
-                N = max(20, round(len/2.0)); % 2mm steps
+            % 3. Densify All Segments for Simulation Arrays
+            % Note: We densify L and R separately, then force sync to ensure array sizes match.
 
-                % Interpolate L
-                dL = [0; cumsum(sqrt(sum(diff(Li).^2,2)))]; [dL, u]=unique(dL,'stable'); Li=Li(u,:);
-                Lo = [interp1(dL,Li(:,1),linspace(0,dL(end),N)'), interp1(dL,Li(:,2),linspace(0,dL(end),N)')];
+            % Rapid
+            [dRapL_y, dRapL_z] = densify(rawRapL(:,1), rawRapL(:,2));
+            [dRapR_y, dRapR_z] = densify(rawRapR(:,1), rawRapR(:,2));
+            [dRapL_y, dRapL_z, dRapR_y, dRapR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dRapL_y, dRapL_z, dRapR_y, dRapR_z);
 
-                % Interpolate R
-                dR = [0; cumsum(sqrt(sum(diff(Ri).^2,2)))]; [dR, u]=unique(dR,'stable'); Ri=Ri(u,:);
-                Ro = [interp1(dR,Ri(:,1),linspace(0,dR(end),N)'), interp1(dR,Ri(:,2),linspace(0,dR(end),N)')];
-            end
+            % Lead In
+            [dLiL_y, dLiL_z] = densify(rawLiL(:,1), rawLiL(:,2));
+            [dLiR_y, dLiR_z] = densify(rawLiR(:,1), rawLiR(:,2));
+            [dLiL_y, dLiL_z, dLiR_y, dLiR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dLiL_y, dLiL_z, dLiR_y, dLiR_z);
 
-            [rapL, rapR] = interp(app.SimRawRapidL, app.SimRawRapidR);
-            [liL,  liR]  = interp(app.SimRawLeadInL,  app.SimRawLeadInR);
-            [loL,  loR]  = interp(app.SimRawLeadOutL, app.SimRawLeadOutR);
+            % Profile (Critical for SIMULATION visual smoothness)
+            [dProfL_y, dProfL_z] = densify(yL, zL);
+            [dProfR_y, dProfR_z] = densify(yR, zR);
+            [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dProfL_y, dProfL_z, dProfR_y, dProfR_z);
 
-            % Return stitch (manual)
-            retL_stitch = [[loL(end,:)]; rawRetL];
-            retR_stitch = [[loR(end,:)]; rawRetR];
-            [retL, retR] = interp(retL_stitch, retR_stitch);
+            % Lead Out
+            [dLoL_y, dLoL_z] = densify(rawLoL(:,1), rawLoL(:,2));
+            [dLoR_y, dLoR_z] = densify(rawLoR(:,1), rawLoR(:,2));
+            [dLoL_y, dLoL_z, dLoR_y, dLoR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dLoL_y, dLoL_z, dLoR_y, dLoR_z);
 
-            % 5. Combine into Visual Arrays
-            app.SimRapidCutoffIndex  = size(rapL,1);
-            app.SimProfileStartIndex = size(rapL,1) + size(liL,1);
-            app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(yL);
-            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + size(loL,1);
+            % Return
+            [dRetL_y, dRetL_z] = densify(rawRetL(:,1), rawRetL(:,2));
+            [dRetR_y, dRetR_z] = densify(rawRetR(:,1), rawRetR(:,2));
+            [dRetL_y, dRetL_z, dRetR_y, dRetR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dRetL_y, dRetL_z, dRetR_y, dRetR_z);
 
-            fullY_L = [rapL(:,1); liL(:,1); yL; loL(:,1); retL(:,1)];
-            fullZ_L = [rapL(:,2); liL(:,2); zL; loL(:,2); retL(:,2)];
-            fullY_R = [rapR(:,1); liR(:,1); yR; loR(:,1); retR(:,1)];
-            fullZ_R = [rapR(:,2); liR(:,2); zR; loR(:,2); retR(:,2)];
 
-            % 6. Map to 3D Machine Space
+            % 4. Combine into Simulation Path
+            app.SimRapidCutoffIndex  = numel(dRapL_y);
+            app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(dLiL_y);
+            app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(dProfL_y);
+            app.SimLeadOutEndIndex   = app.SimFeedEndIndex + numel(dLoL_y);
+
+            fullY_L = [dRapL_y; dLiL_y; dProfL_y; dLoL_y; dRetL_y];
+            fullZ_L = [dRapL_z; dLiL_z; dProfL_z; dLoL_z; dRetL_z];
+            fullY_R = [dRapR_y; dLiR_y; dProfR_y; dLoR_y; dRetR_y];
+            fullZ_R = [dRapR_z; dLiR_z; dProfR_z; dLoR_z; dRetR_z];
+
+            % 5. Map to 3D Machine Space
             if ~isempty(app.LeftProfilePoints),  xL = app.LeftProfilePoints(1,1);  else, xL = app.MachineBilletPos(1); end
             if ~isempty(app.RightProfilePoints), xR = app.RightProfilePoints(1,1); else, xR = app.MachineBilletPos(1)+10; end
 
@@ -3476,24 +3543,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimPathL = [repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
             app.SimPathR = [repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            % 7. Calculate Physics (Arc Length) for DISTANCE STEPPING
+            % 6. Physics
             dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL)) = 0;
             dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR)) = 0;
             app.SimArcLenL = [0; cumsum(dL)];
             app.SimArcLenR = [0; cumsum(dR)];
-
-            % Master length is the max of the two towers (Critical for Taper)
             app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
             app.SimPlayDist = 0;
 
-            % 8. Tower Projections
+            % 7. Tower Projections
             V = app.SimPathR - app.SimPathL;
             tL = -app.SimPathL(:,1) ./ V(:,1);
             tR = (app.MachineSpanX - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % 9. UI Init
+            % 8. UI Init
             nPoints = size(app.SimPathL, 1);
             app.SimSlider.Limits = [1, nPoints];
             app.SimSlider.Value = 1;
