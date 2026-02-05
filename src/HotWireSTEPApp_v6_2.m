@@ -3188,7 +3188,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if inpolygon(testPt(1), testPt(2), y, z), vBisect = -vBisect; end
 
                 % 5. Project Target Point (45mm)
-                distT = 45;
+                distT = 15;
                 targetPt = S + vBisect * distT;
 
                 % 6. Z-Safety
@@ -4193,18 +4193,28 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(lastE_L)
                 [tx, ty, tz, ta] = project(lastE_L(1), lastE_L(2), lastE_R(1), lastE_R(2));
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, idxProfEnd + 1);
+
+                % FIX: Map to the END of the segment (idxLeadOutEnd), not the start.
+                % This ensures the wire moves to the destination when this line is selected.
+                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, idxLeadOutEnd);
             end
 
             add('M302', 'Hot Wire Power OFF > Wait 60s > Extraction OFF', idxLeadOutEnd);
 
-            % Return to Entry 1
+            % Return to Entry 1 (Only applies if we used Entry 2)
             if ~isempty(e2L) && ~isempty(e1L)
                 [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', idxLeadOutEnd + 10);
+
+                % FIX: Find the specific index where we arrive at Entry 1 during the return.
+                % We restrict the search to the path AFTER the Lead Out (idxLeadOutEnd to end).
+                idxRetE1 = findSimIdx(e1L(1), e1L(2), idxLeadOutEnd:size(app.SimPathL,1));
+
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', idxRetE1);
             end
 
+            % Home Y first
             endSim = size(app.SimPathL, 1);
+
             add('G28', 'Return Home', endSim);
             add('M30', 'End Program', endSim);
 
