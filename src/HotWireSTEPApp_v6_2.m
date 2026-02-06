@@ -3337,24 +3337,50 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
-            % --- Helper: Densify for Visual Smoothness (Visual Only) ---
-            function [yD, zD] = densify(y, z, step)
-                if nargin < 3, step = 2.0; end % 2mm visual resolution
-                d = [0; cumsum(hypot(diff(y), diff(z)))];
-                if d(end) < 1e-3, yD=y; zD=z; return; end
+            % --- Helper: Synchronized Densification (Fixed for Smooth Speed) ---
+            % Distributes points based on PHYSICAL DISTANCE, not Index.
+            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
+                if nargin < 5, step = 2.0; end
 
-                % Create dense grid
-                d_fine = (0:step:d(end))';
-                if d_fine(end) ~= d(end), d_fine = [d_fine; d(end)]; end
+                N = numel(yL);
+                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
 
-                % Interpolate (Linear preserves corners, just adds dots between them)
-                [du, iu] = unique(d,'stable');
-                yD = interp1(du, y(iu), d_fine, 'linear');
-                zD = interp1(du, z(iu), d_fine, 'linear');
+                % 1. Calculate cumulative physical distance for both paths
+                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
+                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+
+                % 2. Normalize both to 0..1 based on their own total length
+                % This preserves the relative speed of L vs R (sync)
+                maxL = distL(end); if maxL < 1e-6, maxL = 1; end
+                maxR = distR(end); if maxR < 1e-6, maxR = 1; end
+
+                sL = distL / maxL;
+                sR = distR / maxR;
+
+                % 3. Create a Master Parameter based on the "Longest" path behavior
+                % We average the progress to keep them tied, or use the dominant one.
+                % Averaging 's' allows us to map the geometric corners to a time 't'.
+                s_orig = (sL + sR) / 2;
+
+                % 4. Determine step count based on the longest path
+                totalLen = max(distL(end), distR(end));
+                nSteps = ceil(totalLen / step);
+                nSteps = max(nSteps, N);
+
+                % 5. Create uniform grid for smooth animation (0..1)
+                s_smooth = linspace(0, 1, nSteps)';
+
+                % 6. Union: Include EXACT corner times + Smooth times
+                s_combined = unique([s_orig; s_smooth]);
+
+                % 7. Interpolate geometry onto this new time grid
+                yLD = interp1(s_orig, yL, s_combined, 'linear');
+                zLD = interp1(s_orig, zL, s_combined, 'linear');
+                yRD = interp1(s_orig, yR, s_combined, 'linear');
+                zRD = interp1(s_orig, zR, s_combined, 'linear');
             end
-            % -----------------------------------------------------------
 
-            % Helper Segments
+            % Helper for Segments
             function pts = mkRapid(e1, e2)
                 pZero=[0,0]; pSafe=[10,10];
                 pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
@@ -3382,7 +3408,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pts=[pts; [0, pts(end,2)]; [0,0]];
             end
 
-            % 2. Generate Raw Segments (Sparse)
+            % 2. Generate Raw Segments
             rawRapL = mkRapid(app.EntryPointL, app.EntryPoint2L);
             rawRapR = mkRapid(app.EntryPointR, app.EntryPoint2R);
 
@@ -3395,34 +3421,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             rawRetL = mkReturn(rawLoL(end,:), app.EntryPointL, app.EntryPoint2L);
             rawRetR = mkReturn(rawLoR(end,:), app.EntryPointR, app.EntryPoint2R);
 
-            % 3. Densify All Segments for Simulation Arrays
-            % Note: We densify L and R separately, then force sync to ensure array sizes match.
-
-            % Rapid
-            [dRapL_y, dRapL_z] = densify(rawRapL(:,1), rawRapL(:,2));
-            [dRapR_y, dRapR_z] = densify(rawRapR(:,1), rawRapR(:,2));
-            [dRapL_y, dRapL_z, dRapR_y, dRapR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dRapL_y, dRapL_z, dRapR_y, dRapR_z);
-
-            % Lead In
-            [dLiL_y, dLiL_z] = densify(rawLiL(:,1), rawLiL(:,2));
-            [dLiR_y, dLiR_z] = densify(rawLiR(:,1), rawLiR(:,2));
-            [dLiL_y, dLiL_z, dLiR_y, dLiR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dLiL_y, dLiL_z, dLiR_y, dLiR_z);
-
-            % Profile (Critical for SIMULATION visual smoothness)
-            [dProfL_y, dProfL_z] = densify(yL, zL);
-            [dProfR_y, dProfR_z] = densify(yR, zR);
-            [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dProfL_y, dProfL_z, dProfR_y, dProfR_z);
-
-            % Lead Out
-            [dLoL_y, dLoL_z] = densify(rawLoL(:,1), rawLoL(:,2));
-            [dLoR_y, dLoR_z] = densify(rawLoR(:,1), rawLoR(:,2));
-            [dLoL_y, dLoL_z, dLoR_y, dLoR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dLoL_y, dLoL_z, dLoR_y, dLoR_z);
-
-            % Return
-            [dRetL_y, dRetL_z] = densify(rawRetL(:,1), rawRetL(:,2));
-            [dRetR_y, dRetR_z] = densify(rawRetR(:,1), rawRetR(:,2));
-            [dRetL_y, dRetL_z, dRetR_y, dRetR_z] = HotWireSTEPApp_v6_helpers.syncPointCounts(dRetL_y, dRetL_z, dRetR_y, dRetR_z);
-
+            % 3. Densify Segments
+            [dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
+            [dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
+            [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
+            [dLoL_y, dLoL_z, dLoR_y, dLoR_z]         = densifySynced(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));
+            [dRetL_y, dRetL_z, dRetR_y, dRetR_z]     = densifySynced(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
 
             % 4. Combine into Simulation Path
             app.SimRapidCutoffIndex  = numel(dRapL_y);
@@ -3462,11 +3466,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 8. UI Init
             nPoints = size(app.SimPathL, 1);
-            app.SimSlider.Limits = [1, nPoints];
+            app.SimSlider.Limits = [1, max(1, nPoints)];
             app.SimSlider.Value = 1;
 
             if isprop(app, 'SimIndexSpinner') && ~isempty(app.SimIndexSpinner)
-                app.SimIndexSpinner.Limits = [1, nPoints];
+                app.SimIndexSpinner.Limits = [1, max(1, nPoints)];
                 app.SimIndexSpinner.Value = 1;
             end
 
@@ -3475,7 +3479,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % --- View Management ---
         function initSimulationPlot(app)
-            % Draws static elements (Bed, Billet, Ghost Model)
+            % Draws static elements and inits dynamic tags
             ax = app.AxSim; cla(ax); hold(ax,'on'); t=app.getTheme();
 
             % Setup Geometry
@@ -3497,14 +3501,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'FaceColor',[0.6 0.6 0.7], 'FaceAlpha',0.3, 'EdgeColor','none', 'Tag','SimModel');
             end
 
-            % Pre-create Dynamic Elements (Wires/Dots/Trails)
+            % --- Dynamic Elements (Original Styles) ---
+            % Wire
             plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.2, 'Tag','SimWire');
+
+            % Tower Dots
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimDotR');
+
+            % Model Dots
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimModelDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimModelDotR');
 
-            % Trails (Yellow=Rapid/Ret, Orange=Lead, Red/Green=Feed)
+            % Trails (Yellow/Orange/Red-Green/Orange/Yellow)
             tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
             cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed, [1 0.5 0], [0.9 0.8 0]};
             styles = {'-','-','-','--','--'};
@@ -3513,7 +3522,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
-                colR = cols{i}; if i==3, colR=t.planeGreen; end % Feed Right is Green
+                colR = cols{i}; if i==3, colR=t.planeGreen; end
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
             end
 
@@ -3859,15 +3868,17 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updatePostPlotForSelectedLine(app, k)
-            % Uses PP_* paths (truth-based) so Post stepping matches real G-code moves
+            % Maps selected G-code line (k) to Visual Path Index and updates Post plot
 
             if isempty(app.PP_LineToPathIndex) || isempty(app.PP_PathL) || isempty(app.PP_TowerPathL)
                 return;
             end
 
-            % Find motion idx for this selected G-code line (scan backward)
+            % Map Line -> Path Index
             k = max(1, min(k, numel(app.PP_LineToPathIndex)));
             idx = app.PP_LineToPathIndex(k);
+
+            % Handle non-movement lines (scroll back)
             kk = k;
             while (isnan(idx) || idx <= 0) && kk > 1
                 kk = kk - 1;
@@ -3879,124 +3890,85 @@ classdef HotWireSTEPApp_v6_2 < handle
             ax = app.AxPost;
             offX = app.MachineBedPos(1);
 
-            % Phase indices (PP indices, not sim indices)
+            % Phase Indices
             idxRapidEnd   = app.PP_RapidEndIndex;
             idxProfStart  = app.PP_ProfileStartIndex;
             idxProfEnd    = app.PP_ProfileEndIndex;
             idxLeadOutEnd = app.PP_LeadOutEndIndex;
 
-            % Local references to PP paths
-            pathL  = app.PP_PathL;
-            pathR  = app.PP_PathR;
-            towerL = app.PP_TowerPathL;
-            towerR = app.PP_TowerPathR;
+            towerL = app.PP_TowerPathL; towerR = app.PP_TowerPathR;
+            pathL  = app.PP_PathL; pathR  = app.PP_PathR;
 
-            % Helpers (same logic as sim, but Post tags + AxPost)
+            % Update Dots
+            pTL = [towerL(idx,1) - offX, towerL(idx,2), towerL(idx,3)];
+            pTR = [towerR(idx,1) - offX, towerR(idx,2), towerR(idx,3)];
+            pML = [pathL(idx,1) - offX, pathL(idx,2), pathL(idx,3)];
+            pMR = [pathR(idx,1) - offX, pathR(idx,2), pathR(idx,3)];
+
+            set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pTR(1)], 'YData',[pTL(2) pTR(2)], 'ZData',[pTL(3) pTR(3)]);
+            set(findobj(ax,'Tag','PostDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
+            set(findobj(ax,'Tag','PostDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
+            set(findobj(ax,'Tag','PostModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
+            set(findobj(ax,'Tag','PostModelDotR'), 'XData',pMR(1), 'YData',pMR(2), 'ZData',pMR(3));
+
+            % Update Trails (Strict Phases)
             function updateT(tag, data, s, e)
                 h = findobj(ax, 'Tag', tag);
                 if ~isempty(h)
-                    s = max(1, min(s, size(data,1)));
-                    e = max(1, min(e, size(data,1)));
-                    if e < s
-                        h.XData=[]; h.YData=[]; h.ZData=[];
-                        return;
-                    end
-                    dt = data(s:e,:) - [offX,0,0];
-                    h.XData = dt(:,1);
-                    h.YData = dt(:,2);
-                    h.ZData = dt(:,3);
+                    s = max(1, min(s, size(data,1))); e = max(1, min(e, size(data,1)));
+                    if e < s, h.XData=[]; h.YData=[]; h.ZData=[]; return; end
+                    dt = data(s:e,:);
+                    h.XData = dt(:,1) - offX; h.YData = dt(:,2); h.ZData = dt(:,3);
                 end
             end
 
             function clearT(tags)
-                for ii = 1:numel(tags)
-                    h = findobj(ax,'Tag',tags{ii});
-                    if ~isempty(h)
-                        h.XData=[]; h.YData=[]; h.ZData=[];
-                    end
+                for ii=1:numel(tags)
+                    h=findobj(ax,'Tag',tags{ii}); if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
                 end
             end
 
-            % Wire + dots at idx (towers)
-            pTL = towerL(idx,:) - [offX,0,0];
-            pTR = towerR(idx,:) - [offX,0,0];
-
-            hWire = findobj(ax,'Tag','PostWire');
-            if ~isempty(hWire)
-                hWire.XData = [pTL(1), pTR(1)];
-                hWire.YData = [pTL(2), pTR(2)];
-                hWire.ZData = [pTL(3), pTR(3)];
-            end
-
-            hDotL = findobj(ax,'Tag','PostDotL');
-            if ~isempty(hDotL)
-                hDotL.XData = pTL(1); hDotL.YData = pTL(2); hDotL.ZData = pTL(3);
-            end
-
-            hDotR = findobj(ax,'Tag','PostDotR');
-            if ~isempty(hDotR)
-                hDotR.XData = pTR(1); hDotR.YData = pTR(2); hDotR.ZData = pTR(3);
-            end
-
-            % -----------------------------
-            % Phase 1: Rapid (1 -> idxRapidEnd)
-            % -----------------------------
+            % 1. Rapid (Yellow)
             curEnd = min(idx, idxRapidEnd);
             updateT('PostTowerRapidL', towerL, 1, curEnd);
             updateT('PostTowerRapidR', towerR, 1, curEnd);
             updateT('PostModelRapidL', pathL,  1, curEnd);
             updateT('PostModelRapidR', pathR,  1, curEnd);
 
-            % -----------------------------
-            % Phase 2: Lead In (idxRapidEnd -> idxProfStart)
-            % -----------------------------
+            % 2. Lead In (Orange)
             if idx > idxRapidEnd
                 curEnd = min(idx, idxProfStart);
                 updateT('PostTowerLeadInL', towerL, idxRapidEnd, curEnd);
                 updateT('PostTowerLeadInR', towerR, idxRapidEnd, curEnd);
                 updateT('PostModelLeadInL', pathL,  idxRapidEnd, curEnd);
                 updateT('PostModelLeadInR', pathR,  idxRapidEnd, curEnd);
-            else
-                clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'});
-            end
+            else, clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'}); end
 
-            % -----------------------------
-            % Phase 3: Feed profile (idxProfStart -> idxProfEnd)
-            % -----------------------------
+            % 3. Feed (Red/Green)
             if idx > idxProfStart
                 curEnd = min(idx, idxProfEnd);
                 updateT('PostTowerFeedL', towerL, idxProfStart, curEnd);
                 updateT('PostTowerFeedR', towerR, idxProfStart, curEnd);
                 updateT('PostModelFeedL', pathL,  idxProfStart, curEnd);
                 updateT('PostModelFeedR', pathR,  idxProfStart, curEnd);
-            else
-                clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'});
-            end
+            else, clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'}); end
 
-            % -----------------------------
-            % Phase 4: Lead out (idxProfEnd -> idxLeadOutEnd)
-            % -----------------------------
+            % 4. Lead Out (Orange Dashed)
             if idx > idxProfEnd
                 curEnd = min(idx, idxLeadOutEnd);
                 updateT('PostTowerLeadOutL', towerL, idxProfEnd, curEnd);
                 updateT('PostTowerLeadOutR', towerR, idxProfEnd, curEnd);
                 updateT('PostModelLeadOutL', pathL,  idxProfEnd, curEnd);
                 updateT('PostModelLeadOutR', pathR,  idxProfEnd, curEnd);
-            else
-                clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'});
-            end
+            else, clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'}); end
 
-            % -----------------------------
-            % Phase 5: Return (idxLeadOutEnd -> idx)
-            % -----------------------------
+            % 5. Return (Yellow Dashed)
             if idx > idxLeadOutEnd
                 updateT('PostTowerReturnL', towerL, idxLeadOutEnd, idx);
                 updateT('PostTowerReturnR', towerR, idxLeadOutEnd, idx);
                 updateT('PostModelReturnL', pathL,  idxLeadOutEnd, idx);
                 updateT('PostModelReturnR', pathR,  idxLeadOutEnd, idx);
-            else
-                clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'});
-            end
+            else, clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'}); end
 
             drawnow limitrate;
         end
@@ -4010,7 +3982,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onPostProcess(app)
-            % Generates Semantic G-Code and maps lines to Simulation Indices
+            % Generates Semantic G-Code using TRUTH data.
+            % Builds a visual path (PP_PathL/R) strictly from G-Code coords (1:1 fidelity).
 
             % 1. Ensure Simulation Data Exists
             if isempty(app.SimPathL) || isempty(app.ProfileSyncL)
@@ -4020,49 +3993,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % --- FIX 1: SYNC SIM DATA TO POST PROPERTIES ---
-            % The Post plot functions (updatePostPlotForSelectedLine) rely on these
-            % properties being populated. We copy the "Truth" from Sim to Post.
-            app.PP_PathL = app.SimPathL;
-            app.PP_PathR = app.SimPathR;
-            app.PP_TowerPathL = app.SimTowerPathL;
-            app.PP_TowerPathR = app.SimTowerPathR;
+            % Reset Post-Process Plot Paths
+            app.PP_PathL = zeros(0,3); app.PP_PathR = zeros(0,3);
+            app.PP_TowerPathL = zeros(0,3); app.PP_TowerPathR = zeros(0,3);
 
-            app.PP_RapidEndIndex     = app.SimRapidCutoffIndex;
-            app.PP_ProfileStartIndex = app.SimProfileStartIndex;
-            app.PP_ProfileEndIndex   = app.SimFeedEndIndex;
-            app.PP_LeadOutEndIndex   = app.SimLeadOutEndIndex;
-            % ---------------------------------------------
-
+            % 2. Prepare Settings
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
 
-            % --- FIX 2: Calculate Model Dimensions Locally ---
-            % Matches Billet Tab logic exactly
-            if ~isempty(app.ModelPatch)
-                xL = app.ModelXMin + app.NumLeftOffset.Value;
-                xR = app.ModelXMin + app.NumRightOffset.Value;
-                mDim = [abs(xR - xL), ...               % X (Cut Length)
-                    app.ModelYMax - app.ModelYMin, ... % Y (Full Mesh)
-                    app.ModelZMax - app.ModelZMin];    % Z (Full Mesh)
-            else
-                mDim = [0 0 0];
-            end
-            % ---------------------------------------------
-
-            % 2. Indices for G-Code Mapping
-            idxRapidEnd   = app.SimRapidCutoffIndex;
-            idxProfStart  = app.SimProfileStartIndex;
-            idxProfEnd    = app.SimFeedEndIndex;
-            idxLeadOutEnd = app.SimLeadOutEndIndex;
-
-            % 3. Projector Setup
-            offL = app.NumLeftOffset.Value; offR = app.NumRightOffset.Value;
-            shiftX = app.BilletShift(1);
-            pos = app.MachineBilletPos;
-
-            xM_L = pos(1) + offL + shiftX;
-            xM_R = pos(1) + offR + shiftX;
+            % 3. Setup Projector
+            xM_L = app.MachineBilletPos(1) + app.NumLeftOffset.Value + app.BilletShift(1);
+            xM_R = app.MachineBilletPos(1) + app.NumRightOffset.Value + app.BilletShift(1);
             xT_L = 0; xT_R = app.MachineSpanX;
 
             function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
@@ -4075,137 +4016,160 @@ classdef HotWireSTEPApp_v6_2 < handle
                 tx = tyL; ty = tzL; tz = tyR; ta = tzR;
             end
 
-            function idx = findSimIdx(targetY, targetZ, searchRange)
-                if nargin < 3, searchRange = 1:idxRapidEnd; end
-                pathY = app.SimPathL(searchRange, 2); pathZ = app.SimPathL(searchRange, 3);
-                d2 = (pathY - targetY).^2 + (pathZ - targetZ).^2;
-                [~, localIdx] = min(d2);
-                idx = searchRange(1) + localIdx - 1;
+            function [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta)
+                ratioL = (xM_L - xT_L) / (xT_R - xT_L);
+                ratioR = (xM_R - xT_L) / (xT_R - xT_L);
+                mxL = xM_L; myL = tx + (tz - tx) * ratioL; mzL = ty + (ta - ty) * ratioL;
+                mxR = xM_R; myR = tx + (tz - tx) * ratioR; mzR = ty + (ta - ty) * ratioR;
             end
 
-            lines = strings(0,1); map = zeros(0,1);
-            function add(code, comment, idx)
-                if nargin < 3, idx = 1; end
-                if nargin < 2 || isempty(comment), s=code; else, s=sprintf('%-35s (%s)', code, comment); end
-                lines(end+1) = s; map(end+1) = idx;
+            lines = strings(0,1); map = zeros(0,1); pathIdx = 0;
+            curX=0; curY=0; curZ=0; curA=0; % Track current pos for G28 visual
+
+            function add(code, comment, tx, ty, tz, ta)
+                if nargin < 6
+                    % Command without movement (just adds to code list)
+                    s = code;
+                    if nargin >= 2 && ~isempty(comment), s=sprintf('%-35s (%s)', code, comment); end
+                    lines(end+1) = s;
+                    map(end+1) = max(1, pathIdx);
+                else
+                    % Movement command (adds to code list AND visual path)
+                    s = sprintf('%-35s (%s)', code, comment);
+                    lines(end+1) = s;
+                    pathIdx = pathIdx + 1;
+                    % Update Current Pos
+                    curX=tx; curY=ty; curZ=tz; curA=ta;
+
+                    app.PP_TowerPathL(pathIdx,:) = [xT_L, tx, ty];
+                    app.PP_TowerPathR(pathIdx,:) = [xT_R, tz, ta];
+                    [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta);
+                    app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
+                    app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
+                    map(end+1) = pathIdx;
+                end
             end
 
             % --- 4. G-CODE GENERATION ---
-
-            % Header
             add('% ------------------------------------------');
             add(sprintf('%%     File: %s', app.FieldFilename.Value));
-            add(sprintf('%%    Model: %s', app.CurrentModelName));
             add(sprintf('%%     Date: %s', string(datetime('now'))));
-            add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
-            add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
-            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.MachineBilletPos));
             add('% ------------------------------------------');
-            add('G21','Metric');
-            add('G90','Absolute');
-            add('G94','Feed/min');
-            add('G28','Home All Axes', 1);
+            add('G21','Metric'); add('G90','Absolute'); add('G94','Feed/min');
 
-            % --- PHASE 1: LOAD ---
-            add('%% --- LOADING ---', '', 1);
+            % Initial G28 Visual: Add points for XZ then YA home, but only write G28 line
+            % (Visual only, map points to first line)
+            pathIdx = pathIdx + 1;
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
+            app.PP_PathL(pathIdx,:) = [xM_L, 0, 0]; app.PP_PathR(pathIdx,:) = [xM_R, 0, 0];
+            lines(end+1) = 'G28 (Home All Axes)'; map(end+1) = pathIdx;
 
-            % Safe Move (10,10)
-            idxSafe = findSimIdx(10, 10);
-            add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', idxSafe);
+            % --- PHASE 1: LOAD (Rapid - Yellow) ---
+            add('%% --- LOADING ---', '');
+            add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', 10, 10, 10, 10);
 
-            % Load Position
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
-            idxLoad = findSimIdx(bY, bZ);
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', idxLoad);
-            add('M1', 'STOP: Load Block', idxLoad);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', bY, bZ, bY, bZ);
+            add('M1', 'STOP: Load Block');
 
-            % Retract
             bY_Ret = bY - 10;
-            idxRet = findSimIdx(bY_Ret, bZ);
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', idxRet);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', bY_Ret, bZ, bY_Ret, bZ);
 
-            % --- PHASE 2: APPROACH ---
-            add('%% --- APPROACH ---', '', idxRet);
+            % --- PHASE 2: APPROACH (Rapid - Yellow) ---
+            add('%% --- APPROACH ---', '');
 
             e1L = app.EntryPointL; e1R = app.EntryPointR;
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
 
             if ~isempty(e1L)
                 [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                idxE1 = findSimIdx(e1L(1), e1L(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 1', idxE1);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 1', tx, ty, tz, ta);
             end
 
             if ~isempty(e2L)
                 [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                idxE2 = findSimIdx(e2L(1), e2L(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 2', idxE2);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 2', tx, ty, tz, ta);
             end
 
-            % Heat Sequence
-            add(sprintf('S%d', power), 'Sets Hot Wire Power', idxRapidEnd);
-            add('M301', 'Extraction ON > Wait 5s > Hot Wire Power ON', idxRapidEnd);
-            add(sprintf('F%d', feed), 'Set Cut Feedrate', idxRapidEnd);
+            % COLOR LOGIC: Rapid Phase ends here
+            app.PP_RapidEndIndex = pathIdx;
 
-            % --- PHASE 3: LEAD IN ---
-            add('%% --- LEAD IN ---', '', idxRapidEnd);
+            % Heat Sequence (No moves)
+            add(sprintf('S%d', power), 'Sets Hot Wire Power');
+            add('M301', 'Extraction ON > Wait 5s > Power ON');
+            add(sprintf('F%d', feed), 'Set Cut Feedrate');
 
+            % --- PHASE 3: PROFILE ---
+            % Step 3a: Lead-In (Orange) - Entry -> Start Point
+            add('%% --- PROFILE CUT ---', '');
             pSyncL = app.ProfileSyncL; pSyncR = app.ProfileSyncR;
+
+            % Move to Start Point (G1)
             [tx, ty, tz, ta] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
-            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Start Point', idxProfStart);
+            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Start Point', tx, ty, tz, ta);
 
-            % --- PHASE 4: PROFILE ---
-            add('%% --- PROFILE CUT ---', '', idxProfStart);
+            % COLOR LOGIC: Profile Start Index is AFTER the Lead-In move
+            app.PP_ProfileStartIndex = pathIdx;
 
-            N = size(pSyncL, 1);
-            for i = 2:N
+            % Step 3b: Profile Cut (Red/Green)
+            for i = 2:size(pSyncL, 1)
                 [tx, ty, tz, ta] = project(pSyncL(i,1), pSyncL(i,2), pSyncR(i,1), pSyncR(i,2));
-                simIdx = idxProfStart + i;
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', simIdx);
+                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', tx, ty, tz, ta);
             end
 
-            % --- PHASE 5: EXIT ---
-            add('%% --- EXIT SEQUENCE ---', '', idxProfEnd);
+            % COLOR LOGIC: Profile End Index
+            app.PP_ProfileEndIndex = pathIdx;
 
+            % --- PHASE 4: EXIT ---
+            add('%% --- EXIT SEQUENCE ---', '');
             lastE_L = e1L; lastE_R = e1R;
             exitLabel = 'Lead Out (Entry 1)';
-
             if ~isempty(e2L)
                 lastE_L = e2L; lastE_R = e2R;
                 exitLabel = 'Lead Out (Entry 2)';
             end
 
+            % Lead Out Move (Orange Dashed)
             if ~isempty(lastE_L)
                 [tx, ty, tz, ta] = project(lastE_L(1), lastE_L(2), lastE_R(1), lastE_R(2));
-
-                % FIX: Map to the END of the segment (idxLeadOutEnd), not the start.
-                % This ensures the wire moves to the destination when this line is selected.
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, idxLeadOutEnd);
+                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, tx, ty, tz, ta);
             end
 
-            add('M302', 'Hot Wire Power OFF > Wait 60s > Extraction OFF', idxLeadOutEnd);
+            % COLOR LOGIC: Lead Out End Index
+            app.PP_LeadOutEndIndex = pathIdx;
 
-            % Return to Entry 1 (Only applies if we used Entry 2)
+            add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
+
+            % Return to Entry 1 (Yellow Dashed)
             if ~isempty(e2L) && ~isempty(e1L)
                 [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-
-                % FIX: Find the specific index where we arrive at Entry 1 during the return.
-                % We restrict the search to the path AFTER the Lead Out (idxLeadOutEnd to end).
-                idxRetE1 = findSimIdx(e1L(1), e1L(2), idxLeadOutEnd:size(app.SimPathL,1));
-
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', idxRetE1);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', tx, ty, tz, ta);
             end
 
-            % Home Y first
-            endSim = size(app.SimPathL, 1);
+            % --- FINAL RETURN (Explicit G28 Visuals, Single G-Code Line) ---
+            % 1. Intermediate Visual Point: Horizontals (X/Z) to 0, Verticals (Y/A) stay
+            pathIdx = pathIdx + 1;
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY];
+            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
+            [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, curY, 0, curA);
+            app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
 
-            add('G28', 'Return Home', endSim);
-            add('M30', 'End Program', endSim);
+            % 2. Final Visual Point: All to 0
+            pathIdx = pathIdx + 1;
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
+            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
+            [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
+            app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
+
+            % Write the single G28 command
+            lines(end+1) = 'G28 (Machine Home)';
+            map(end+1) = pathIdx;
+
+            add('M30', 'End Program');
 
             % --- FINALIZE ---
             app.PP_GCodeLines = lines;
             app.PP_LineToPathIndex = map;
-
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
