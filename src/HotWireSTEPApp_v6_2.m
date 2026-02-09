@@ -793,11 +793,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblMPos = uilabel(gridMPlace, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol); lblMPos.Layout.Column=2;
 
             mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
+            mTooltips   = { ...
+                ["Distance from the left side of bed > left side of billet", "(Between left and right towers)"], ...
+                ["Distance from the front 'home' position > front of billet", "(Depth)","must be > 50mm"], ...
+                ["Distance from bed surface > bottom of billet", "(Z-Axis Height)"] ...
+                };
             app.MachinePosSpinners = gobjects(1,3);
             for i=1:3
                 lblMAxRow = uilabel(gridMPlace, 'Text',mAxisLabels{i}, 'FontColor',labelCol);
                 lblMAxRow.Layout.Row=i+1;
-                app.MachinePosSpinners(i) = uispinner(gridMPlace, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
+                app.MachinePosSpinners(i) = uispinner(gridMPlace, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0,'Tooltip', mTooltips{i}, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
                 app.MachinePosSpinners(i).Layout.Row=i+1; app.MachinePosSpinners(i).Layout.Column=2;
             end
 
@@ -2453,7 +2458,84 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % Input is Machine Absolute -> Store Absolute
                 app.MachineBilletPos(axisIdx) = src.Value;
             end
+            app.validateMachineConfig();
             app.refreshMachinePlot();
+        end
+
+        function isValid = validateMachineConfig(app)
+            % Checks if Billet fits within Machine Limits and updates UI colors
+
+            % 1. Get Dimensions
+            bSize = app.BilletSize;      % [W, D, H]
+            bPos  = app.MachineBilletPos; % [X, Y, Z] absolute
+
+            % Machine Limits
+            limX = app.MachineSpanX;
+            limY = app.MachineLimitY;
+            limZ = app.MachineLimitZ;
+
+            % 2. Calculate Boundaries
+            % X: Billet must be > 0 and < Span
+            % Note: We assume X=0 is Left Tower, X=Span is Right Tower
+            minX = bPos(1);
+            maxX = bPos(1) + bSize(1);
+
+            minY = bPos(2);
+            maxY = bPos(2) + bSize(2);
+
+            minZ = bPos(3);
+            maxZ = bPos(3) + bSize(3);
+
+            % 3. Check Violations
+            errors = strings(0);
+
+            % X-Axis (Span)
+            if minX < 0 || maxX > limX
+                errors(end+1) = "Billet hits Towers (X-Axis).";
+            end
+
+            % Y-Axis (Travel)
+            if minY < 0 || maxY > limY
+                errors(end+1) = "Billet exceeds Y-Travel.";
+            end
+
+            % Z-Axis (Travel)
+            if minZ < 0 || maxZ > limZ
+                errors(end+1) = "Billet exceeds Z-Travel.";
+            end
+
+            % 4. Visual Feedback
+            t = app.getTheme();
+
+            if ~isempty(errors)
+                % RED STATE: Critical Error
+                app.MachineLeftPanel.BackgroundColor = [0.3 0.1 0.1]; % Dark Red
+                app.MachineMessageLabel.Text = "CRITICAL: " + errors(1); % Show first error
+                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
+                app.BtnMachineContinue.Enable = 'off';
+                isValid = false;
+            else
+                % AMBER STATE: Check Proximity (Buffer < 10mm)
+                buffer = 10;
+                isClose = (minX < buffer) || (maxX > limX-buffer) || ...
+                    (minY < buffer) || (maxY > limY-buffer) || ...
+                    (maxZ > limZ-buffer); % Don't care about minZ < buffer usually (bed)
+
+                if isClose
+                    app.MachineLeftPanel.BackgroundColor = [0.3 0.25 0.1]; % Amber/Brown
+                    app.MachineMessageLabel.Text = "Warning: Billet very close to limits.";
+                    app.MachineMessageLabel.FontColor = [1 0.8 0.4];
+                    app.BtnMachineContinue.Enable = 'on'; % Allow, but warn
+                    isValid = true;
+                else
+                    % GREEN STATE: Good
+                    app.MachineLeftPanel.BackgroundColor = t.sideBg;
+                    app.MachineMessageLabel.Text = "Machine configuration valid.";
+                    app.MachineMessageLabel.FontColor = [0.4 1 0.4];
+                    app.BtnMachineContinue.Enable = 'on';
+                    isValid = true;
+                end
+            end
         end
 
         function onResetMachineBilletPosition(app)
@@ -2495,6 +2577,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.syncMachineUI();
+            app.validateMachineConfig();
             app.refreshMachinePlot();
         end
 
@@ -3993,18 +4076,35 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % Reset Post-Process Plot Paths
+            % --- DATA SYNC (Required for Plotting) ---
             app.PP_PathL = zeros(0,3); app.PP_PathR = zeros(0,3);
             app.PP_TowerPathL = zeros(0,3); app.PP_TowerPathR = zeros(0,3);
+
+            % Copy indices for coloring logic
+            app.PP_RapidEndIndex     = app.SimRapidCutoffIndex;
+            app.PP_ProfileStartIndex = app.SimProfileStartIndex;
+            app.PP_ProfileEndIndex   = app.SimFeedEndIndex;
+            app.PP_LeadOutEndIndex   = app.SimLeadOutEndIndex;
 
             % 2. Prepare Settings
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
 
-            % 3. Setup Projector
-            xM_L = app.MachineBilletPos(1) + app.NumLeftOffset.Value + app.BilletShift(1);
-            xM_R = app.MachineBilletPos(1) + app.NumRightOffset.Value + app.BilletShift(1);
+            % --- ALIGNMENT FIX ---
+            % We must account for ModelXMin because NumLeftOffset is relative to it.
+            % MachineX = MachineOrigin + BilletShift + ModelOrigin + PlaneOffset
+            baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
+
+            xM_L = baseX + app.NumLeftOffset.Value;
+            xM_R = baseX + app.NumRightOffset.Value;
+
             xT_L = 0; xT_R = app.MachineSpanX;
+            % ---------------------
+
+            % Calculate Dimensions for Header (Robust)
+            mDim = [abs(xM_R - xM_L), ...
+                app.ModelYMax - app.ModelYMin, ...
+                app.ModelZMax - app.ModelZMin];
 
             function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
                 rL = (xT_L - xM_L) / (xM_R - xM_L);
@@ -4017,6 +4117,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             function [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta)
+                % Reverse project: Tower -> Model Face (Visual only)
                 ratioL = (xM_L - xT_L) / (xT_R - xT_L);
                 ratioR = (xM_R - xT_L) / (xT_R - xT_L);
                 mxL = xM_L; myL = tx + (tz - tx) * ratioL; mzL = ty + (ta - ty) * ratioL;
@@ -4028,17 +4129,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             function add(code, comment, tx, ty, tz, ta)
                 if nargin < 6
-                    % Command without movement (just adds to code list)
+                    % Command without movement
                     s = code;
                     if nargin >= 2 && ~isempty(comment), s=sprintf('%-35s (%s)', code, comment); end
                     lines(end+1) = s;
                     map(end+1) = max(1, pathIdx);
                 else
-                    % Movement command (adds to code list AND visual path)
+                    % Movement command
                     s = sprintf('%-35s (%s)', code, comment);
                     lines(end+1) = s;
                     pathIdx = pathIdx + 1;
-                    % Update Current Pos
                     curX=tx; curY=ty; curZ=tz; curA=ta;
 
                     app.PP_TowerPathL(pathIdx,:) = [xT_L, tx, ty];
@@ -4053,12 +4153,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 4. G-CODE GENERATION ---
             add('% ------------------------------------------');
             add(sprintf('%%     File: %s', app.FieldFilename.Value));
+            add(sprintf('%%    Model: %s', app.CurrentModelName));
             add(sprintf('%%     Date: %s', string(datetime('now'))));
+            add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
+            add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
+            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.MachineBilletPos));
             add('% ------------------------------------------');
             add('G21','Metric'); add('G90','Absolute'); add('G94','Feed/min');
 
-            % Initial G28 Visual: Add points for XZ then YA home, but only write G28 line
-            % (Visual only, map points to first line)
+            % Initial G28 Visual
             pathIdx = pathIdx + 1;
             app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             app.PP_PathL(pathIdx,:) = [xM_L, 0, 0]; app.PP_PathR(pathIdx,:) = [xM_R, 0, 0];
@@ -4091,33 +4194,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Entry Point 2', tx, ty, tz, ta);
             end
 
-            % COLOR LOGIC: Rapid Phase ends here
             app.PP_RapidEndIndex = pathIdx;
 
-            % Heat Sequence (No moves)
+            % Heat Sequence
             add(sprintf('S%d', power), 'Sets Hot Wire Power');
             add('M301', 'Extraction ON > Wait 5s > Power ON');
             add(sprintf('F%d', feed), 'Set Cut Feedrate');
 
             % --- PHASE 3: PROFILE ---
-            % Step 3a: Lead-In (Orange) - Entry -> Start Point
             add('%% --- PROFILE CUT ---', '');
             pSyncL = app.ProfileSyncL; pSyncR = app.ProfileSyncR;
 
-            % Move to Start Point (G1)
             [tx, ty, tz, ta] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
             add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Start Point', tx, ty, tz, ta);
 
-            % COLOR LOGIC: Profile Start Index is AFTER the Lead-In move
             app.PP_ProfileStartIndex = pathIdx;
 
-            % Step 3b: Profile Cut (Red/Green)
             for i = 2:size(pSyncL, 1)
                 [tx, ty, tz, ta] = project(pSyncL(i,1), pSyncL(i,2), pSyncR(i,1), pSyncR(i,2));
                 add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', tx, ty, tz, ta);
             end
 
-            % COLOR LOGIC: Profile End Index
             app.PP_ProfileEndIndex = pathIdx;
 
             % --- PHASE 4: EXIT ---
@@ -4129,39 +4226,33 @@ classdef HotWireSTEPApp_v6_2 < handle
                 exitLabel = 'Lead Out (Entry 2)';
             end
 
-            % Lead Out Move (Orange Dashed)
             if ~isempty(lastE_L)
                 [tx, ty, tz, ta] = project(lastE_L(1), lastE_L(2), lastE_R(1), lastE_R(2));
                 add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), exitLabel, tx, ty, tz, ta);
             end
 
-            % COLOR LOGIC: Lead Out End Index
             app.PP_LeadOutEndIndex = pathIdx;
 
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
 
-            % Return to Entry 1 (Yellow Dashed)
             if ~isempty(e2L) && ~isempty(e1L)
                 [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', tx, ty, tz, ta);
             end
 
-            % --- FINAL RETURN (Explicit G28 Visuals, Single G-Code Line) ---
-            % 1. Intermediate Visual Point: Horizontals (X/Z) to 0, Verticals (Y/A) stay
+            % --- FINAL RETURN ---
+            % Intermediate Visual (XY Zero, Verticals Stay)
             pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY];
-            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, curY, 0, curA);
             app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
 
-            % 2. Final Visual Point: All to 0
+            % Final Visual (All Zero)
             pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
-            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
             app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
 
-            % Write the single G28 command
             lines(end+1) = 'G28 (Machine Home)';
             map(end+1) = pathIdx;
 
@@ -4173,6 +4264,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
+
+            % Enable Save Button (FIX)
+            app.BtnSaveGCode.Enable = 'on';
+            app.BtnSaveGCode.BackgroundColor = [0.1 0.6 0.1];
 
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
@@ -4242,19 +4337,54 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onSaveGCode(app)
+            % Check if data exists
             if isempty(app.PP_GCodeLines)
-                uialert(app.UIFigure, 'No G-code generated yet. Click Generate first.', 'Save G-Code');
+                uialert(app.UIFigure, 'No G-code generated yet. Please click "Post-Process" first.', 'Save Error');
                 return;
             end
 
-            filter = {'*.gcode';'*.nc';'*.txt'};
-            [file, path] = uiputfile(filter, 'Save G-Code', app.FieldFilename.Value);
-            if isequal(file,0), return; end
+            % Mach4 typically uses .tap, .nc, or .gcode
+            filter = {'*.tap', 'Mach4 G-Code (*.tap)'; ...
+                '*.nc',  'Standard G-Code (*.nc)'; ...
+                '*.txt', 'Text File (*.txt)'};
 
-            fullpath = fullfile(path, file);
-            writelines(app.PP_GCodeLines, fullpath);
+            % Default name from the input field
+            defaultName = app.FieldFilename.Value;
+            [file, path] = uiputfile(filter, 'Save Toolpath', defaultName);
 
-            uialert(app.UIFigure, ['Saved: ' fullpath], 'Save G-Code');
+            if isequal(file, 0), return; end % User cancelled
+
+            fullPath = fullfile(path, file);
+
+            try
+                % Open file for writing (text mode)
+                fid = fopen(fullPath, 'w');
+                if fid == -1
+                    error('Could not create file. Check permissions.');
+                end
+
+                % 1. Write Header Delimiter (Common for CNC)
+                fprintf(fid, '%%\r\n');
+
+                % 2. Write G-Code Lines with Windows Line Endings (CRLF)
+                % Many CNC controllers require \r\n, not just \n
+                for i = 1:numel(app.PP_GCodeLines)
+                    lineStr = app.PP_GCodeLines(i);
+                    fprintf(fid, '%s\r\n', lineStr);
+                end
+
+                % 3. Write Footer Delimiter
+                fprintf(fid, '%%\r\n');
+
+                fclose(fid);
+
+                % Success Confirmation
+                uialert(app.UIFigure, ['File saved successfully:' newline fullPath], 'Saved', 'Icon','success');
+
+            catch ME
+                if exist('fid', 'var') && fid > -1, fclose(fid); end
+                uialert(app.UIFigure, ['Error saving file:' newline ME.message], 'File Error');
+            end
         end
 
         % ===========================================================
