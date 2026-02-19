@@ -4091,20 +4091,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             power = round(app.SpinPower.Value);
 
             % --- ALIGNMENT FIX ---
-            % We must account for ModelXMin because NumLeftOffset is relative to it.
-            % MachineX = MachineOrigin + BilletShift + ModelOrigin + PlaneOffset
             baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
-
             xM_L = baseX + app.NumLeftOffset.Value;
             xM_R = baseX + app.NumRightOffset.Value;
-
             xT_L = 0; xT_R = app.MachineSpanX;
-            % ---------------------
 
-            % Calculate Dimensions for Header (Robust)
-            mDim = [abs(xM_R - xM_L), ...
-                app.ModelYMax - app.ModelYMin, ...
-                app.ModelZMax - app.ModelZMin];
+            mDim = [abs(xM_R - xM_L), app.ModelYMax - app.ModelYMin, app.ModelZMax - app.ModelZMin];
 
             function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
                 rL = (xT_L - xM_L) / (xM_R - xM_L);
@@ -4117,7 +4109,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             function [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta)
-                % Reverse project: Tower -> Model Face (Visual only)
                 ratioL = (xM_L - xT_L) / (xT_R - xT_L);
                 ratioR = (xM_R - xT_L) / (xT_R - xT_L);
                 mxL = xM_L; myL = tx + (tz - tx) * ratioL; mzL = ty + (ta - ty) * ratioL;
@@ -4125,7 +4116,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             lines = strings(0,1); map = zeros(0,1); pathIdx = 0;
-            curX=0; curY=0; curZ=0; curA=0; % Track current pos for G28 visual
+            curX=0; curY=0; curZ=0; curA=0; % Track current pos for Return logic
 
             function add(code, comment, tx, ty, tz, ta)
                 if nargin < 6
@@ -4161,11 +4152,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('% ------------------------------------------');
             add('G21','Metric'); add('G90','Absolute'); add('G94','Feed/min');
 
-            % Initial G28 Visual
+            % Initial Safety Line (G53 to 0)
+            % Just add a visual point at 0,0,0,0
             pathIdx = pathIdx + 1;
             app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             app.PP_PathL(pathIdx,:) = [xM_L, 0, 0]; app.PP_PathR(pathIdx,:) = [xM_R, 0, 0];
-            lines(end+1) = 'G28 (Home All Axes)'; map(end+1) = pathIdx;
+
+            lines(end+1) = 'G53 G0 X0 Y0 Z0 A0 (Safe Start)';
+            map(end+1) = pathIdx;
 
             % --- PHASE 1: LOAD (Rapid - Yellow) ---
             add('%% --- LOADING ---', '');
@@ -4240,20 +4234,29 @@ classdef HotWireSTEPApp_v6_2 < handle
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', tx, ty, tz, ta);
             end
 
-            % --- FINAL RETURN ---
-            % Intermediate Visual (XY Zero, Verticals Stay)
+            % --- FINAL RETURN (Split: X/Z First, then Y/A) ---
+
+            % Step 1: Move Horizontals (X, Z) to 0. Keep Verticals (Y, A) at current pos.
             pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
+
+            % Current Y/A are curY, curA. Target X/Z are 0.
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY];
+            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, curY, 0, curA);
             app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
 
-            % Final Visual (All Zero)
+            lines(end+1) = 'G53 G0 X0 Z0 (Retract Horizontals)';
+            map(end+1) = pathIdx;
+
+            % Step 2: Move Verticals (Y, A) to 0.
             pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
+
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
+            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
             app.PP_PathL(pathIdx,:) = [mxL, myL, mzL]; app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
 
-            lines(end+1) = 'G28 (Machine Home)';
+            lines(end+1) = 'G53 G0 Y0 A0 (Retract Verticals)';
             map(end+1) = pathIdx;
 
             add('M30', 'End Program');
@@ -4265,7 +4268,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
 
-            % Enable Save Button (FIX)
+            % Enable Save Button
             app.BtnSaveGCode.Enable = 'on';
             app.BtnSaveGCode.BackgroundColor = [0.1 0.6 0.1];
 
