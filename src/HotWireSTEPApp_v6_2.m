@@ -4076,11 +4076,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % --- DATA SYNC (Required for Plotting) ---
+            % --- DATA SYNC ---
             app.PP_PathL = zeros(0,3); app.PP_PathR = zeros(0,3);
             app.PP_TowerPathL = zeros(0,3); app.PP_TowerPathR = zeros(0,3);
 
-            % Copy indices for coloring logic
             app.PP_RapidEndIndex     = app.SimRapidCutoffIndex;
             app.PP_ProfileStartIndex = app.SimProfileStartIndex;
             app.PP_ProfileEndIndex   = app.SimFeedEndIndex;
@@ -4090,7 +4089,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
 
-            % --- ALIGNMENT FIX ---
+            % --- ALIGNMENT ---
             baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
             xM_L = baseX + app.NumLeftOffset.Value;
             xM_R = baseX + app.NumRightOffset.Value;
@@ -4116,13 +4115,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             lines = strings(0,1); map = zeros(0,1); pathIdx = 0;
-            curX=0; curY=0; curZ=0; curA=0; % Track current pos for Return logic
+            curX=0; curY=0; curZ=0; curA=0;
 
             function add(code, comment, tx, ty, tz, ta)
                 if nargin < 6
                     % Command without movement
                     s = code;
-                    if nargin >= 2 && ~isempty(comment), s=sprintf('%-35s (%s)', code, comment); end
+                    % Fix Nested Comments: Only add parens if they aren't already there
+                    if nargin >= 2 && ~isempty(comment)
+                        if startsWith(strtrim(comment), '(')
+                            s = sprintf('%-35s %s', code, comment);
+                        else
+                            s = sprintf('%-35s (%s)', code, comment);
+                        end
+                    end
                     lines(end+1) = s;
                     map(end+1) = max(1, pathIdx);
                 else
@@ -4152,27 +4158,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('% ------------------------------------------');
             add('G21','Metric'); add('G90','Absolute'); add('G94','Feed/min');
 
-            % Initial Safety Line (G53 to 0)
-            % Just add a visual point at 0,0,0,0
+            % --- START SEQUENCE (Split G53) ---
+            % 1. Retract Horizontals (X, Z) to 0
             pathIdx = pathIdx + 1;
             app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0]; app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             app.PP_PathL(pathIdx,:) = [xM_L, 0, 0]; app.PP_PathR(pathIdx,:) = [xM_R, 0, 0];
 
-            lines(end+1) = 'G53 G0 X0 Y0 Z0 A0 (Safe Start)';
+            % Manual add to avoid double parens issue
+            lines(end+1) = 'G53 G0 X0 Z0 (Safe Start: Horizontals)';
             map(end+1) = pathIdx;
 
-            % --- PHASE 1: LOAD (Rapid - Yellow) ---
+            % 2. Home Verticals (Y, A) to 0
+            lines(end+1) = 'G53 G0 Y0 A0 (Safe Start: Verticals)';
+            map(end+1) = pathIdx;
+
+            % --- PHASE 1: LOAD ---
             add('%% --- LOADING ---', '');
             add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', 10, 10, 10, 10);
 
             bY = app.MachineBilletPos(2); bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', bY, bZ, bY, bZ);
-            add('M1', 'STOP: Load Block');
+
+            % USE M00 (Compulsory Stop) instead of M1
+            add('M00', 'STOP: Load Block');
 
             bY_Ret = bY - 10;
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', bY_Ret, bZ, bY_Ret, bZ);
 
-            % --- PHASE 2: APPROACH (Rapid - Yellow) ---
+            % --- PHASE 2: APPROACH ---
             add('%% --- APPROACH ---', '');
 
             e1L = app.EntryPointL; e1R = app.EntryPointR;
@@ -4234,12 +4247,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Entry 1', tx, ty, tz, ta);
             end
 
-            % --- FINAL RETURN (Split: X/Z First, then Y/A) ---
+            % --- FINAL RETURN (Split G53) ---
 
-            % Step 1: Move Horizontals (X, Z) to 0. Keep Verticals (Y, A) at current pos.
+            % Step 1: Retract Horizontals (X, Z) to 0
             pathIdx = pathIdx + 1;
-
-            % Current Y/A are curY, curA. Target X/Z are 0.
             app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, curY];
             app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, curA];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, curY, 0, curA);
@@ -4248,9 +4259,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             lines(end+1) = 'G53 G0 X0 Z0 (Retract Horizontals)';
             map(end+1) = pathIdx;
 
-            % Step 2: Move Verticals (Y, A) to 0.
+            % Step 2: Retract Verticals (Y, A) to 0
             pathIdx = pathIdx + 1;
-
             app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
             app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
             [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
@@ -4268,7 +4278,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
 
-            % Enable Save Button
             app.BtnSaveGCode.Enable = 'on';
             app.BtnSaveGCode.BackgroundColor = [0.1 0.6 0.1];
 
