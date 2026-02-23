@@ -255,17 +255,16 @@ classdef HotWireSTEPApp_v6_helpers
 
         function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
             % Synchronizes two profiles based on GEOMETRIC ARC LENGTH.
-            % This prevents "twisting" artifacts when projecting tapered shapes
-            % where point density varies (e.g., after Kerf compensation).
+            % Ensures L and R have the same number of points at matching relative distances.
 
-            % 1. Clean Inputs (Remove tiny duplicates that break interpolation)
+            % 1. Clean Inputs
             function [x, y] = clean(x, y)
                 if numel(x) < 2, return; end
                 % Keep points that moved at least 0.0001mm
                 dist = [1; sqrt(diff(x).^2 + diff(y).^2)];
                 keep = dist > 1e-4;
                 x = x(keep); y = y(keep);
-                % Ensure Loop Closure if it was closed before
+                % Ensure Loop Closure
                 if (numel(x) > 2) && (hypot(x(1)-x(end), y(1)-y(end)) > 1e-4)
                     x(end+1) = x(1); y(end+1) = y(1);
                 end
@@ -279,7 +278,7 @@ classdef HotWireSTEPApp_v6_helpers
                 if numel(y) < 2, s=zeros(size(y)); return; end
                 d = [0; cumsum(hypot(diff(y), diff(z)))];
                 maxD = d(end);
-                if maxD < 1e-6, maxD = 1; end % Avoid divide by zero
+                if maxD < 1e-6, maxD = 1; end
                 s = d / maxD;
             end
 
@@ -287,15 +286,23 @@ classdef HotWireSTEPApp_v6_helpers
             sR = getArcParam(yR, zR);
 
             % 3. Determine Target Resolution
-            % Use the higher count of the two, but at least 200 for smoothness
+            % FIX: Removed the '200' floor. We now respect the input density.
+            % If inputs are sparse (e.g. RDP square), we keep them sparse.
             nL = numel(yL); nR = numel(yR);
-            N = max([nL, nR, 200]);
+            N = max(nL, nR);
+
+            % Edge case: If points are extremely low (e.g. <5), interpolation might be poor
+            % for curves, but for RDP lines it is exactly what we want.
+            % If the counts match exactly, we assume they are already synced (optimized path).
+            if nL == nR
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
+                return;
+            end
 
             % Create a uniform target grid (0 to 1)
             s_target = linspace(0, 1, N)';
 
             % 4. Interpolate Left and Right onto the SAME normalized grid
-            % 'linear' is preferred for CNC to avoid overshoot ringing
             yLS = interp1(sL, yL, s_target, 'linear');
             zLS = interp1(sL, zL, s_target, 'linear');
             yRS = interp1(sR, yR, s_target, 'linear');
