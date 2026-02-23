@@ -170,6 +170,12 @@ classdef HotWireSTEPApp_v6_helpers
             [yL, zL] = clean_path(yL, zL);
             [yR, zR] = clean_path(yR, zR);
 
+            % Safety Check: Degenerate Geometry
+            if numel(yL) < 3 || numel(yR) < 3
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
+                return;
+            end
+
             % 1. Align Start Points & Winding
             [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
             [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
@@ -186,11 +192,20 @@ classdef HotWireSTEPApp_v6_helpers
             distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
             maxLen = max(distL(end), distR(end));
 
+            % Handle nearly zero length
+            if maxLen < 1e-6
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
+                return;
+            end
+
             baselineRes = 0.1;
             N = ceil(maxLen / baselineRes);
             N = max(N, 1000);
 
             s_rawL = distL / distL(end); s_rawR = distR / distR(end);
+            % Fix NaNs if length is zero (redundant but safe)
+            s_rawL(isnan(s_rawL)) = 0; s_rawR(isnan(s_rawR)) = 0;
+
             s_fine = linspace(0, 1, N)';
 
             [suL, iuL] = unique(s_rawL,'stable'); [suR, iuR] = unique(s_rawR,'stable');

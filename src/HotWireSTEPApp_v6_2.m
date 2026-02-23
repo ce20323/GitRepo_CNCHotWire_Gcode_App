@@ -2918,34 +2918,66 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
-            % Prepares profile data.
-            % If 'ax' is empty/invalid, it skips plotting (Ghost) and just returns data.
+            % Prepares profile data:
+            % 1. Extracts raw coordinates
+            % 2. Plots "Ghost" (Raw) profile
+            % 3. Applies Kerf (if enabled)
+            % 4. Applies Offsets (Machine Position)
+            % 5. Applies Modifications (Start Point Shift, Direction Reverse)
 
             y=[]; z=[]; hGhost=gobjects(0);
             if isempty(pts), return; end
 
-            % 1. Ghost Data
-            rawY = pts(:,2); rawZ = pts(:,3);
-            gY = rawY + offY; gZ = rawZ + offZ;
+            % 1. Setup Raw Data (Model Coordinates)
+            rawY = pts(:,2);
+            rawZ = pts(:,3);
 
-            % Only plot if axis is valid
+            % 2. Plot Ghost (Raw Profile in Machine Coords)
+            % We plot this BEFORE applying Kerf or Reordering, so it represents
+            % the "Reference Geometry" (the dotted line).
             if ~isempty(ax) && isgraphics(ax)
+                gY = rawY + offY;
+                gZ = rawZ + offZ;
                 hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
             end
 
-            % 2. Apply Kerf
+            % 3. Apply Kerf (if enabled)
             if doKerf
-                % Pass app.ProfileTolerance to ensure G-Code gets optimized points
+                % Note: We pass app.ProfileTolerance to ensure the kerf offset
+                % doesn't generate 1000s of tiny points for corner arcs.
                 [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
             end
-            
-            % 3. Process Loop
+
+            % 4. Apply Machine Offsets (THIS WAS THE MISSING LINE)
+            % Transform from Model Relative -> Machine Absolute
+            y = rawY + offY;
+            z = rawZ + offZ;
+
+            % 5. Apply User Modifications (Start Point & Direction)
             if numel(y) > 2
-                if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6, y(end)=[]; z(end)=[]; end
-                idx = startIdx; if idx > numel(y), idx = 1; end
-                y = circshift(y, -(idx - 1)); z = circshift(z, -(idx - 1));
-                if isCCW, y(2:end) = flipud(y(2:end)); z(2:end) = flipud(z(2:end)); end
-                y(end+1) = y(1); z(end+1) = z(1);
+                % A. Clean up duplicate end point
+                if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
+                    y(end)=[]; z(end)=[];
+                end
+
+                % B. Shift Start Point
+                % Ensure index is valid
+                N = numel(y);
+                idx = max(1, min(startIdx, N));
+
+                y = circshift(y, -(idx - 1));
+                z = circshift(z, -(idx - 1));
+
+                % C. Apply Cut Direction (CW/CCW)
+                % We keep the new Start Point (1), and flip the rest (2:end)
+                if isCCW
+                    y(2:end) = flipud(y(2:end));
+                    z(2:end) = flipud(z(2:end));
+                end
+
+                % D. Force Loop Closure
+                y(end+1) = y(1);
+                z(end+1) = z(1);
             end
         end
 
@@ -3088,7 +3120,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if ~isempty(pts)
                     rawY = pts(:,2); rawZ = pts(:,3);
                     if useKerf
-                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue);
+                        % FIX: Pass Tolerance
+                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue, app.ProfileTolerance);
                     end
                     yData = rawY + offsetY;
                     zData = rawZ + offsetZ;
@@ -3168,23 +3201,25 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Finds the point with Minimum Y (Machine Front) and sets it as Start
 
             % Helper to find min index of a profile
-            function idx = findMinYIndex(pts, kerfVal, doKerf)
+            function idx = findMinYIndex(pts, kerfVal, doKerf, tol)
                 if isempty(pts), idx = 1; return; end
                 y = pts(:,2); z = pts(:,3);
                 if doKerf
-                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kerfVal);
+                    % FIX: Pass Tolerance to match visual/G-code geometry
+                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kerfVal, tol);
                 end
                 [~, idx] = min(y);
             end
 
             doKerf = app.KerfEnabled && app.KerfValue > 0;
+            tol    = app.ProfileTolerance;
 
             % Left
-            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfValue, doKerf);
+            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfValue, doKerf, tol);
             app.SelectedStartIdxL = idxL;
 
             % Right
-            idxR = findMinYIndex(app.RightProfilePoints, app.KerfValue, doKerf);
+            idxR = findMinYIndex(app.RightProfilePoints, app.KerfValue, doKerf, tol);
             app.SelectedStartIdxR = idxR;
 
             disp(['Auto Start: Reset indices to nearest Machine Front (L=' num2str(idxL) ', R=' num2str(idxR) ')']);
@@ -3193,21 +3228,24 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onAutoEntry(app)
             % Calculates Auto Entry points.
-            % Mode Logic:
-            %   - If Entry2 is empty (Default): Calculates 1 Entry Point (45mm out on bisector).
-            %   - If Entry2 exists: Calculates 2 Points (E2 on bisector, E1 aligned to Front-10mm).
 
             % --- Nested Helper ---
-            function [e1, e2] = calcEntryLogic(pts, startIdx, billetMinY, doKerf, kVal, useDual)
+            function [e1, e2] = calcEntryLogic(pts, startIdx, billetMinY, doKerf, kVal, tol, useDual)
                 e1 = []; e2 = [];
                 if isempty(pts), return; end
 
                 % 1. Get Geometry [y z]
-                y = pts(:,1); z = pts(:,2);
-                if doKerf, [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kVal); end
+                y = pts(:,2); z = pts(:,3); % Note: pts passed as [x y z] or [0 y z]
+
+                if doKerf
+                    % FIX: Pass Tolerance
+                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kVal, tol);
+                end
 
                 N = numel(y);
+                % Validate Index
                 if startIdx > N, startIdx = 1; end
+                if startIdx < 1, startIdx = 1; end
 
                 % 2. Identify Points
                 idxS = startIdx;
@@ -3232,7 +3270,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 testPt = S + vBisect * 0.5;
                 if inpolygon(testPt(1), testPt(2), y, z), vBisect = -vBisect; end
 
-                % 5. Project Target Point (45mm)
+                % 5. Project Target Point (15mm)
                 distT = 15;
                 targetPt = S + vBisect * distT;
 
@@ -3254,18 +3292,35 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ---------------------
 
             doKerf = app.KerfEnabled && app.KerfValue > 0;
+            tol    = app.ProfileTolerance;
+
             bMinY  = app.MachineBilletPos(2);
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
             % Check if we are in "2 Point Mode" (User has set E2 previously)
-            % We base this on the Left profile state
             useDualMode = ~isempty(app.EntryPoint2L);
 
             % --- LEFT ---
             if ~isempty(app.LeftProfilePoints)
-                ptsL = [app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ];
-                [e1L, e2L] = calcEntryLogic(ptsL, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue, useDualMode);
+                % Pass 3D points, Offset is applied to result
+                % Note: Logic above expects raw local coords, adds offset later?
+                % Actually, calcEntryLogic needs WORLD coords to check vs BilletMinY.
+                % But LeftProfilePoints are local.
+                % Let's adjust inputs to calcEntryLogic: Pass Local, Add Offset INSIDE logic?
+                % No, previous logic added offset to points BEFORE passing.
+
+                % Correct approach: Pass Local Points, apply Kerf locally, then add Offset Y/Z
+                ptsL = app.LeftProfilePoints; % [x y z]
+                % We need to modify calcEntryLogic slightly to handle the Offset transform
+                % explicitly if we want to be clean, OR just pass shifted points.
+
+                % Quick Fix: Shift points locally for the calculation context
+                yL_shift = ptsL(:,2) + offsetY;
+                zL_shift = ptsL(:,3) + offsetZ;
+                ptsL_shifted = [ptsL(:,1)*0, yL_shift, zL_shift]; % Dummy X
+
+                [e1L, e2L] = calcEntryLogic(ptsL_shifted, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue, tol, useDualMode);
                 app.EntryPointL  = e1L;
                 app.EntryPoint2L = e2L;
             end
@@ -3275,10 +3330,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.EntryPointR  = app.EntryPointL;
                 app.EntryPoint2R = app.EntryPoint2L;
             elseif ~isempty(app.RightProfilePoints)
-                % Check Right specific mode? Or stick to Left's mode decision?
-                % Usually consistent to use Left's mode decision for symmetry.
-                ptsR = [app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ];
-                [e1R, e2R] = calcEntryLogic(ptsR, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue, useDualMode);
+                ptsR = app.RightProfilePoints;
+                yR_shift = ptsR(:,2) + offsetY;
+                zR_shift = ptsR(:,3) + offsetZ;
+                ptsR_shifted = [ptsR(:,1)*0, yR_shift, zR_shift];
+
+                [e1R, e2R] = calcEntryLogic(ptsR_shifted, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue, tol, useDualMode);
                 app.EntryPointR  = e1R;
                 app.EntryPoint2R = e2R;
             end
@@ -3421,53 +3478,39 @@ classdef HotWireSTEPApp_v6_2 < handle
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
 
+            % --- CRITICAL FIX: Guard against empty/degenerate profiles ---
+            if isempty(yL) || isempty(yR)
+                uialert(app.UIFigure, 'Could not generate toolpath. Profiles may be empty or invalid.', 'Simulation Error');
+                return;
+            end
+            % -------------------------------------------------------------
+
             % Sync Geometry (TRUTH for G-Code)
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
-            % --- Helper: Synchronized Densification (Fixed for Smooth Speed) ---
-            % Distributes points based on PHYSICAL DISTANCE, not Index.
-            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
-                if nargin < 5, step = 2.0; end
+            % ... [Rest of the function remains identical to previous version] ...
+            % ... [Paste the Densify Helper, mkRapid, etc. here] ...
 
-                N = numel(yL);
-                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
+            % --- Helper: Densify for Visual Smoothness (Visual Only) ---
+            function [yD, zD] = densify(y, z, step)
+                if nargin < 3, step = 2.0; end % 2mm visual resolution
+                d = [0; cumsum(hypot(diff(y), diff(z)))];
+                if d(end) < 1e-3, yD=y; zD=z; return; end
 
-                % 1. Calculate cumulative physical distance for both paths
-                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
-                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+                % Create dense grid
+                d_fine = (0:step:d(end))';
+                if d_fine(end) ~= d(end), d_fine = [d_fine; d(end)]; end
 
-                % 2. Normalize both to 0..1 based on their own total length
-                % This preserves the relative speed of L vs R (sync)
-                maxL = distL(end); if maxL < 1e-6, maxL = 1; end
-                maxR = distR(end); if maxR < 1e-6, maxR = 1; end
-
-                sL = distL / maxL;
-                sR = distR / maxR;
-
-                % 3. Create a Master Parameter based on the "Longest" path behavior
-                % We average the progress to keep them tied, or use the dominant one.
-                % Averaging 's' allows us to map the geometric corners to a time 't'.
-                s_orig = (sL + sR) / 2;
-
-                % 4. Determine step count based on the longest path
-                totalLen = max(distL(end), distR(end));
-                nSteps = ceil(totalLen / step);
-                nSteps = max(nSteps, N);
-
-                % 5. Create uniform grid for smooth animation (0..1)
-                s_smooth = linspace(0, 1, nSteps)';
-
-                % 6. Union: Include EXACT corner times + Smooth times
-                s_combined = unique([s_orig; s_smooth]);
-
-                % 7. Interpolate geometry onto this new time grid
-                yLD = interp1(s_orig, yL, s_combined, 'linear');
-                zLD = interp1(s_orig, zL, s_combined, 'linear');
-                yRD = interp1(s_orig, yR, s_combined, 'linear');
-                zRD = interp1(s_orig, zR, s_combined, 'linear');
+                % Interpolate (Linear preserves corners, just adds dots between them)
+                [du, iu] = unique(d,'stable');
+                yD = interp1(du, y(iu), d_fine, 'linear');
+                zD = interp1(du, z(iu), d_fine, 'linear');
             end
+
+            % ... [Copy the rest of the function I gave you previously] ...
+            % (Segments, Densify Calls, Combine, Map, Physics, Projection, UI Init)
 
             % Helper for Segments
             function pts = mkRapid(e1, e2)
@@ -3511,6 +3554,46 @@ classdef HotWireSTEPApp_v6_2 < handle
             rawRetR = mkReturn(rawLoR(end,:), app.EntryPointR, app.EntryPoint2R);
 
             % 3. Densify Segments
+            % Distributes points based on PHYSICAL DISTANCE, not Index.
+            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
+                if nargin < 5, step = 2.0; end
+
+                N = numel(yL);
+                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
+
+                % 1. Calculate cumulative physical distance for both paths
+                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
+                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+
+                % 2. Normalize both to 0..1 based on their own total length
+                maxL = distL(end); if maxL < 1e-6, maxL = 1; end
+                maxR = distR(end); if maxR < 1e-6, maxR = 1; end
+
+                sL = distL / maxL;
+                sR = distR / maxR;
+
+                % 3. Create a Master Parameter based on the "Longest" path behavior
+                s_orig = (sL + sR) / 2;
+
+                % 4. Determine step count based on the longest path
+                totalLen = max(distL(end), distR(end));
+                nSteps = ceil(totalLen / step);
+                nSteps = max(nSteps, N);
+
+                % 5. Create uniform grid for smooth animation (0..1)
+                s_smooth = linspace(0, 1, nSteps)';
+
+                % 6. Union: Include EXACT corner times + Smooth times
+                s_combined = unique([s_orig; s_smooth]);
+
+                % 7. Interpolate geometry onto this new time grid
+                [su, iu] = unique(s_orig, 'stable'); % Ensure unique points for interp1
+                yLD = interp1(su, yL(iu), s_combined, 'linear');
+                zLD = interp1(su, zL(iu), s_combined, 'linear');
+                yRD = interp1(su, yR(iu), s_combined, 'linear');
+                zRD = interp1(su, zR(iu), s_combined, 'linear');
+            end
+
             [dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
             [dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
             [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
