@@ -1398,7 +1398,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Left Kerf Calc & Plot
             if app.KerfEnabled && ~isempty(yL) && app.KerfValue > 0
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
+                % Pass Tolerance
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yKerfL), nLk = numel(yKerfL); end
 
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
@@ -1418,7 +1419,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Right Kerf Calc & Plot
             if app.KerfEnabled && ~isempty(yR) && app.KerfValue > 0
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
+                % Pass Tolerance
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yKerfR), nRk = numel(yKerfR); end
 
                 app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
@@ -1653,16 +1655,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % --- 2. CALCULATE COUNTS ---
+            % --- 2. CALCULATE COUNTS (Updated with Tolerance) ---
             nL_k = 0; nR_k = 0;
 
             if ~isempty(yL) && app.KerfValue > 0
-                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue);
+                % Pass app.ProfileTolerance to optimize point count
+                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yk), nL_k = numel(yk); end
             end
 
             if ~isempty(yR) && app.KerfValue > 0
-                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue);
+                % Pass app.ProfileTolerance to optimize point count
+                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
@@ -2930,9 +2934,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % 2. Apply Kerf
-            if doKerf, [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal); end
-            y = rawY + offY; z = rawZ + offZ;
-
+            if doKerf
+                % Pass app.ProfileTolerance to ensure G-Code gets optimized points
+                [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
+            end
+            
             % 3. Process Loop
             if numel(y) > 2
                 if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6, y(end)=[]; z(end)=[]; end

@@ -316,64 +316,100 @@ classdef HotWireSTEPApp_v6_helpers
             towerR.z = zL + (spanX - xL) .* (zR - zL) ./ (xR - xL);
         end
 
-        function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf)
+        function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
             % ===========================================================
             % OFFSET PROFILE LOOP: Kerf compensation via polybuffer
+            % Now includes RDP reduction to control point density on arcs.
             % ===========================================================
-            % Default fallback to input
-            yo = yIn; zo = zIn;
 
-            % 1. Validation & Input Prep
+            % Default fallback
+            yo = yIn; zo = zIn;
+            if nargin < 4, tol = 0; end % 0 means no reduction
+
+            % 1. Validation
             if ~isfinite(kerf) || kerf == 0, return; end
             y = yIn(:); z = zIn(:);
-
-            % Remove non-finite data
             valid = isfinite(y) & isfinite(z);
             y = y(valid); z = z(valid);
             if numel(y) < 3, return; end
 
             % 2. Pre-clean (Remove Mesh artifacts)
-            % Mesh slicing often creates tiny duplicate points.
-            % 'Unique' prevents the "Duplicate Vertices" warning at the source.
             inputPoints = round([y, z], 8);
             [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
             y = y(uniqueIdx);
             z = z(uniqueIdx);
 
-            % 3. Targeted Warning Suppression
-            % We silence 'all' inside this scope to ensure silence.
-            % onCleanup ensures warnings are restored even if the function crashes.
+            % 3. Polybuffer Offset
             originalState = warning('off', 'all');
             cleanupObj = onCleanup(@() warning(originalState));
 
             try
-                % 4. Create Polyshape
                 pgon = polyshape(y, z, 'Simplify', true);
                 if pgon.NumRegions == 0, return; end
 
-                % 5. Perform Buffer (The Kerf Offset)
-                % polybuffer is the standard core MATLAB method
                 pgonOut = polybuffer(pgon, kerf);
                 if pgonOut.NumRegions == 0, return; end
 
-                % 6. Handle Multi-Region Results
-                % In case of complex kerf artifacts, keep the largest shape
                 if pgonOut.NumRegions > 1
                     areaList = area(pgonOut.regions);
                     [~, maxIdx] = max(areaList);
                     pgonOut = pgonOut.regions(maxIdx);
                 end
 
-                % 7. Extract Final Boundary
-                % 'boundary' returns a closed loop [N+1 x 1]
                 [yo, zo] = boundary(pgonOut);
 
             catch
-                % Silently fall back to input on failure
                 return;
             end
 
-            % 8. Transpose back if necessary to match input
+            % 4. RDP REDUCTION (Optimization)
+            % If tolerance is provided, reduce the dense arcs from polybuffer
+            if tol > 0 && numel(yo) > 5
+                pts = [yo, zo];
+                N = size(pts, 1);
+                keepMask = false(N, 1);
+                keepMask(1) = true; keepMask(end) = true;
+
+                stack = [1, N];
+
+                while ~isempty(stack)
+                    idxEnd = stack(end); idxStart = stack(end-1);
+                    stack(end-1:end) = [];
+
+                    if idxEnd - idxStart < 2, continue; end
+
+                    P1 = pts(idxStart, :); P2 = pts(idxEnd, :);
+                    rng = (idxStart+1):(idxEnd-1);
+                    Pts = pts(rng, :);
+
+                    V = P2 - P1;
+                    lenSq = sum(V.^2);
+                    W = bsxfun(@minus, Pts, P1);
+
+                    if lenSq < 1e-12
+                        distsSq = sum(W.^2, 2);
+                    else
+                        t = (W * V') / lenSq;
+                        t = max(0, min(1, t));
+                        Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
+                        distsSq = sum((Pts - Closest).^2, 2);
+                    end
+
+                    [maxSq, localIdx] = max(distsSq);
+
+                    if maxSq > (tol^2)
+                        splitIdx = rng(localIdx);
+                        keepMask(splitIdx) = true;
+                        stack = [stack, splitIdx, idxEnd];
+                        stack = [stack, idxStart, splitIdx];
+                    end
+                end
+
+                yo = pts(keepMask, 1);
+                zo = pts(keepMask, 2);
+            end
+
+            % Transpose if needed
             if isrow(yIn), yo = yo.'; zo = zo.'; end
         end
 
