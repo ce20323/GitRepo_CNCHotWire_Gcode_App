@@ -3987,12 +3987,27 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function updatePostProcessUI(app)
             % Updates the Filename field based on loaded model
-            if isempty(app.FieldFilename.Value) || startsWith(app.FieldFilename.Value, 'GCode-V1-Output')
-                name = "Output";
-                if ~isempty(app.CurrentModelName)
-                    [~, name, ~] = fileparts(app.CurrentModelName);
-                end
-                app.FieldFilename.Value = sprintf("GCode-V1-%s", name);
+
+            % 1. Determine the target name from the current model
+            rawName = "Output";
+            if ~isempty(app.CurrentModelName)
+                [~, rawName, ~] = fileparts(app.CurrentModelName);
+            end
+
+            % Clean up filename (replace spaces with underscores for safety)
+            rawName = replace(rawName, ' ', '_');
+            newName = sprintf("GCode-V1-%s", rawName);
+
+            % 2. Get current value
+            currentVal = app.FieldFilename.Value;
+
+            % 3. Update Condition:
+            % - If empty
+            % - OR if it looks like an auto-generated name (starts with prefix)
+            % This allows the app to update "GCode-V1-OldModel" to "GCode-V1-NewModel",
+            % while preserving completely custom names like "Final_Run_01.tap".
+            if isempty(currentVal) || startsWith(currentVal, "GCode-V1-")
+                app.FieldFilename.Value = newName;
             end
         end
 
@@ -4316,10 +4331,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- PHASE 4: EXIT ---
             add('%% --- EXIT SEQUENCE ---', '');
             lastE_L = e1L; lastE_R = e1R;
-            exitLabel = 'Lead Out (Entry 1)';
+            exitLabel = 'Lead Out Entry 1';
             if ~isempty(e2L)
                 lastE_L = e2L; lastE_R = e2R;
-                exitLabel = 'Lead Out (Entry 2)';
+                exitLabel = 'Lead Out Entry 2';
             end
 
             if ~isempty(lastE_L)
