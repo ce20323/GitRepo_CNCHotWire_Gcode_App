@@ -544,9 +544,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_M_Guide.Layout.Row = 12;
 
             guideText = {
-                '1. Rotate Model: Align cut profile to Y-Z plane.';
-                '2. Position: Start of cut should be near Y-Min (Front).';
-                '3. Witness Marks: Avoid placing start points on visible surfaces.';
+                '1. Import your model by clicking Import STEP or STL';
+                '2. Select straight for prismatic, or tapered for independant profiles.';
+                '3. Rotate Model: Align cut profile to Y-Z plane.';                
+                '   TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
+                '   Hide this on a trailing edge, inside the part, or somewhere not important for smoothness';
+                ' rotate the model so this point is toward the front of the machine (Ymin)';                        
+                '4. (Optional) Move the left/right planes if you want to cut a section of your model';
+                '5. Click generate profiles, check the profiles look correct, then click continue';
                 };
             app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
                 'BackgroundColor', sideBg, 'FontColor', labelCol);
