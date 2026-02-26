@@ -1594,7 +1594,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Left Kerf Calc & Plot
-            if app.KerfEnabled && ~isempty(yL) && app.KerfValue > 0
+            if app.KerfEnabled && ~isempty(yL) && app.KerfValue ~= 0
                 % Pass Tolerance
                 [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yKerfL), nLk = numel(yKerfL); end
@@ -1615,7 +1615,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Right Kerf Calc & Plot
-            if app.KerfEnabled && ~isempty(yR) && app.KerfValue > 0
+            if app.KerfEnabled && ~isempty(yR) && app.KerfValue ~= 0
                 % Pass Tolerance
                 [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yKerfR), nRk = numel(yKerfR); end
@@ -1939,13 +1939,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 2. CALCULATE COUNTS (Updated with Tolerance) ---
             nL_k = 0; nR_k = 0;
 
-            if ~isempty(yL) && app.KerfValue > 0
+            if ~isempty(yL) && app.KerfValue ~= 0
                 % Pass app.ProfileTolerance to optimize point count
                 [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(yk), nL_k = numel(yk); end
             end
 
-            if ~isempty(yR) && app.KerfValue > 0
+            if ~isempty(yR) && app.KerfValue ~= 0
                 % Pass app.ProfileTolerance to optimize point count
                 [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
                 if ~isempty(ykR), nR_k = numel(ykR); end
