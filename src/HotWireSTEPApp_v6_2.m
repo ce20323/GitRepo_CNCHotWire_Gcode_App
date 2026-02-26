@@ -20,38 +20,38 @@ classdef HotWireSTEPApp_v6_2 < handle
 
     properties (Constant)
         % ===========================================================
-        % 1. APP DEFAULTS (Sampling & Graphics)
+        % CONSTANTS & DEFAULTS
         % ===========================================================
 
-        % -------- Profile Sampling --------
+        % -------- Profile sampling defaults --------
         DefaultProfileTolerance (1,1) double = 0.2;   % [mm] Max error for resampling
         MinProfileTolerance     (1,1) double = 0.01;  % [mm] Highest precision
         MaxProfileTolerance     (1,1) double = 5.0;   % [mm] Lowest precision
 
-        % -------- Kerf / Wire Offset --------
+        % -------- Kerf / wire offset defaults --------
         DefaultKerf (1,1) double = 0.8;   % [mm] Default wire thickness compensation
         MinKerf     (1,1) double = 0.0;   % [mm] No kerf
         MaxKerf     (1,1) double = 5.0;   % [mm] Maximum allowed kerf
 
-        % -------- Visualization --------
+        % -------- View / plane padding factors --------
         AutoFitPaddingFactor (1,1) double = 0.35;  % Padding around model in 3D view
         PlanePaddingFactor   (1,1) double = 0.20;  % Padding for cutting planes
 
-        % -------- UI Increments --------
+        % --- Billet UI Increments ---
         BilletSizeStep  (1,1) double = 1.0;  % [mm] Step size for Billet Size +/- buttons
         BilletShiftStep (1,1) double = 0.5;  % [mm] Step size for Position +/- buttons
 
 
         % ===========================================================
-        % 2. MACHINE CONFIGURATION (Physical Limits)
+        % MACHINE CONFIGURATION (Physical Limits)
         % ===========================================================
 
         % Distance between the Left and Right tower cutting planes.
         MachineSpanX   = 1180;            % [mm] Fixed distance between towers
 
-        % Travel Limits [Min, Max] relative to Home (0,0,0)
-        MachineAxisY   = [0, 750];        % [mm] Total Y travel
-        MachineAxisZ   = [0, 500];        % [mm] Total Z travel
+        % Travel Limits (Scalars for Max Travel)
+        MachineLimitY  = 750;             % [mm] Total Y travel (0 to 750)
+        MachineLimitZ  = 500;             % [mm] Total Z travel (0 to 500)
 
         % Physical Bed Definition
         % Z=-20 implies the bed top surface is at Z=0 (Home).
@@ -60,7 +60,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
 
         % ===========================================================
-        % 3. SAFETY & PLACEMENT RULES
+        % SAFETY & PLACEMENT RULES
         % ===========================================================
 
         % --- Machine Tab Safety ---
@@ -118,7 +118,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimLeftPanel                    % Simulation tab left panel
         GLPostProcess                   % Post Process tab layout
         PostLeftPanel                   % Post Process tab left panel
-
+        
+        % Model Tab Feedback
+        TxtModelStatus    % Text area for validation messages
+        TxtModelGuide     % Text area for instructions
+        
         % Background panels
         cutPanel; cutGrid               % Toggle switch containers
 
@@ -437,7 +441,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             app.TabModel = uitab(app.TabGroup,'Title','Model');
 
-            % Main Layout
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
             app.GLModel.ColumnWidth   = {320,'1x'};
             app.GLModel.Padding       = [10 10 10 10];
@@ -445,125 +448,133 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- Left Control Panel ---
             app.GLLeft = uigridlayout(app.GLModel,[16 1]);
-            app.GLLeft.Layout.Column = 1;
-            app.GLLeft.RowHeight = repmat({'fit'},1,16);
-            app.GLLeft.RowHeight{15} = '1x'; % Spring
-            app.GLLeft.Padding = [10 10 10 10];
-            app.GLLeft.BackgroundColor = sideBg;
+            app.GLLeft.Layout.Column = 1; app.GLLeft.BackgroundColor = sideBg;
 
-            % -- File Import --
-            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onImportSTEP());
+            % Rows: 1-11 Controls, 12 Label, 13 Guide(1x), 14 Label, 15 Status, 16 Buttons
+            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.GLLeft.Padding = [10 10 10 10];
+
+            % 1. File Import
+            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', ...
+                'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
+                'ButtonPushedFcn',@(~,~)app.onImportSTEP());
             app.BtnImportSTEP.Layout.Row = 1;
 
-            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onImportSTL());
+            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', ...
+                'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
+                'ButtonPushedFcn',@(~,~)app.onImportSTL());
             app.BtnImportSTL.Layout.Row = 2;
 
             app.FileLabel = uilabel(app.GLLeft, 'Text','Current File: ---', 'FontWeight','bold', 'FontColor',labelCol);
             app.FileLabel.Layout.Row = 3;
 
-            lblModSpacer1 = uilabel(app.GLLeft,'Text',"");
-            lblModSpacer1.Layout.Row = 4;
+            % 2. Taper
+            pnl_M_Cut = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
+            pnl_M_Cut.Layout.Row = 5;
+            grid_M_Cut = uigridlayout(pnl_M_Cut,[1 3]); grid_M_Cut.ColumnWidth = {'1x','fit','1x'}; grid_M_Cut.Padding=[10 0 10 0]; grid_M_Cut.BackgroundColor = sideBg;
+            lbl_M_Sp1 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp1.Layout.Column=1;
 
-            % -- Taper Toggle --
-            pnlTaper = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
-            pnlTaper.Layout.Row = 5;
-
-            gridTaper = uigridlayout(pnlTaper,[1 3]);
-            gridTaper.ColumnWidth = {'1x','fit','1x'};
-            gridTaper.Padding = [0 0 0 0]; gridTaper.BackgroundColor = sideBg;
-
-            app.TaperToggle = uiswitch(gridTaper,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', 'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
+            app.TaperToggle = uiswitch(grid_M_Cut,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
+                'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
+                'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
             app.TaperToggle.Layout.Column = 2;
+            lbl_M_Sp2 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp2.Layout.Column=3;
 
-            lblModSpacer2 = uilabel(app.GLLeft,'Text',"");
-            lblModSpacer2.Layout.Row = 6;
+            % 3. Orientation (Centered)
+            pnl_M_Rot = uipanel(app.GLLeft, 'Title','Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'ForegroundColor',labelCol);
+            pnl_M_Rot.Layout.Row = 7;
 
-            % -- Orientation Controls --
-            pnlRot = uipanel(app.GLLeft, 'Title','Model Orientation Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            pnlRot.Layout.Row = 7;
+            % Outer grid to force centering
+            outer_M_Rot = uigridlayout(pnl_M_Rot,[1 3]);
+            outer_M_Rot.ColumnWidth={'1x','fit','1x'};
+            outer_M_Rot.Padding=[5 5 5 5]; outer_M_Rot.BackgroundColor=panelBg;
 
-            gridRotOuter = uigridlayout(pnlRot,[1 3]);
-            gridRotOuter.ColumnWidth = {'1x','fit','1x'}; gridRotOuter.Padding = [5 5 5 5];
+            % Inner controls
+            app.RotGrid = uigridlayout(outer_M_Rot,[3 4]);
+            app.RotGrid.Layout.Column = 2; % Center column
+            app.RotGrid.ColumnWidth={'fit','fit',70,'fit'}; app.RotGrid.RowHeight={'fit','fit','fit'};
+            app.RotGrid.Padding=[0 0 0 0]; app.RotGrid.BackgroundColor=panelBg;
 
-            app.RotGrid = uigridlayout(gridRotOuter,[3 4]);
-            app.RotGrid.Layout.Column = 2;
-            app.RotGrid.ColumnWidth = {'fit','fit',70,'fit'};
-            app.RotGrid.RowHeight   = {'fit','fit','fit'};
-
-            rotAxes = {'X','Y','Z'};
+            axesLabels = {'X','Y','Z'};
             app.RotEdit = gobjects(1,3);
             for i = 1:3
-                lblRotAxis = uilabel(app.RotGrid, 'Text',rotAxes{i}, 'FontWeight','bold', 'HorizontalAlignment','center');
-                lblRotAxis.Layout.Row = i;
-
-                btnRotNeg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([rotAxes{i} 'm']));
-                btnRotNeg.Layout.Row = i;
+                lbl_M_Rot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol); lbl_M_Rot.Layout.Row=i;
+                btn_M_Neg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm'])); btn_M_Neg.Layout.Row=i;
 
                 app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
-                    'ValueChangedFcn',@(src,~)app.updateRotation(rotAxes{i},src.Value));
-                app.RotEdit(i).Layout.Row = i;
+                    'Tooltip', ['Rotate model around the ' axesLabels{i} ' axis.'], ...
+                    'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
+                app.RotEdit(i).Layout.Row=i;
 
-                btnRotPos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([rotAxes{i} 'p']));
-                btnRotPos.Layout.Row = i;
+                btn_M_Pos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p'])); btn_M_Pos.Layout.Row=i;
             end
 
-            % -- Reset Controls --
-            app.BtnResetOrientation = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            app.BtnResetOrientation.Layout.Row = 8;
+            % Reset Controls
+            btnMResO = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            btnMResO.Layout.Row = 8;
+            btnMResP = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
+            btnMResP.Layout.Row = 9;
 
-            app.BtnResetPlot = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
-            app.BtnResetPlot.Layout.Row = 9;
+            % 4. Offsets
+            pnl_M_Off = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
+            pnl_M_Off.Layout.Row = 11;
+            grid_M_Off = uigridlayout(pnl_M_Off,[3 2]); grid_M_Off.ColumnWidth={'1x',90}; grid_M_Off.RowHeight={'fit','fit','fit'};
 
-            lblModSpacer3 = uilabel(app.GLLeft,'Text',"");
-            lblModSpacer3.Layout.Row = 10;
+            lbl_M_OffL = uilabel(grid_M_Off,'Text','Left Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol); lbl_M_OffL.Layout.Row=1; lbl_M_OffL.Layout.Column=1;
 
-            % -- Plane Offsets --
-            pnlOff = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
-            pnlOff.Layout.Row = 11;
+            % [FIX] FontColor=[0 0 0] to ensure readability on colored background
+            app.NumLeftOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'BackgroundColor',[0.96 0.86 0.86], 'FontColor', [0 0 0], ...
+                'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
+                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
 
-            gridOff = uigridlayout(pnlOff,[3 2]);
-            gridOff.ColumnWidth = {'1x',90}; gridOff.RowHeight = {'fit','fit','fit'}; gridOff.Padding = [10 10 10 10];
+            lbl_M_OffR = uilabel(grid_M_Off,'Text','Right Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol); lbl_M_OffR.Layout.Row=2; lbl_M_OffR.Layout.Column=1;
+            app.NumRightOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'BackgroundColor',[0.86 0.96 0.86], 'FontColor', [0 0 0], ...
+                'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
+                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumRightOffset.Layout.Row=2; app.NumRightOffset.Layout.Column=2;
 
-            % Colors for offset fields
-            valCol = [0 0 0];
+            btn_M_ResPlane = uibutton(grid_M_Off, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
+            btn_M_ResPlane.Layout.Row=3; btn_M_ResPlane.Layout.Column=[1 2];
 
-            lblOffL = uilabel(gridOff, 'Text','Left Plane Offset [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold');
-            lblOffL.Layout.Row = 1;
+            % 5. GUIDANCE (Row 13, Expanded 1x)
+            lbl_M_Guide = uilabel(app.GLLeft, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_Guide.Layout.Row = 12;
 
-            app.NumLeftOffset = uispinner(gridOff, 'Limits',[-1000 1000], 'Value',0, 'Step',1, 'ValueDisplayFormat','%.2f', ...
-                'FontColor',valCol, 'BackgroundColor',[0.96 0.86 0.86], 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumLeftOffset.Layout.Row = 1; app.NumLeftOffset.Layout.Column = 2;
+            guideText = {
+                '1. Rotate Model: Align cut profile to Y-Z plane.';
+                '2. Position: Start of cut should be near Y-Min (Front).';
+                '3. Witness Marks: Avoid placing start points on visible surfaces.';
+                };
+            app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
+                'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtModelGuide.Layout.Row = 13;
 
-            lblOffR = uilabel(gridOff, 'Text','Right Plane Offset [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold');
-            lblOffR.Layout.Row = 2;
+            % 6. STATUS (Row 15, Fixed Fit)
+            lbl_M_Stat = uilabel(app.GLLeft, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_Stat.Layout.Row = 14;
 
-            app.NumRightOffset = uispinner(gridOff, 'Limits',[-1000 1000], 'Value',0, 'Step',1, 'ValueDisplayFormat','%.2f', ...
-                'FontColor',valCol, 'BackgroundColor',[0.86 0.96 0.86], 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumRightOffset.Layout.Row = 2; app.NumRightOffset.Layout.Column = 2;
+            app.TxtModelStatus = uitextarea(app.GLLeft, 'Editable','off', 'Value', {'No model loaded.'}, ...
+                'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
+            app.TxtModelStatus.Layout.Row = 15;
 
-            app.BtnResetPlanes = uibutton(gridOff, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
-            app.BtnResetPlanes.Layout.Row = 3; app.BtnResetPlanes.Layout.Column = [1 2];
+            % 7. BUTTONS (Row 16)
+            pnl_M_Btn = uipanel(app.GLLeft, 'BackgroundColor',sideBg, 'BorderType','none');
+            pnl_M_Btn.Layout.Row = 16;
+            grid_M_Btn = uigridlayout(pnl_M_Btn,[1 2]); grid_M_Btn.Padding=[0 0 0 0]; grid_M_Btn.BackgroundColor=sideBg;
 
-            % -- Bottom Buttons --
-            lblModSpring = uilabel(app.GLLeft, 'Text','');
-            lblModSpring.Layout.Row = 15;
-
-            pnlBtns = uipanel(app.GLLeft, 'BackgroundColor',[0.16 0.16 0.16], 'BorderType','none');
-            pnlBtns.Layout.Row = 16;
-
-            gridBtns = uigridlayout(pnlBtns,[1 2]);
-            gridBtns.Padding = [0 0 0 0]; gridBtns.ColumnSpacing = 10;
-
-            app.BtnGenerateProfiles = uibutton(gridBtns, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+            app.BtnGenerateProfiles = uibutton(grid_M_Btn, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'Tooltip', 'Slice model at the defined planes.', ...
                 'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
 
-            app.BtnContinue = uibutton(gridBtns, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
+            app.BtnContinue = uibutton(grid_M_Btn, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
                 'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             % --- Right Panel: 3D Model Axis ---
             app.AxModel = uiaxes(app.GLModel);
-            app.AxModel.Layout.Column = 2;
-            app.AxModel.BackgroundColor = [0.11 0.11 0.11];
+            app.AxModel.Layout.Column = 2; app.AxModel.BackgroundColor = [0.11 0.11 0.11];
             xlabel(app.AxModel,'X (mm)'); ylabel(app.AxModel,'Y (mm)'); zlabel(app.AxModel,'Z (mm)');
             grid(app.AxModel,'on'); view(app.AxModel,3);
             hold(app.AxModel,'on');
@@ -698,25 +709,51 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblModH.Layout.Row=1; lblModH.Layout.Column=6;
 
             axisLabels = {'X','Y','Z'};
-            app.BilletSizeEdits = gobjects(1,3); app.BilletSizeMinusBtns = gobjects(1,3); app.BilletSizePlusBtns = gobjects(1,3); app.BilletModelDimLabels = gobjects(1,3);
+            % Define Tooltips for each axis
+            sizeTooltips = { ...
+                'Length of stock along Machine X (Span)', ...
+                'Depth of stock along Machine Y', ...
+                'Height of stock along Machine Z'};
+
+            app.BilletSizeEdits = gobjects(1,3);
+            app.BilletSizeMinusBtns = gobjects(1,3);
+            app.BilletSizePlusBtns = gobjects(1,3);
+            app.BilletModelDimLabels = gobjects(1,3);
 
             for i = 1:3
                 r = i + 1;
-                lblAx = uilabel(gridBSize, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
-                lblAx.Layout.Row = r;
+                % Axis Label
+                lAx = uilabel(gridBSize, 'Text', axisLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lAx.Layout.Row = r;
 
-                app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text','-', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
-                app.BilletSizeMinusBtns(i).Layout.Row = r; app.BilletSizeMinusBtns(i).Layout.Column = 3;
+                % Minus Button
+                app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text','-', 'FontWeight','bold', ...
+                    'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
+                app.BilletSizeMinusBtns(i).Layout.Row = r;
+                app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
-                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', 'HorizontalAlignment','center', 'ValueDisplayFormat','%.2f', 'BackgroundColor',[0.7 0.7 0.8],'FontColor', [0 0 0], ...
+                % Edit Field (Numeric) - Added Tooltip here
+                app.BilletSizeEdits(i) = uieditfield(gridBSize,'numeric', ...
+                    'HorizontalAlignment','center', ...
+                    'ValueDisplayFormat','%.2f', ...
+                    'BackgroundColor',[0.7 0.7 0.8], ...
+                    'FontColor', [0 0 0], ...
+                    'Tooltip', sizeTooltips{i}, ... % <--- Added Tooltip
                     'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
-                app.BilletSizeEdits(i).Layout.Row = r; app.BilletSizeEdits(i).Layout.Column = 4;
+                app.BilletSizeEdits(i).Layout.Row = r;
+                app.BilletSizeEdits(i).Layout.Column = 4;
 
-                app.BilletSizePlusBtns(i) = uibutton(gridBSize, 'Text','+', 'FontWeight','bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
-                app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
+                % Plus Button
+                app.BilletSizePlusBtns(i) = uibutton(gridBSize, 'Text','+', 'FontWeight','bold', ...
+                    'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
+                app.BilletSizePlusBtns(i).Layout.Row = r;
+                app.BilletSizePlusBtns(i).Layout.Column = 5;
 
-                app.BilletModelDimLabels(i) = uilabel(gridBSize, 'Text','(---)', 'HorizontalAlignment','center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
-                app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
+                % Dimension Label
+                app.BilletModelDimLabels(i) = uilabel(gridBSize, 'Text','(---)', 'HorizontalAlignment','center', ...
+                    'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+                app.BilletModelDimLabels(i).Layout.Row = r;
+                app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
             % -- Position Buttons --
@@ -1180,101 +1217,50 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         function [isValid, statusColor, msg] = checkMachineState(app)
             % Centralized Logic for Machine & Bed Safety
-            % Checks: Hard Limits (Red), Bed Support (Red), Proximity (Amber), Taper (Amber)
 
-            % 1. Defaults (Green State)
+            % 1. Defaults (Green)
             isValid = true;
             statusColor = app.getTheme().sideBg;
             msg = "Machine configuration valid.";
 
-            % 2. Gather Geometry
-            bPos  = app.MachineBilletPos; % [X, Y, Z]
-            bSize = app.BilletSize;       % [W, D, H]
+            % 2. Geometry
+            bPos  = app.MachineBilletPos;
+            bSize = app.BilletSize;
+            bMin = bPos; bMax = bPos + bSize;
 
-            bMin = bPos;
-            bMax = bPos + bSize;
-
-            % Bed Bounds
             bedMin = app.MachineBedPos;
             bedMax = app.MachineBedPos + app.MachineBedSize;
 
-            % Machine Limits
-            limX = [0, app.MachineSpanX]; % Fixed span
-            limY = app.MachineAxisY;
-            limZ = app.MachineAxisZ;
+            % Limits (Construct ranges from Scalars)
+            limX = [0, app.MachineSpanX];
+            limY = [0, app.MachineLimitY]; % Scalar -> Range
+            limZ = [0, app.MachineLimitZ];
 
-            % --- CRITICAL CHECKS (Red) ---
+            % 3. Critical Checks (Red)
             crit = strings(0);
+            if bMin(1) < limX(1) || bMax(1) > limX(2), crit(end+1)="Billet hits Towers (X)."; end
+            if bMin(2) < limY(1) || bMax(2) > limY(2), crit(end+1)="Billet exceeds Y-Travel."; end
+            if bMin(3) < limZ(1) || bMax(3) > limZ(2), crit(end+1)="Billet exceeds Z-Travel."; end
 
-            % A. Tower/Travel Collision
-            if bMin(1) < limX(1) || bMax(1) > limX(2), crit(end+1) = "Billet hits Towers (X)."; end
-            if bMin(2) < limY(1) || bMax(2) > limY(2), crit(end+1) = "Billet exceeds Y-Travel."; end
-            if bMin(3) < limZ(1) || bMax(3) > limZ(2), crit(end+1) = "Billet exceeds Z-Travel."; end
-
-            % B. Bed Support (Must be ON the bed)
-            % Check if Billet footprint is outside Bed footprint
-            if bMin(1) < bedMin(1) || bMax(1) > bedMax(1)
-                crit(end+1) = "Billet overhangs Bed (X).";
-            end
-            if bMin(2) < bedMin(2) || bMax(2) > bedMax(2)
-                crit(end+1) = "Billet overhangs Bed (Y).";
-            end
+            % Check Bed Support
+            if bMin(1) < bedMin(1) || bMax(1) > bedMax(1), crit(end+1)="Billet overhangs Bed (X)."; end
+            if bMin(2) < bedMin(2) || bMax(2) > bedMax(2), crit(end+1)="Billet overhangs Bed (Y)."; end
 
             if ~isempty(crit)
-                isValid = false;
-                statusColor = [0.3 0.1 0.1]; % Dark Red
-                msg = "CRITICAL: " + crit(1);
-                return;
+                isValid = false; statusColor = [0.3 0.1 0.1]; msg = "CRITICAL: " + crit(1); return;
             end
 
-            % --- WARNING CHECKS (Amber) ---
+            % 4. Warning Checks (Amber)
             warn = strings(0);
             buf  = app.SafetyBuffer_BedEdge;
 
-            % A. Bed Edge Proximity
-            if (bMin(1) - bedMin(1) < buf) || (bedMax(1) - bMax(1) < buf) || ...
-                    (bMin(2) - bedMin(2) < buf) || (bedMax(2) - bMax(2) < buf)
+            if (bMin(1)-bedMin(1) < buf) || (bedMax(1)-bMax(1) < buf) || ...
+                    (bMin(2)-bedMin(2) < buf) || (bedMax(2)-bMax(2) < buf)
                 warn(end+1) = sprintf("Billet close (<%.0fmm) to bed edge.", buf);
             end
 
-            % B. Taper Encroachment (Brass Mount Safety)
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                % Transform Profile Bounds to Absolute Machine Coords
-                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-                yL = app.LeftProfilePoints(:,2) + offsetY;
-                yR = app.RightProfilePoints(:,2) + offsetY;
-
-                minCutY = min([min(yL), min(yR)]);
-                maxCutY = max([max(yL), max(yR)]);
-
-                % Determine Cut Plane X positions
-                xL_cut = app.MachineBilletPos(1) + app.BilletShift(1) + app.NumLeftOffset.Value;
-                xR_cut = app.MachineBilletPos(1) + app.BilletShift(1) + app.NumRightOffset.Value;
-
-                % Project bounds to Towers (0 and SpanX)
-                % We only care about Y projection for this warning
-                [tL_min, tR_min] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                    minCutY, 0, xL_cut, minCutY, 0, xR_cut, app.MachineSpanX);
-
-                [tL_max, tR_max] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                    maxCutY, 0, xL_cut, maxCutY, 0, xR_cut, app.MachineSpanX);
-
-                minTowerY = min(tL_min.y, tR_min.y);
-                maxTowerY = max(tL_max.y, tR_max.y);
-
-                % Check if Towers go beyond safe buffer of Bed Edge (Brass Mount Risk)
-                if minTowerY < (bedMin(2) + buf)
-                    warn(end+1) = "Steep taper: Towers may hit Front limit.";
-                elseif maxTowerY > (bedMax(2) - buf)
-                    warn(end+1) = "Steep taper: Towers may hit Back limit.";
-                end
-            end
-
             if ~isempty(warn)
-                isValid = true; % Valid but warn
-                statusColor = [0.3 0.25 0.1]; % Amber
-                msg = "Warning: " + warn(end);
+                isValid = true; statusColor = [0.3 0.25 0.1]; msg = "Warning: " + warn(end);
             end
         end
 
@@ -2226,21 +2212,46 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isempty(app.ModelPatch), return; end
             V = app.ModelPatch.Vertices;
 
-            % Force SCALAR extraction (mins(1) instead of mins)
+            % Force SCALAR extraction
             mins = min(V, [], 1);
             maxs = max(V, [], 1);
 
-            app.ModelXMin = mins(1);
-            app.ModelXMax = maxs(1);
-            app.ModelYMin = mins(2);
-            app.ModelYMax = maxs(2);
-            app.ModelZMin = mins(3);
-            app.ModelZMax = maxs(3);
+            app.ModelXMin = mins(1); app.ModelXMax = maxs(1);
+            app.ModelYMin = mins(2); app.ModelYMax = maxs(2);
+            app.ModelZMin = mins(3); app.ModelZMax = maxs(3);
+
+            % Calculate Model Width
+            modelWidth = app.ModelXMax - app.ModelXMin;
+            if modelWidth < 1, modelWidth = 1; end % Safety
+
+            % Update Limits (0 to Width)
+            % User sees 0 as Left Face, Width as Right Face
+            app.NumLeftOffset.Limits  = [0, modelWidth];
+            app.NumRightOffset.Limits = [0, modelWidth];
 
             if nargin < 2, resetOffsets = true; end
+
             if resetOffsets
+                % Reset to Ends
                 app.NumLeftOffset.Value  = 0;
-                app.NumRightOffset.Value = app.ModelXMax - app.ModelXMin;
+                app.NumRightOffset.Value = modelWidth;
+
+                % Update Status
+                if ~isempty(app.TxtModelStatus)
+                    app.TxtModelStatus.Value = {'Model loaded.', sprintf('Size: %.1f x %.1f x %.1f mm', ...
+                        modelWidth, app.ModelYMax-app.ModelYMin, app.ModelZMax-app.ModelZMin)};
+                    app.TxtModelStatus.FontColor = [0.4 1 0.4]; % Green
+                end
+            else
+                % Clamp existing values if they are now out of bounds (e.g. after rotation)
+                if app.NumLeftOffset.Value > modelWidth, app.NumLeftOffset.Value = modelWidth; end
+                if app.NumRightOffset.Value > modelWidth, app.NumRightOffset.Value = modelWidth; end
+
+                % Check if valid
+                if ~isempty(app.TxtModelStatus)
+                    app.TxtModelStatus.Value = {'Model re-oriented.', 'Check plane positions.'};
+                    app.TxtModelStatus.FontColor = [1 0.8 0.4]; % Amber
+                end
             end
         end
 
@@ -2556,9 +2567,36 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onBilletSizeEdited(app, axisIdx, src)
-            % Driving factor: Just update the size
-            app.BilletSize(axisIdx) = src.Value;
+            % Handles edits to Billet Size fields with validation against Machine Limits.
 
+            val = src.Value;
+
+            % 1. Determine Limits based on Axis
+            % Min is always 1mm to prevent zero/negative geometry
+            minVal = 1.0;
+            maxVal = 10000.0; % Default
+
+            switch axisIdx
+                case 1 % X Axis
+                    maxVal = app.MachineBedSize(1); % 1000mm
+                case 2 % Y Axis
+                    maxVal = app.MachineBedSize(2); % 700mm
+                case 3 % Z Axis
+                    maxVal = app.MachineAxisZ(2);   % 500mm
+            end
+
+            % 2. Clamp Value
+            if val < minVal
+                val = minVal;
+            elseif val > maxVal
+                val = maxVal;
+            end
+
+            % 3. Update UI (Visual Feedback) and Data
+            src.Value = val;
+            app.BilletSize(axisIdx) = val;
+
+            % 4. Refresh
             app.syncBilletUI();
             app.refreshBilletPlots();
         end
