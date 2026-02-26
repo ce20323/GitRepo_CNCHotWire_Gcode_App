@@ -24,12 +24,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         % -------- Profile sampling defaults --------
-        DefaultProfileTolerance (1,1) double = 0.2;   % [mm] Max error for resampling
+        DefaultProfileTolerance (1,1) double = 0.05;   % [mm] Max error for resampling
         MinProfileTolerance     (1,1) double = 0.01;  % [mm] Highest precision
         MaxProfileTolerance     (1,1) double = 5.0;   % [mm] Lowest precision
 
         % -------- Kerf / wire offset defaults --------
-        DefaultKerf (1,1) double = 0.8;   % [mm] Default wire thickness compensation
+        DefaultKerf (1,1) double = 0.5;   % [mm] Default wire thickness compensation
         MinKerf     (1,1) double = 0.0;   % [mm] No kerf
         MaxKerf     (1,1) double = 5.0;   % [mm] Maximum allowed kerf
 
@@ -119,10 +119,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         GLPostProcess                   % Post Process tab layout
         PostLeftPanel                   % Post Process tab left panel
         
-        % Model Tab Feedback
+        % Tab Feedback
         TxtModelStatus    % Text area for validation messages
         TxtModelGuide     % Text area for instructions
-        
+        TxtProfileStatus
+        TxtProfileGuide
+
         % Background panels
         cutPanel; cutGrid               % Toggle switch containers
 
