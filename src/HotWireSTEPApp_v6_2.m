@@ -20,37 +20,70 @@ classdef HotWireSTEPApp_v6_2 < handle
 
     properties (Constant)
         % ===========================================================
-        % CONSTANTS & DEFAULTS
+        % 1. APP DEFAULTS (Sampling & Graphics)
         % ===========================================================
 
-        % -------- Profile sampling defaults --------
+        % -------- Profile Sampling --------
         DefaultProfileTolerance (1,1) double = 0.2;   % [mm] Max error for resampling
         MinProfileTolerance     (1,1) double = 0.01;  % [mm] Highest precision
         MaxProfileTolerance     (1,1) double = 5.0;   % [mm] Lowest precision
 
-        % -------- Kerf / wire offset defaults --------
+        % -------- Kerf / Wire Offset --------
         DefaultKerf (1,1) double = 0.8;   % [mm] Default wire thickness compensation
         MinKerf     (1,1) double = 0.0;   % [mm] No kerf
         MaxKerf     (1,1) double = 5.0;   % [mm] Maximum allowed kerf
 
-        % -------- View / plane padding factors --------
+        % -------- Visualization --------
         AutoFitPaddingFactor (1,1) double = 0.35;  % Padding around model in 3D view
         PlanePaddingFactor   (1,1) double = 0.20;  % Padding for cutting planes
 
-        % --- Billet UI Increments ---
-        BilletSizeStep  = 1.0;  % [mm] Step size for Billet Size +/- buttons
-        BilletShiftStep = 0.5;  % [mm] Step size for Position +/- buttons
+        % -------- UI Increments --------
+        BilletSizeStep  (1,1) double = 1.0;  % [mm] Step size for Billet Size +/- buttons
+        BilletShiftStep (1,1) double = 0.5;  % [mm] Step size for Position +/- buttons
 
-        % --- Machine Configuration Constants ---
-        MachineSpanX   = 1180;            % [mm] Distance between tower planes
-        MachineLimitY  = 750;             % [mm] Total Y travel
-        MachineLimitZ  = 500;             % [mm] Total Z travel
-        MachineBedSize   = [1000, 700, 20]  % [mm] Physical dimensions [L, W, H]
-        MachineBedPos    = [50, 50, -20]    % [mm] Bed origin relative to machine 0,0,0
 
-        % --- Placement Rules ---
-        BilletMinYBuffer = 50.0; % [mm] Default buffer from front/home
-        BilletRoundingY  = 10.0; % [mm] Rounding grid for auto-placement
+        % ===========================================================
+        % 2. MACHINE CONFIGURATION (Physical Limits)
+        % ===========================================================
+
+        % Distance between the Left and Right tower cutting planes.
+        MachineSpanX   = 1180;            % [mm] Fixed distance between towers
+
+        % Travel Limits [Min, Max] relative to Home (0,0,0)
+        MachineAxisY   = [0, 750];        % [mm] Total Y travel
+        MachineAxisZ   = [0, 500];        % [mm] Total Z travel
+
+        % Physical Bed Definition
+        % Z=-20 implies the bed top surface is at Z=0 (Home).
+        MachineBedPos    = [50, 50, -20];   % [mm] Bed origin [X, Y, Z]
+        MachineBedSize   = [1000, 700, 20]; % [mm] Physical dimensions [L, W, H]
+
+
+        % ===========================================================
+        % 3. SAFETY & PLACEMENT RULES
+        % ===========================================================
+
+        % --- Machine Tab Safety ---
+
+        % Distance from bed edge to trigger Amber warning (Machine Tab)
+        SafetyBuffer_BedEdge = 50.0; % [mm]
+
+        % Rounding grid for auto-placement of Billet (Machine Tab)
+        BilletRoundingY  = 10.0; % [mm]
+
+        % Min buffer from Front Home for default placement logic
+        BilletMinYBuffer = 50.0; % [mm]
+
+        % --- Billet Tab Safety (Model inside Stock) ---
+
+        % Tolerance for "Outside" Error (Red)
+        ModelContainmentTol = 0.0001; % [mm]
+
+        % Buffer for "Too Close" Warning (Amber)
+        ModelEdgeWarningBuffer = 4.0; % [mm]
+
+        % Tiny buffer for X placement (Start just inside the block)
+        ModelXPlacementBuffer = 0.001; % [mm]
     end
 
     properties
@@ -1145,6 +1178,106 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % STATE & PROFILE HELPERS
         % ===========================================================
+        function [isValid, statusColor, msg] = checkMachineState(app)
+            % Centralized Logic for Machine & Bed Safety
+            % Checks: Hard Limits (Red), Bed Support (Red), Proximity (Amber), Taper (Amber)
+
+            % 1. Defaults (Green State)
+            isValid = true;
+            statusColor = app.getTheme().sideBg;
+            msg = "Machine configuration valid.";
+
+            % 2. Gather Geometry
+            bPos  = app.MachineBilletPos; % [X, Y, Z]
+            bSize = app.BilletSize;       % [W, D, H]
+
+            bMin = bPos;
+            bMax = bPos + bSize;
+
+            % Bed Bounds
+            bedMin = app.MachineBedPos;
+            bedMax = app.MachineBedPos + app.MachineBedSize;
+
+            % Machine Limits
+            limX = [0, app.MachineSpanX]; % Fixed span
+            limY = app.MachineAxisY;
+            limZ = app.MachineAxisZ;
+
+            % --- CRITICAL CHECKS (Red) ---
+            crit = strings(0);
+
+            % A. Tower/Travel Collision
+            if bMin(1) < limX(1) || bMax(1) > limX(2), crit(end+1) = "Billet hits Towers (X)."; end
+            if bMin(2) < limY(1) || bMax(2) > limY(2), crit(end+1) = "Billet exceeds Y-Travel."; end
+            if bMin(3) < limZ(1) || bMax(3) > limZ(2), crit(end+1) = "Billet exceeds Z-Travel."; end
+
+            % B. Bed Support (Must be ON the bed)
+            % Check if Billet footprint is outside Bed footprint
+            if bMin(1) < bedMin(1) || bMax(1) > bedMax(1)
+                crit(end+1) = "Billet overhangs Bed (X).";
+            end
+            if bMin(2) < bedMin(2) || bMax(2) > bedMax(2)
+                crit(end+1) = "Billet overhangs Bed (Y).";
+            end
+
+            if ~isempty(crit)
+                isValid = false;
+                statusColor = [0.3 0.1 0.1]; % Dark Red
+                msg = "CRITICAL: " + crit(1);
+                return;
+            end
+
+            % --- WARNING CHECKS (Amber) ---
+            warn = strings(0);
+            buf  = app.SafetyBuffer_BedEdge;
+
+            % A. Bed Edge Proximity
+            if (bMin(1) - bedMin(1) < buf) || (bedMax(1) - bMax(1) < buf) || ...
+                    (bMin(2) - bedMin(2) < buf) || (bedMax(2) - bMax(2) < buf)
+                warn(end+1) = sprintf("Billet close (<%.0fmm) to bed edge.", buf);
+            end
+
+            % B. Taper Encroachment (Brass Mount Safety)
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                % Transform Profile Bounds to Absolute Machine Coords
+                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+                yL = app.LeftProfilePoints(:,2) + offsetY;
+                yR = app.RightProfilePoints(:,2) + offsetY;
+
+                minCutY = min([min(yL), min(yR)]);
+                maxCutY = max([max(yL), max(yR)]);
+
+                % Determine Cut Plane X positions
+                xL_cut = app.MachineBilletPos(1) + app.BilletShift(1) + app.NumLeftOffset.Value;
+                xR_cut = app.MachineBilletPos(1) + app.BilletShift(1) + app.NumRightOffset.Value;
+
+                % Project bounds to Towers (0 and SpanX)
+                % We only care about Y projection for this warning
+                [tL_min, tR_min] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                    minCutY, 0, xL_cut, minCutY, 0, xR_cut, app.MachineSpanX);
+
+                [tL_max, tR_max] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                    maxCutY, 0, xL_cut, maxCutY, 0, xR_cut, app.MachineSpanX);
+
+                minTowerY = min(tL_min.y, tR_min.y);
+                maxTowerY = max(tL_max.y, tR_max.y);
+
+                % Check if Towers go beyond safe buffer of Bed Edge (Brass Mount Risk)
+                if minTowerY < (bedMin(2) + buf)
+                    warn(end+1) = "Steep taper: Towers may hit Front limit.";
+                elseif maxTowerY > (bedMax(2) - buf)
+                    warn(end+1) = "Steep taper: Towers may hit Back limit.";
+                end
+            end
+
+            if ~isempty(warn)
+                isValid = true; % Valid but warn
+                statusColor = [0.3 0.25 0.1]; % Amber
+                msg = "Warning: " + warn(end);
+            end
+        end
+
         function clearPlanes(app)
             % Deletes any existing plane graphics and resets handles
             if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
@@ -1541,24 +1674,70 @@ classdef HotWireSTEPApp_v6_2 < handle
         % TAB CHANGE HANDLER
         % ===========================================================
         function onTabChanged(app, ~, evt)
-            % 1. Always reset interaction state when changing tabs
+            targetTab = evt.NewValue;
+            oldTab    = evt.OldValue;
+
+            % --- GUARD 1: Model Required ---
+            hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
+            if targetTab ~= app.TabModel && ~hasModel
+                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
+                app.TabGroup.SelectedTab = app.TabModel; return;
+            end
+
+            % --- GUARD 2: Profiles Required ---
+            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
+            if targetTab ~= app.TabModel && targetTab ~= app.TabProfiles && ~hasProfiles
+                uialert(app.UIFigure, 'Please generate Cutting Profiles first.', 'Step 2 Missing', 'Icon','warning');
+                app.TabGroup.SelectedTab = app.TabProfiles; return;
+            end
+
+            % --- GUARD 3: Billet Validity ---
+            if (oldTab == app.TabBillet) || (targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation)
+                isValidBillet = app.syncBilletUI();
+                if ~isValidBillet
+                    uialert(app.UIFigure, 'Billet configuration is invalid (Model outside stock).', 'Billet Error', 'Icon','error');
+                    app.TabGroup.SelectedTab = app.TabBillet; return;
+                end
+            end
+
+            % --- GUARD 4: Machine Validity ---
+            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)
+                [isValidMach, ~, msg] = app.checkMachineState();
+                if ~isValidMach
+                    uialert(app.UIFigure, msg, 'Machine Error', 'Icon','error');
+                    app.TabGroup.SelectedTab = app.TabMachine; return;
+                end
+            end
+
+            % --- EXECUTE TRANSITION ---
             app.resetInteractionState();
 
-            % 2. Tab Specific Logic
-            if evt.NewValue == app.TabBillet
+            if targetTab == app.TabBillet
                 app.syncBilletUI();
                 app.refreshBilletPlots();
-            elseif evt.NewValue == app.TabMachine
-                app.onResetMachineBilletPosition();
-            elseif evt.NewValue == app.TabCutting
-                app.onAutoStart();
-                app.onAutoEntry();
+
+            elseif targetTab == app.TabMachine
+                % Validate state on entry
+                [isValid, col, txt] = app.checkMachineState();
+                app.MachineLeftPanel.BackgroundColor = col;
+                app.MachineMessageLabel.Text = txt;
+                if isValid, app.MachineMessageLabel.FontColor=[1 1 1]; else, app.MachineMessageLabel.FontColor=[1 0.4 0.4]; end
+
+                app.refreshMachinePlot();
+
+            elseif targetTab == app.TabCutting
+                if isempty(app.EntryPointL)
+                    app.onAutoStart();
+                    app.onAutoEntry();
+                end
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
-            elseif evt.NewValue == app.TabSimulation
+
+            elseif targetTab == app.TabSimulation
                 app.applyTheme();
                 app.generateSimulationData();
-            elseif evt.NewValue == app.TabPostProcess
+
+            elseif targetTab == app.TabPostProcess
                 app.updatePostProcessUI();
             end
         end
@@ -2267,12 +2446,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
             end
 
-            % 4. Validation Logic
-            tol = 1e-4;
-            isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
-            isTooClose = (workMin(2) < 5) || (workMax(2) > bSize(2) - 5) || ...
-                (workMin(3) < 5) || (workMax(3) > bSize(3) - 5);
+            % 4. Validation Logic (Using Constants)
+            tol = app.ModelContainmentTol;
+            buf = app.ModelEdgeWarningBuffer;
 
+            % RED Check: Is Model Outside Stock?
+            isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
+
+            % AMBER Check: Is Model Too Close to Edge? (Y and Z only)
+            % We usually don't care about X buffer as much because wires pass through X faces.
+            isTooClose = (workMin(2) < buf) || (workMax(2) > bSize(2) - buf) || ...
+                (workMin(3) < buf) || (workMax(3) > bSize(3) - buf);
+
+            % Theme Colors
             if app.UIFigure.Color(1) < 0.5
                 panelBg = [0.16 0.16 0.16]; successGreen = [0.4 1 0.4];
             else
@@ -2280,14 +2466,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16];
+                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Dark Red
                 app.BilletMessageLabel.Text = 'CRITICAL: Model is outside stock!';
                 app.BilletMessageLabel.FontColor = [1 0.4 0.4];
                 app.BtnBilletContinue.Enable = 'off';
                 isValid = false;
             elseif isTooClose
-                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1];
-                app.BilletMessageLabel.Text = 'Warning: Model is very close (<5mm) to billet edges.';
+                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Amber
+                app.BilletMessageLabel.Text = sprintf('Warning: Model is very close (<%.0fmm) to billet edges.', buf);
                 app.BilletMessageLabel.FontColor = [1 0.8 0.4];
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
@@ -2332,13 +2518,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             xR = app.ModelXMin + app.NumRightOffset.Value;
             planeMinX = min(xL, xR);
 
-            % 2. Direct-Set the Shift (Targets: X=0.001, Y=5.0, Z=5.0)
-            app.BilletShift(1) = 0.001 - planeMinX;
-            app.BilletShift(2) = 5.0   - localMins(2);
-            app.BilletShift(3) = 5.0   - localMins(3);
+            % 2. Direct-Set the Shift (Targets: Safety Buffers)
+            % X: Just barely inside (0.001mm)
+            % Y/Z: Exactly at the Warning Buffer (5.0mm) so it's safe but efficient
+
+            app.BilletShift(1) = app.ModelXPlacementBuffer - planeMinX;
+            app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
+            app.BilletShift(3) = app.ModelEdgeWarningBuffer - localMins(3);
 
             app.syncBilletUI();
             app.refreshBilletPlots();
+
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
@@ -2459,14 +2649,81 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function onMachinePosEdited(app, axisIdx, src)
+            val = src.Value;
             if axisIdx == 1
                 % Input is Bed-Relative -> Store Absolute
-                app.MachineBilletPos(1) = app.MachineBedPos(1) + src.Value;
+                app.MachineBilletPos(1) = app.MachineBedPos(1) + val;
             else
-                % Input is Machine Absolute -> Store Absolute
-                app.MachineBilletPos(axisIdx) = src.Value;
+                % Input is Absolute
+                app.MachineBilletPos(axisIdx) = val;
             end
-            app.validateMachineConfig();
+
+            % Validation
+            [isValid, col, txt] = app.checkMachineState();
+
+            app.MachineLeftPanel.BackgroundColor = col;
+            app.MachineMessageLabel.Text = txt;
+
+            if isValid
+                app.MachineMessageLabel.FontColor = [1 1 1];
+                app.BtnMachineContinue.Enable = 'on';
+            else
+                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
+                app.BtnMachineContinue.Enable = 'off';
+            end
+
+            app.refreshMachinePlot();
+        end
+
+        function onResetMachineBilletPosition(app)
+            if isempty(app.ModelPatch), return; end
+
+            % 1. X-Center Logic
+            mSpanX = app.MachineSpanX;
+            app.MachineBilletPos(1) = (mSpanX - app.BilletSize(1)) / 2;
+
+            % 2. Y-Default Logic (50mm from home)
+            currentMinY = app.ModelYMin + app.BilletShift(2);
+            targetY = app.MachineBedPos(2); % Front edge
+            app.MachineBilletPos(2) = round((targetY - currentMinY) / 10) * 10;
+            if app.MachineBilletPos(2) < targetY, app.MachineBilletPos(2) = targetY; end
+
+            % 3. Z-Lift Logic
+            app.MachineBilletPos(3) = 0;
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
+                xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
+
+                [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                    app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+
+                [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                    yL + app.MachineBilletPos(2) + app.BilletShift(2), zL, xL_mach, ...
+                    yR + app.MachineBilletPos(2) + app.BilletShift(2), zR, xR_mach, ...
+                    app.MachineSpanX);
+
+                minProjZ = min([tL.z; tR.z]);
+                if minProjZ < 5
+                    app.MachineBilletPos(3) = abs(minProjZ) + 5;
+                end
+            end
+
+            app.syncMachineUI();
+
+            % Validation
+            [isValid, col, txt] = app.checkMachineState();
+            app.MachineLeftPanel.BackgroundColor = col;
+            app.MachineMessageLabel.Text = txt;
+            if isValid
+                app.BtnMachineContinue.Enable = 'on';
+                app.MachineMessageLabel.FontColor = [1 1 1];
+            else
+                app.BtnMachineContinue.Enable = 'off';
+                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
+            end
+
             app.refreshMachinePlot();
         end
 
@@ -2544,49 +2801,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                     isValid = true;
                 end
             end
-        end
-
-        function onResetMachineBilletPosition(app)
-            if isempty(app.ModelPatch), return; end
-
-            % 1. X-Position: Center the model in the machine to minimize tower lag
-            mSpanX = 1180;
-            app.MachineBilletPos(1) = (mSpanX - app.BilletSize(1)) / 2;
-
-            % 2. Y-Position: 50mm from home rounded to 10mm
-            % (Accounts for any user-applied shift in the Billet Tab)
-            currentMinY = app.ModelYMin + app.BilletShift(2);
-            app.MachineBilletPos(2) = round((50 - currentMinY) / 10) * 10;
-
-            % 3. Z-Position: Auto-Lift (0, 50, 75, 100) to clear negative projections
-            app.MachineBilletPos(3) = 0; % Start at bed
-
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                % Check projection at Z=0
-                [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                    app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
-
-                xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
-                xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
-
-                % --- FIX: Added app.MachineSpanX as the 7th argument ---
-                [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                    yL + app.MachineBilletPos(2) + app.BilletShift(2), zL, xL_mach, ...
-                    yR + app.MachineBilletPos(2) + app.BilletShift(2), zR, xR_mach, ...
-                    app.MachineSpanX);
-
-                minProjZ = min([tL.z; tR.z]);
-                if minProjZ < 0
-                    lifts = [50, 75, 100];
-                    idx = find(lifts >= abs(minProjZ) + 5, 1, 'first');
-                    if ~isempty(idx), app.MachineBilletPos(3) = lifts(idx); end
-                end
-            end
-
-            app.syncMachineUI();
-            app.validateMachineConfig();
-            app.refreshMachinePlot();
         end
 
         function onResetMachineViewMachine(app)
