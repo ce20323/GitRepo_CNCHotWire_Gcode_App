@@ -30,8 +30,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % -------- Kerf / wire offset defaults --------
         DefaultKerf (1,1) double = 0.5;   % [mm] Default wire thickness compensation
-        MinKerf     (1,1) double = 0.0;   % [mm] No kerf
-        MaxKerf     (1,1) double = 5.0;   % [mm] Maximum allowed kerf
+        MinKerf     (1,1) double = -4.0;   % [mm] No kerf
+        MaxKerf     (1,1) double = 4.0;   % [mm] Maximum allowed kerf
 
         % -------- View / plane padding factors --------
         AutoFitPaddingFactor (1,1) double = 0.35;  % Padding around model in 3D view
@@ -210,6 +210,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         KerfSpinner                           % UI handle for kerf control
         KerfPointCountLabel                   % New label for kerf stats
         BtnApplyKerf                          % Button to apply kerf offset
+        BtnResetKerf                          % Button to reset kerf
         KerfEnabled (1,1) logical = false     % Only draw kerf when true
         LeftKerf2DLine; RightKerf2DLine       % 2D kerf path lines
 
@@ -547,13 +548,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             guideText = {
                 '1. Import your model by clicking Import STEP or STL';
+                '';
                 '2. Select straight for prismatic, or tapered for independant profiles.';
-                '3. Rotate Model: Align cut profile to Y-Z plane.';                
-                '   TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
-                '   Hide this on a trailing edge, inside the part, or somewhere not important for smoothness';
-                ' rotate the model so this point is toward the front of the machine (Ymin)';                        
+                '';
+                '3. Rotate Model: Align cut profile to Y-Z plane.';                                                      
+                '';
                 '4. (Optional) Move the left/right planes if you want to cut a section of your model';
+                '';
                 '5. Click generate profiles, check the profiles look correct, then click continue';
+                '';
+                'TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
+                'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
+                'Rotate the model so this point is toward the front of the machine (Ymin)';  
                 };
             app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
                 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -597,37 +603,51 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLProfiles.Padding = [10 10 10 10];
 
             % --- Left Control Panel ---
-            app.profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
+            app.profilesLeft = uigridlayout(app.GLProfiles,[9 1]);
             app.profilesLeft.Layout.Column = 1;
-            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','1x','fit'}; % Row 5 = Spring
+            % Rows: Controls, Guide label, Guide(1x), Status label, Status box, Continue
+            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','fit','1x','fit','fit','fit'};
             app.profilesLeft.Padding = [10 10 10 10];
             app.profilesLeft.BackgroundColor = sideBg;
 
             % -- Tolerance --
-            pnlTol = uipanel(app.profilesLeft, 'Title','Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlTol = uipanel(app.profilesLeft, 'Title','Profile Sampling', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlTol.Layout.Row = 1;
 
             gridTol = uigridlayout(pnlTol,[2 2]);
-            gridTol.ColumnWidth = {'1x',90}; gridTol.Padding = [10 5 10 5];
+            gridTol.ColumnWidth = {'1x',90};
+            gridTol.Padding = [10 5 10 5];
 
-            lblTol = uilabel(gridTol, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+            lblTol = uilabel(gridTol, 'Text','Profile Tolerance [mm]:', ...
+                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
 
-            app.ProfileTolSpinner = uispinner(gridTol, 'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, 'Step',0.05, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolSpinner = uispinner(gridTol, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
+                'Step',0.01, ... % <-- upgrade requested
+                'ValueDisplayFormat','%.2f', ...
+                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
 
-            app.ProfilePointCountLabel = uilabel(gridTol, 'Text','Number of Points (L/R): -- / --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
-            app.ProfilePointCountLabel.Layout.Row = 2; app.ProfilePointCountLabel.Layout.Column = [1 2];
+            app.ProfilePointCountLabel = uilabel(gridTol, ...
+                'Text','Number of Points (L/R): -- / --', ...
+                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            app.ProfilePointCountLabel.Layout.Row = 2;
+            app.ProfilePointCountLabel.Layout.Column = [1 2];
 
             % -- Reset Buttons --
-            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
             app.BtnResetProfileTol.Layout.Row = 2;
 
-            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
+            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
             app.BtnResetProfilesView.Layout.Row = 3;
 
             % -- Kerf --
-            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlKerf.Layout.Row = 4;
 
             gridKerf = uigridlayout(pnlKerf,[3 2]);
@@ -635,31 +655,68 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridKerf.RowHeight = {'fit','fit','fit'};
             gridKerf.Padding = [10 5 10 5];
 
-            lblKerf = uilabel(gridKerf, 'Text','Kerf [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+            lblKerf = uilabel(gridKerf, 'Text','Kerf [mm]:', ...
+                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
             lblKerf.Layout.Row = 1; lblKerf.Layout.Column = 1;
 
-            app.KerfSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultKerf, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
-            app.KerfSpinner.Layout.Row = 1; app.KerfSpinner.Layout.Column = 2;
+            app.KerfSpinner = uispinner(gridKerf, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultKerf, ...
+                'Step',0.1, ...
+                'ValueDisplayFormat','%.2f', ...
+                'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
+            app.KerfSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
+            app.KerfSpinner.Layout.Row = 1;
+            app.KerfSpinner.Layout.Column = 2;
             app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
 
-            % Label matches Profile Sampling block style
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): -- / --', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            app.KerfPointCountLabel = uilabel(gridKerf, ...
+                'Text','Number of Points (L/R): -- / --', ...
+                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
             app.KerfPointCountLabel.Layout.Row = 2;
             app.KerfPointCountLabel.Layout.Column = [1 2];
 
-            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf.Tooltip = 'After first press the offset spinner will auto-update the offset profile';
             app.BtnApplyKerf.Layout.Row = 3;
             app.BtnApplyKerf.Layout.Column = [1 2];
 
-            % -- Spacer --
-            lblProfSpacer = uilabel(app.profilesLeft, 'Text','');
-            lblProfSpacer.Layout.Row = 5;
+            % 5. GUIDANCE (Model-tab style)
+            lbl_P_Guide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_P_Guide.Layout.Row = 5;
 
-            % -- Continue --
-            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
+            guideTextP = {
+                '1. Set the tolerance so the extracted profiles (red/green) conform to the sliced mesh profiles.'
+                '   - Smaller tolerance improves accuracy, but increases the number of points and the size of the G-code.'
+                ''
+                '2. Set and apply Kerf Offset'
+                ''
+                '3. Check both profiles look correct, then click Continue.'
+                ''
+                'TIP: Kerf is the width of cut made by a tool or machine.'
+                '- For a hot wire cutter, kerf depends mainly on wire power and feed rate (and can vary with material).'
+                '- An offset must be applied to the profile to compensate.'
+                'Note: the offset distance applied is half the kerf value (Kerf/2).'                
+                };
+
+            app.TxtProfileGuide = uitextarea(app.profilesLeft, 'Editable','off', 'Value', guideTextP, ...
+                'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtProfileGuide.Layout.Row = 6;
+
+            % 6. STATUS (Model-tab style)
+            lbl_P_Stat = uilabel(app.profilesLeft, 'Text','Status', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_P_Stat.Layout.Row = 7;
+
+            app.TxtProfileStatus = uitextarea(app.profilesLeft, 'Editable','off', 'Value', {''}, ...
+                'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
+            app.TxtProfileStatus.Layout.Row = 8;
+
+            % -- Continue (bottom, like Model tab buttons section)
+            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
+                'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
                 'ButtonPushedFcn',@(~,~)app.onContinueFromProfiles());
-            app.BtnProfilesContinue.Layout.Row = 6;
+            app.BtnProfilesContinue.Layout.Row = 9;
 
             % --- Right Panel: 2D Plots ---
             gridProfRight = uigridlayout(app.GLProfiles,[2 1]);
@@ -673,7 +730,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxRightProfile = uiaxes(gridProfRight);
             app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
             title(app.AxRightProfile,'Right Profile'); grid(app.AxRightProfile,'on'); axis(app.AxRightProfile,'equal');
-
 
             % ===========================================================
             % TAB 3: BILLET CONFIGURATION
@@ -1479,6 +1535,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
+
+            % Update Status
+            if ~isempty(yLoopL)
+                app.TxtProfileStatus.Value = {
+                    sprintf('Profiles extracted.'),
+                    sprintf('Left: %d pts', numel(yLoopL)),
+                    sprintf('Right: %d pts', numel(yLoopR)),
+                    'Ready to apply Kerf.'
+                    };
+                app.TxtProfileStatus.FontColor = [1 1 1]; % White
+            else
+                app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
+                app.TxtProfileStatus.FontColor = [1 0.4 0.4]; % Red
+            end
+
             drawnow limitrate nocallbacks;
         end
 
@@ -1554,7 +1625,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxRightProfile,'off');
 
             % ----- UPDATE LABEL (Dynamic) -----
-            if app.KerfEnabled && isgraphics(app.KerfPointCountLabel)
+            if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
                 app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nLk, nRk);
             end
 
@@ -1776,23 +1847,61 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onKerfChanged(app, src)
-            % Update stored kerf value and refresh profiles without
-            % resetting the Profiles tab zoom/pan.
+            % Kerf value changed.
+            % If kerf has already been applied once, your app auto-updates the kerf offset paths,
+            % so the status should reflect that (instead of implying a manual re-apply is needed).
+
             val = src.Value;
-            if ~isfinite(val) || val < 0
-                % Kerf must be >= 0; revert to previous
+
+            % Basic validation / clamp (keep it gentle; spinner limits should enforce anyway)
+            if ~isfinite(val)
                 src.Value = app.KerfValue;
                 return;
             end
 
             app.KerfValue = val;
 
-            % If we're already in STATE 1 (planes + profiles live),
-            % recompute profiles (and kerf) but keep current zoom.
-            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                app.ProfileAxesLocked = true;
-                app.updatePlanes();           % will call computeProfiles() -> updateProfiles2D()
-                app.ProfileAxesLocked = false;
+            % If the app is already in a state where profiles exist, refresh the profiles/kerf paths.
+            % (This mirrors your "kerf change auto-applies" behaviour.)
+            try
+                if isprop(app,'AppState') && app.AppState >= 1
+                    % If you have a standard refresh function, call it here instead.
+                    % Many builds recompute profiles through updatePlanes()/computeProfiles() chain.
+                    if ismethod(app,'updatePlanes')
+                        app.ProfileAxesLocked = true;
+                        app.updatePlanes();
+                        app.ProfileAxesLocked = false;
+                    elseif ismethod(app,'computeProfiles')
+                        app.ProfileAxesLocked = true;
+                        app.computeProfiles();
+                        app.ProfileAxesLocked = false;
+                    end
+                end
+            catch
+                % Don't hard-fail on UI refresh; status message still updates below.
+            end
+
+            % --- Status messaging ---
+            % We don't assume the exact status field name; try the common ones.
+            statusHandle = [];
+            if isprop(app,'TxtProfileStatus'), statusHandle = app.TxtProfileStatus; end
+            if isempty(statusHandle) && isprop(app,'ProfileStatusTextArea'), statusHandle = app.ProfileStatusTextArea; end
+
+            if ~isempty(statusHandle) && isvalid(statusHandle)
+                if isprop(app,'KerfEnabled') && app.KerfEnabled
+                    statusHandle.Value = {
+                        sprintf('Kerf updated: %.2f mm', app.KerfValue)
+                        sprintf('Offset distance: %.3f mm (Kerf/2)', app.KerfValue/2)
+                        'Kerf-compensated profiles updated automatically.'
+                        'Continue when ready.'
+                        };
+                else
+                    statusHandle.Value = {
+                        sprintf('Kerf set: %.2f mm', app.KerfValue)
+                        sprintf('Offset distance (when applied): %.3f mm (Kerf/2)', app.KerfValue/2)
+                        'Click "Apply Kerf Offset" to generate compensated profiles.'
+                        };
+                end
             end
         end
 
@@ -1851,6 +1960,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
             app.ProfileAxesLocked = false;
+
+            % Update Status
+            if app.KerfEnabled
+                app.TxtProfileStatus.Value = {
+                    sprintf('Kerf Applied (%.2f mm)', app.KerfValue),
+                    sprintf('Offset: %.3f mm', app.KerfValue/2),
+                    'Profiles Valid.',
+                    'Click Continue.'
+                    };
+                app.TxtProfileStatus.FontColor = [0.4 1 0.4]; % Green
+            end
         end
 
         % ===========================================================
