@@ -2237,10 +2237,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.refreshBilletPlots();
         end
 
-        function syncBilletUI(app)
-            if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch), return; end
+        function isValid = syncBilletUI(app)
+            % Returns: true (Valid), false (Model outside stock)
 
-            % 1. Local CAD Properties (relative to CAD coordinate system)
+            if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch)
+                isValid = false; return;
+            end
+
+            % 1. Local CAD Properties
             V  = app.ModelPatch.Vertices;
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
@@ -2249,8 +2253,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
             mDim = mMax - mMin;
 
-            % 2. Machining Properties (World positions in the stock 0..Size)
-            % This combines the virtual shift with the physical CAD location
+            % 2. Machining Properties
             workMin = app.BilletShift + mMin;
             workMax = workMin + mDim;
             bSize   = app.BilletSize;
@@ -2259,14 +2262,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             for i = 1:3
                 app.BilletSizeEdits(i).Value = bSize(i);
                 app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
-
-                % These now reflect EXACTLY what travels into the machining stock
                 app.BilletNegOffsetEdits(i).Value    = workMin(i);
                 app.BilletPosOffsetEdits(i).Value    = bSize(i) - workMax(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
             end
 
-            % 4. Red/Amber Safety Logic (Based on the now-fixed workMin/Max)
+            % 4. Validation Logic
             tol = 1e-4;
             isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
             isTooClose = (workMin(2) < 5) || (workMax(2) > bSize(2) - 5) || ...
@@ -2283,16 +2284,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletMessageLabel.Text = 'CRITICAL: Model is outside stock!';
                 app.BilletMessageLabel.FontColor = [1 0.4 0.4];
                 app.BtnBilletContinue.Enable = 'off';
+                isValid = false;
             elseif isTooClose
                 app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1];
                 app.BilletMessageLabel.Text = 'Warning: Model is very close (<5mm) to billet edges.';
                 app.BilletMessageLabel.FontColor = [1 0.8 0.4];
                 app.BtnBilletContinue.Enable = 'on';
+                isValid = true;
             else
                 app.BilletLeftPanel.BackgroundColor = panelBg;
                 app.BilletMessageLabel.Text = 'Billet configuration valid.';
                 app.BilletMessageLabel.FontColor = successGreen;
                 app.BtnBilletContinue.Enable = 'on';
+                isValid = true;
             end
         end
 
