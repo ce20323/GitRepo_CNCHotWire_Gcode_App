@@ -1754,12 +1754,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
+            isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
+
+            % --- LOCK KERF SWITCH ---
+            if ~isTaper
+                % Straight Mode: Must be Coupled
+                if isgraphics(app.KerfModeSwitch)
+                    app.KerfModeSwitch.Value = 'Coupled';
+                    app.onKerfModeChanged(app.KerfModeSwitch); % Trigger disable of Right Spinner
+                    app.KerfModeSwitch.Enable = 'off';
+                end
+            else
+                % Taper Mode: Allow Independent
+                if isgraphics(app.KerfModeSwitch)
+                    app.KerfModeSwitch.Enable = 'on';
+                end
+            end
+
             % Re-run planes + profiles under the new taper mode
             app.invalidateKerf();
-            app.updatePlanes();  % will call computeProfiles() in STATE 1
-
+            app.updatePlanes();
         end
-
         % ===========================================================
         % TAB CHANGE HANDLER
         % ===========================================================
@@ -1935,6 +1950,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Enable kerf drawing and (re)draw kerf paths based on the
             % currently extracted profiles, WITHOUT changing zoom/pan.
 
+            % 1. Initialization (Safe Defaults)
+            yL = []; zL = []; xLeft  = 0;
+            yR = []; zR = []; xRight = 0;
+            nL_k = 0; nR_k = 0;
+
+            % 2. Check Input Data
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
                 return;
             end
@@ -1946,10 +1967,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1];
             app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            % --- 1. EXTRACT DATA FIRST ---
-            yL = []; zL = []; xLeft  = 0;
-            yR = []; zR = []; xRight = 0;
-
+            % 3. Extract Geometry
             if ~isempty(app.LeftProfilePoints)
                 xLeft = app.LeftProfilePoints(1,1);
                 yL    = app.LeftProfilePoints(:,2);
@@ -1962,9 +1980,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % --- 2. CALCULATE COUNTS (Using L/R Values) ---
-            nL_k = 0; nR_k = 0;
-
+            % 4. Calculate Offsets & Counts
             % Get specific values
             kL = app.KerfLeftValue;
             kR = app.KerfRightValue;
@@ -1979,22 +1995,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
-            % --- 3. UPDATE LABEL ---
+            % 5. Update Label
             if isgraphics(app.KerfPointCountLabel)
                 app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nL_k, nR_k);
             end
 
-            % --- 4. REFRESH PLOT ---
-            % Note: We do NOT lock axes here. The caller (spinner callback) locks it.
-            % If clicked manually (button), we probably WANT to lock it too?
-            % Let's be safe: If caller didn't lock, we lock it here to be sure.
+            % 6. Refresh Plot
             wasLocked = app.ProfileAxesLocked;
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
-            app.ProfileAxesLocked = wasLocked; % Restore state
+            app.ProfileAxesLocked = wasLocked;
 
             % Update Status Text
-            if app.KerfEnabled
+            if app.KerfEnabled && isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
                 if strcmp(app.KerfModeSwitch.Value, 'Coupled')
                     msg = sprintf('Kerf Applied: %.2f mm', kL);
                 else
