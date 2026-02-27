@@ -1299,7 +1299,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxPost.BackgroundColor = [0.05 0.05 0.05];
             xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
             grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
-
+            
+            % Force initial UI state sync
+            app.onTaperModeChanged();
+            
             % --- Final Theme Application ---
             app.applyTheme();
 
@@ -1749,32 +1752,36 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onTaperModeChanged(app)
-
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
+            % 1. UI LOGIC (Always run this, regardless of model state)
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
 
-            % --- LOCK KERF SWITCH ---
             if ~isTaper
                 % Straight Mode: Must be Coupled
-                if isgraphics(app.KerfModeSwitch)
+                if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
+                    % Force value
                     app.KerfModeSwitch.Value = 'Coupled';
-                    app.onKerfModeChanged(app.KerfModeSwitch); % Trigger disable of Right Spinner
+                    % Trigger the coupled logic (disables Right spinner, syncs values)
+                    app.onKerfModeChanged(app.KerfModeSwitch);
+                    % Visually disable the switch so user can't change it
                     app.KerfModeSwitch.Enable = 'off';
                 end
             else
-                % Taper Mode: Allow Independent
-                if isgraphics(app.KerfModeSwitch)
+                % Taper Mode: Allow Independent choice
+                if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Enable = 'on';
                 end
+            end
+
+            % 2. CALCULATION LOGIC (Only if model exists)
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
             end
 
             % Re-run planes + profiles under the new taper mode
             app.invalidateKerf();
             app.updatePlanes();
         end
+
         % ===========================================================
         % TAB CHANGE HANDLER
         % ===========================================================
@@ -3318,9 +3325,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color',t.labelCol, 'LineWidth',1.5, 'HitTest','off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color',t.labelCol, 'LineWidth',1.5, 'HitTest','off');
 
-            % 4. Process Data
-            [yL, zL, hGhostL] = app.preparePlotData(app.AxCutLeft, app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
-            [yR, zR, hGhostR] = app.preparePlotData(app.AxCutRight, app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
+            % 4. Process Data (FIX: Uses Distinct L/R Kerf Values)
+            [yL, zL, hGhostL] = app.preparePlotData(app.AxCutLeft, app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfLeftValue);
+
+            [yR, zR, hGhostR] = app.preparePlotData(app.AxCutRight, app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfRightValue);
 
             % 5. Draw
             function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
@@ -3337,10 +3345,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
 
-                % --- FIX: Robust Start Triangle (Left) ---
                 if numel(yL) > 1
                     idxNext = 2;
-                    % Look ahead until we find a distinct point
                     while idxNext < numel(yL) && norm([yL(idxNext),zL(idxNext)] - [yL(1),zL(1)]) < 1e-4
                         idxNext = idxNext + 1;
                     end
@@ -3357,10 +3363,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
 
-                % --- FIX: Robust Start Triangle (Right) ---
                 if numel(yR) > 1
                     idxNext = 2;
-                    % Look ahead until we find a distinct point
                     while idxNext < numel(yR) && norm([yR(idxNext),zR(idxNext)] - [yR(1),zR(1)]) < 1e-4
                         idxNext = idxNext + 1;
                     end
@@ -3372,7 +3376,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 6. Legends
             labels = {'Start Point', 'Load Point', 'Cut Path', 'Rapid Links (Yellow)', 'Leads (Orange)', 'Entry Point', 'Machine Limits', 'Raw Profile'};
 
-            % Dummies
             if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', [1 0.5 0], [1 0.5 0], 1.0); end
             if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [1 0.5 0], [1 0.5 0], 1.0); end
 
@@ -3577,91 +3580,59 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onCutAxesClick(app, ax, ~, side)
-            % Handles clicks on the Cutting axes to set Start or Entry points
-
-            % 1. Get Click Coordinates
             cp = ax.CurrentPoint(1, 1:2);
             clickY = cp(1); clickZ = cp(2);
 
             % --- CASE 1: SET START POINT ---
             if app.BtnPickStart.Value
 
-                % A. Retrieve Data for the clicked side
                 yData = []; zData = [];
                 offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
                 offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
-                useKerf = app.KerfEnabled && app.KerfValue > 0;
 
-                % Select Profile
                 pts = [];
-                if strcmp(side, 'Left') && ~isempty(app.LeftProfilePoints)
-                    pts = app.LeftProfilePoints;
-                elseif strcmp(side, 'Right') && ~isempty(app.RightProfilePoints)
-                    pts = app.RightProfilePoints;
-                end
+                if strcmp(side, 'Left'), pts = app.LeftProfilePoints;
+                elseif strcmp(side, 'Right'), pts = app.RightProfilePoints; end
 
-                % Process Points
                 if ~isempty(pts)
                     rawY = pts(:,2); rawZ = pts(:,3);
-                    if useKerf
-                        % FIX: Pass Tolerance
-                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, app.KerfValue, app.ProfileTolerance);
+                    if app.KerfEnabled
+                        % FIX: Pick specific value
+                        kVal = app.KerfLeftValue;
+                        if strcmp(side, 'Right'), kVal = app.KerfRightValue; end
+
+                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
                     end
                     yData = rawY + offsetY;
                     zData = rawZ + offsetZ;
                 end
 
-                % B. Validate (Exit if clicked on empty plot)
-                if isempty(yData)
-                    return;
-                end
+                if isempty(yData), return; end
 
-                % C. Find Nearest Point (Define minIdx)
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
                 [~, minIdx] = min(distances);
 
-                % D. Apply Index (Start Point Sync Logic)
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                    app.SelectedStartIdxL = minIdx;
-                    app.SelectedStartIdxR = minIdx;
+                    app.SelectedStartIdxL = minIdx; app.SelectedStartIdxR = minIdx;
                 else
-                    if strcmp(side, 'Left')
-                        app.SelectedStartIdxL = minIdx;
-                    else
-                        app.SelectedStartIdxR = minIdx;
-                    end
+                    if strcmp(side, 'Left'), app.SelectedStartIdxL = minIdx; else, app.SelectedStartIdxR = minIdx; end
                 end
 
-                % --- CASE 2: SET ENTRY 1 ---
+                % ... [Keep Entry 1/2 Logic same as before] ...
             elseif app.BtnPickEntry.Value
-
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPointL = cp;
-                    app.EntryPointR = cp;
+                    app.EntryPointL = cp; app.EntryPointR = cp;
                 else
-                    if strcmp(side, 'Left')
-                        app.EntryPointL = cp;
-                    else
-                        app.EntryPointR = cp;
-                    end
+                    if strcmp(side, 'Left'), app.EntryPointL = cp; else, app.EntryPointR = cp; end
                 end
-
-                % --- CASE 3: SET ENTRY 2 ---
             elseif app.BtnPickEntry2.Value
-
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPoint2L = cp;
-                    app.EntryPoint2R = cp;
+                    app.EntryPoint2L = cp; app.EntryPoint2R = cp;
                 else
-                    if strcmp(side, 'Left')
-                        app.EntryPoint2L = cp;
-                    else
-                        app.EntryPoint2R = cp;
-                    end
+                    if strcmp(side, 'Left'), app.EntryPoint2L = cp; else, app.EntryPoint2R = cp; end
                 end
             end
 
-            % Final Step: Refresh Plot
             app.updateCuttingPlots();
         end
 
@@ -3689,21 +3660,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if isempty(pts), idx = 1; return; end
                 y = pts(:,2); z = pts(:,3);
                 if doKerf
-                    % FIX: Pass Tolerance to match visual/G-code geometry
                     [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kerfVal, tol);
                 end
                 [~, idx] = min(y);
             end
 
-            doKerf = app.KerfEnabled && app.KerfValue > 0;
+            doKerf = app.KerfEnabled && app.KerfValue > 0; % Legacy check, but using L/R vals below
             tol    = app.ProfileTolerance;
 
-            % Left
-            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfValue, doKerf, tol);
+            % FIX: Use L/R Values
+            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfLeftValue, doKerf, tol);
             app.SelectedStartIdxL = idxL;
 
-            % Right
-            idxR = findMinYIndex(app.RightProfilePoints, app.KerfValue, doKerf, tol);
+            idxR = findMinYIndex(app.RightProfilePoints, app.KerfRightValue, doKerf, tol);
             app.SelectedStartIdxR = idxR;
 
             disp(['Auto Start: Reset indices to nearest Machine Front (L=' num2str(idxL) ', R=' num2str(idxR) ')']);
@@ -3718,8 +3687,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 e1 = []; e2 = [];
                 if isempty(pts), return; end
 
-                % 1. Get Geometry [y z]
-                y = pts(:,2); z = pts(:,3); % Note: pts passed as [x y z] or [0 y z]
+                y = pts(:,2); z = pts(:,3);
 
                 if doKerf
                     % FIX: Pass Tolerance
@@ -3727,7 +3695,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 N = numel(y);
-                % Validate Index
                 if startIdx > N, startIdx = 1; end
                 if startIdx < 1, startIdx = 1; end
 
@@ -3736,9 +3703,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 idxN = mod(startIdx, N) + 1;
                 idxP = mod(startIdx - 2, N) + 1;
 
-                S = [y(idxS), z(idxS)];
-                P = [y(idxP), z(idxP)];
-                N_pt = [y(idxN), z(idxN)];
+                S = [y(idxS), z(idxS)]; P = [y(idxP), z(idxP)]; N_pt = [y(idxN), z(idxN)];
 
                 % 3. Calculate Bisector
                 vSP = P - S; vSP = vSP / (norm(vSP)+eps);
@@ -3758,70 +3723,46 @@ classdef HotWireSTEPApp_v6_2 < handle
                 distT = 15;
                 targetPt = S + vBisect * distT;
 
-                % 6. Z-Safety
                 if targetPt(2) < 5.0, targetPt(2) = 5.0; end
 
-                % 7. Assign based on Mode
                 if useDual
-                    % TWO POINTS: E2 is target, E1 is retraction alignment
                     e2 = targetPt;
                     retractY = billetMinY - 10;
                     e1 = [retractY, e2(2)];
                 else
-                    % ONE POINT: E1 is target, E2 is empty
                     e1 = targetPt;
                     e2 = [];
                 end
             end
-            % ---------------------
 
-            doKerf = app.KerfEnabled && app.KerfValue > 0;
+            doKerf = app.KerfEnabled; % General flag
             tol    = app.ProfileTolerance;
-
             bMinY  = app.MachineBilletPos(2);
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
-
-            % Check if we are in "2 Point Mode" (User has set E2 previously)
             useDualMode = ~isempty(app.EntryPoint2L);
 
-            % --- LEFT ---
+            % --- LEFT (KerfLeftValue) ---
             if ~isempty(app.LeftProfilePoints)
-                % Pass 3D points, Offset is applied to result
-                % Note: Logic above expects raw local coords, adds offset later?
-                % Actually, calcEntryLogic needs WORLD coords to check vs BilletMinY.
-                % But LeftProfilePoints are local.
-                % Let's adjust inputs to calcEntryLogic: Pass Local, Add Offset INSIDE logic?
-                % No, previous logic added offset to points BEFORE passing.
+                ptsL = app.LeftProfilePoints;
+                yL_shift = ptsL(:,2) + offsetY; zL_shift = ptsL(:,3) + offsetZ;
+                ptsL_shifted = [ptsL(:,1)*0, yL_shift, zL_shift];
 
-                % Correct approach: Pass Local Points, apply Kerf locally, then add Offset Y/Z
-                ptsL = app.LeftProfilePoints; % [x y z]
-                % We need to modify calcEntryLogic slightly to handle the Offset transform
-                % explicitly if we want to be clean, OR just pass shifted points.
-
-                % Quick Fix: Shift points locally for the calculation context
-                yL_shift = ptsL(:,2) + offsetY;
-                zL_shift = ptsL(:,3) + offsetZ;
-                ptsL_shifted = [ptsL(:,1)*0, yL_shift, zL_shift]; % Dummy X
-
-                [e1L, e2L] = calcEntryLogic(ptsL_shifted, app.SelectedStartIdxL, bMinY, doKerf, app.KerfValue, tol, useDualMode);
-                app.EntryPointL  = e1L;
-                app.EntryPoint2L = e2L;
+                [e1L, e2L] = calcEntryLogic(ptsL_shifted, app.SelectedStartIdxL, bMinY, doKerf, app.KerfLeftValue, tol, useDualMode);
+                app.EntryPointL  = e1L; app.EntryPoint2L = e2L;
             end
 
-            % --- RIGHT ---
+            % --- RIGHT (KerfRightValue) ---
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                 app.EntryPointR  = app.EntryPointL;
                 app.EntryPoint2R = app.EntryPoint2L;
             elseif ~isempty(app.RightProfilePoints)
                 ptsR = app.RightProfilePoints;
-                yR_shift = ptsR(:,2) + offsetY;
-                zR_shift = ptsR(:,3) + offsetZ;
+                yR_shift = ptsR(:,2) + offsetY; zR_shift = ptsR(:,3) + offsetZ;
                 ptsR_shifted = [ptsR(:,1)*0, yR_shift, zR_shift];
 
-                [e1R, e2R] = calcEntryLogic(ptsR_shifted, app.SelectedStartIdxR, bMinY, doKerf, app.KerfValue, tol, useDualMode);
-                app.EntryPointR  = e1R;
-                app.EntryPoint2R = e2R;
+                [e1R, e2R] = calcEntryLogic(ptsR_shifted, app.SelectedStartIdxR, bMinY, doKerf, app.KerfRightValue, tol, useDualMode);
+                app.EntryPointR  = e1R; app.EntryPoint2R = e2R;
             end
 
             app.updateCuttingPlots();
@@ -3959,23 +3900,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfValue);
-            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfValue);
+            % FIX: Use KerfLeftValue and KerfRightValue explicitly
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfLeftValue);
+            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfRightValue);
 
             % --- CRITICAL FIX: Guard against empty/degenerate profiles ---
             if isempty(yL) || isempty(yR)
                 uialert(app.UIFigure, 'Could not generate toolpath. Profiles may be empty or invalid.', 'Simulation Error');
                 return;
             end
-            % -------------------------------------------------------------
 
             % Sync Geometry (TRUTH for G-Code)
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
-
-            % ... [Rest of the function remains identical to previous version] ...
-            % ... [Paste the Densify Helper, mkRapid, etc. here] ...
 
             % --- Helper: Densify for Visual Smoothness (Visual Only) ---
             function [yD, zD] = densify(y, z, step)
@@ -3992,9 +3930,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 yD = interp1(du, y(iu), d_fine, 'linear');
                 zD = interp1(du, z(iu), d_fine, 'linear');
             end
-
-            % ... [Copy the rest of the function I gave you previously] ...
-            % (Segments, Densify Calls, Combine, Map, Physics, Projection, UI Init)
 
             % Helper for Segments
             function pts = mkRapid(e1, e2)
@@ -4071,7 +4006,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 s_combined = unique([s_orig; s_smooth]);
 
                 % 7. Interpolate geometry onto this new time grid
-                [su, iu] = unique(s_orig, 'stable'); % Ensure unique points for interp1
+                [su, iu] = unique(s_orig, 'stable');
                 yLD = interp1(su, yL(iu), s_combined, 'linear');
                 zLD = interp1(su, zL(iu), s_combined, 'linear');
                 yRD = interp1(su, yR(iu), s_combined, 'linear');
