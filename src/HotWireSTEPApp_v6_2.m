@@ -213,6 +213,13 @@ classdef HotWireSTEPApp_v6_2 < handle
         BtnResetKerf                          % Button to reset kerf
         KerfEnabled (1,1) logical = false     % Only draw kerf when true
         LeftKerf2DLine; RightKerf2DLine       % 2D kerf path lines
+        % --- Kerf separate L/R ---
+        KerfLeftValue  (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
+        KerfRightValue (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
+        KerfLinkLR     (1,1) logical = true
+        KerfLeftSpinner
+        KerfRightSpinner
+        KerfLinkCheckbox
 
         % ---------- Billet Configuration ----------
         BtnAutoFitBillet                    % Button to auto-fit the billet
@@ -650,37 +657,57 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlKerf.Layout.Row = 4;
 
-            gridKerf = uigridlayout(pnlKerf,[3 2]);
+            gridKerf = uigridlayout(pnlKerf,[5 2]);
             gridKerf.ColumnWidth = {'1x',90};
-            gridKerf.RowHeight = {'fit','fit','fit'};
+            gridKerf.RowHeight = {'fit','fit','fit','fit','fit'};
             gridKerf.Padding = [10 5 10 5];
 
-            lblKerf = uilabel(gridKerf, 'Text','Kerf [mm]:', ...
+            % Kerf Left
+            lblKerfL = uilabel(gridKerf, 'Text','Kerf Left [mm]:', ...
                 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
-            lblKerf.Layout.Row = 1; lblKerf.Layout.Column = 1;
+            lblKerfL.Layout.Row = 1; lblKerfL.Layout.Column = 1;
 
-            app.KerfSpinner = uispinner(gridKerf, ...
+            app.KerfLeftSpinner = uispinner(gridKerf, ...
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultKerf, ...
+                'Value',app.KerfLeftValue, ...
                 'Step',0.1, ...
                 'ValueDisplayFormat','%.2f', ...
-                'ValueChangedFcn',@(src,~)app.onKerfChanged(src));
-            app.KerfSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
-            app.KerfSpinner.Layout.Row = 1;
-            app.KerfSpinner.Layout.Column = 2;
-            app.KerfValue = HotWireSTEPApp_v6_2.DefaultKerf;
+                'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
+            app.KerfLeftSpinner.Layout.Row = 1; app.KerfLeftSpinner.Layout.Column = 2;
+            app.KerfLeftSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
 
-            app.KerfPointCountLabel = uilabel(gridKerf, ...
-                'Text','Number of Points (L/R): -- / --', ...
+            % Kerf Right
+            lblKerfR = uilabel(gridKerf, 'Text','Kerf Right [mm]:', ...
+                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+            lblKerfR.Layout.Row = 2; lblKerfR.Layout.Column = 1;
+
+            app.KerfRightSpinner = uispinner(gridKerf, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',app.KerfRightValue, ...
+                'Step',0.1, ...
+                'ValueDisplayFormat','%.2f', ...
+                'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
+            app.KerfRightSpinner.Layout.Row = 2; app.KerfRightSpinner.Layout.Column = 2;
+            app.KerfRightSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
+
+            % Link checkbox (spans both columns)
+            app.KerfLinkCheckbox = uicheckbox(gridKerf, ...
+                'Text','Link Left/Right', 'Value', true, ...
+                'ValueChangedFcn',@(src,~)app.onKerfLinkChanged(src));
+            app.KerfLinkCheckbox.Layout.Row = 3; app.KerfLinkCheckbox.Layout.Column = [1 2];
+
+            % Point count label (same as before)
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): -- / --', ...
                 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
-            app.KerfPointCountLabel.Layout.Row = 2;
+            app.KerfPointCountLabel.Layout.Row = 4;
             app.KerfPointCountLabel.Layout.Column = [1 2];
 
+            % Apply button
             app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
-            app.BtnApplyKerf.Tooltip = 'After first press the offset spinner will auto-update the offset profile';
-            app.BtnApplyKerf.Layout.Row = 3;
+            app.BtnApplyKerf.Layout.Row = 5;
             app.BtnApplyKerf.Layout.Column = [1 2];
+            app.BtnApplyKerf.Tooltip = 'After first press the offset spinner will auto-update the offset profile';
 
             % 5. GUIDANCE (Model-tab style)
             lbl_P_Guide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
@@ -1594,11 +1621,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Left Kerf Calc & Plot
-            if app.KerfEnabled && ~isempty(yL) && app.KerfValue ~= 0
-                % Pass Tolerance
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
-                if ~isempty(yKerfL), nLk = numel(yKerfL); end
+            kerfL = app.KerfValue;
+            if isprop(app,'KerfLeftValue'), kerfL = app.KerfLeftValue; end
 
+            if app.KerfEnabled && ~isempty(yL) && kerfL ~= 0
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kerfL, app.ProfileTolerance);
+                if ~isempty(yKerfL), nLk = numel(yKerfL); end
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxLeftProfile,'off');
@@ -1615,11 +1643,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Right Kerf Calc & Plot
-            if app.KerfEnabled && ~isempty(yR) && app.KerfValue ~= 0
-                % Pass Tolerance
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
-                if ~isempty(yKerfR), nRk = numel(yKerfR); end
+            kerfR = app.KerfValue;
+            if isprop(app,'KerfRightValue'), kerfR = app.KerfRightValue; end
 
+            if app.KerfEnabled && ~isempty(yR) && kerfR ~= 0
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kerfR, app.ProfileTolerance);
+                if ~isempty(yKerfR), nRk = numel(yKerfR); end
                 app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxRightProfile,'off');
@@ -1939,20 +1968,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 2. CALCULATE COUNTS (Updated with Tolerance) ---
             nL_k = 0; nR_k = 0;
 
-            if ~isempty(yL) && app.KerfValue ~= 0
-                % Pass app.ProfileTolerance to optimize point count
-                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfValue, app.ProfileTolerance);
+            kerfL = app.KerfValue;
+            kerfR = app.KerfValue;
+            if isprop(app,'KerfLeftValue'),  kerfL = app.KerfLeftValue;  end
+            if isprop(app,'KerfRightValue'), kerfR = app.KerfRightValue; end
+
+            if ~isempty(yL) && kerfL ~= 0
+                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kerfL, app.ProfileTolerance);
                 if ~isempty(yk), nL_k = numel(yk); end
             end
 
-            if ~isempty(yR) && app.KerfValue ~= 0
-                % Pass app.ProfileTolerance to optimize point count
-                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfValue, app.ProfileTolerance);
+            if ~isempty(yR) && kerfR ~= 0
+                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kerfR, app.ProfileTolerance);
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
             % --- 3. UPDATE LABEL (New Format) ---
-            if isgraphics(app.KerfPointCountLabel)
+            if ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
                 app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
             end
 
@@ -1964,15 +1996,55 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Update Status
             if app.KerfEnabled
                 app.TxtProfileStatus.Value = {
-                    sprintf('Kerf Applied (%.2f mm)', app.KerfValue),
-                    sprintf('Offset: %.3f mm', app.KerfValue/2),
-                    'Profiles Valid.',
+                    sprintf('Kerf Applied (L/R): %.2f / %.2f mm', kerfL, kerfR)
+                    sprintf('Offsets (L/R): %.3f / %.3f mm', kerfL/2, kerfR/2)
+                    'Profiles Valid.'
                     'Click Continue.'
                     };
                 app.TxtProfileStatus.FontColor = [0.4 1 0.4]; % Green
             end
         end
+        
+        function onKerfLinkChanged(app, src)
+            app.KerfLinkLR = logical(src.Value);
+            if app.KerfLinkLR
+                % snap right to left
+                app.KerfRightValue = app.KerfLeftValue;
+                if ~isempty(app.KerfRightSpinner) && isvalid(app.KerfRightSpinner)
+                    app.KerfRightSpinner.Value = app.KerfRightValue;
+                end
+            end
+        end
 
+        function onKerfLeftChanged(app, src)
+            app.KerfLeftValue = src.Value;
+            if app.KerfLinkLR
+                app.KerfRightValue = app.KerfLeftValue;
+                if ~isempty(app.KerfRightSpinner) && isvalid(app.KerfRightSpinner)
+                    app.KerfRightSpinner.Value = app.KerfRightValue;
+                end
+            end
+            app.KerfValue = app.KerfLeftValue; % keep legacy field in sync
+            app.onKerfChanged(src);            % reuse your existing status + auto-refresh
+        end
+
+        function onKerfRightChanged(app, src)
+            app.KerfRightValue = src.Value;
+            if app.KerfLinkLR
+                app.KerfLeftValue = app.KerfRightValue;
+                if ~isempty(app.KerfLeftSpinner) && isvalid(app.KerfLeftSpinner)
+                    app.KerfLeftSpinner.Value = app.KerfLeftValue;
+                end
+                app.KerfValue = app.KerfLeftValue;
+                app.onKerfChanged(app.KerfLeftSpinner);
+            else
+                % still refresh plots/status if kerf already applied
+                if app.KerfEnabled
+                    try app.updatePlanes(); catch, end
+                end
+            end
+        end
+        
         % ===========================================================
         % IMPORT STEP / STL
         % ===========================================================
