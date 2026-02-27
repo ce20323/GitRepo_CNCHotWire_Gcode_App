@@ -334,12 +334,12 @@ classdef HotWireSTEPApp_v6_helpers
         function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
             % ===========================================================
             % OFFSET PROFILE LOOP: Kerf compensation via polybuffer
-            % Now includes RDP reduction to control point density on arcs.
+            % Now includes RDP reduction and Geometric Alignment.
             % ===========================================================
 
             % Default fallback
             yo = yIn; zo = zIn;
-            if nargin < 4, tol = 0; end % 0 means no reduction
+            if nargin < 4, tol = 0; end
 
             % 1. Validation
             if ~isfinite(kerf) || kerf == 0, return; end
@@ -348,7 +348,7 @@ classdef HotWireSTEPApp_v6_helpers
             y = y(valid); z = z(valid);
             if numel(y) < 3, return; end
 
-            % 2. Pre-clean (Remove Mesh artifacts)
+            % 2. Pre-clean
             inputPoints = round([y, z], 8);
             [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
             y = y(uniqueIdx);
@@ -377,8 +377,7 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            % 4. RDP REDUCTION (Optimization)
-            % If tolerance is provided, reduce the dense arcs from polybuffer
+            % 4. RDP REDUCTION
             if tol > 0 && numel(yo) > 5
                 pts = [yo, zo];
                 N = size(pts, 1);
@@ -423,6 +422,10 @@ classdef HotWireSTEPApp_v6_helpers
                 yo = pts(keepMask, 1);
                 zo = pts(keepMask, 2);
             end
+
+            % 5. FIX: ALIGN START POINT (Min Y)
+            % This ensures L and R profiles are rotationally synced.
+            [yo, zo] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
 
             % Transpose if needed
             if isrow(yIn), yo = yo.'; zo = zo.'; end

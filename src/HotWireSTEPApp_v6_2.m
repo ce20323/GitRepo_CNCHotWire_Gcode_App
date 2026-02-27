@@ -1954,15 +1954,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onApplyKerf(app)
-            % Enable kerf drawing and (re)draw kerf paths based on the
-            % currently extracted profiles, WITHOUT changing zoom/pan.
+            % Enable kerf drawing and (re)draw kerf paths
 
-            % 1. Initialization (Safe Defaults)
-            yL = []; zL = []; xLeft  = 0;
-            yR = []; zR = []; xRight = 0;
-            nL_k = 0; nR_k = 0;
-
-            % 2. Check Input Data
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
                 return;
             end
@@ -1974,7 +1967,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1];
             app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            % 3. Extract Geometry
+            % 1. Extract Data
+            yL = []; zL = []; xLeft  = 0;
+            yR = []; zR = []; xRight = 0;
+
             if ~isempty(app.LeftProfilePoints)
                 xLeft = app.LeftProfilePoints(1,1);
                 yL    = app.LeftProfilePoints(:,2);
@@ -1987,8 +1983,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % 4. Calculate Offsets & Counts
-            % Get specific values
+            % 2. Calculate Counts
+            % Default to Raw counts (if kerf is 0, we show this)
+            nL_k = numel(yL);
+            nR_k = numel(yR);
+
             kL = app.KerfLeftValue;
             kR = app.KerfRightValue;
 
@@ -2002,12 +2001,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
-            % 5. Update Label
-            if isgraphics(app.KerfPointCountLabel)
-                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nL_k, nR_k);
+            % 3. Update Label (FIX)
+            if isprop(app, 'KerfPointCountLabel') && isgraphics(app.KerfPointCountLabel)
+                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
             end
 
-            % 6. Refresh Plot
+            % 4. Refresh Plot
             wasLocked = app.ProfileAxesLocked;
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
