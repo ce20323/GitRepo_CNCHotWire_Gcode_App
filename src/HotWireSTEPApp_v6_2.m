@@ -118,7 +118,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimLeftPanel                    % Simulation tab left panel
         GLPostProcess                   % Post Process tab layout
         PostLeftPanel                   % Post Process tab left panel
-        
+
         % Tab Feedback
         TxtModelStatus    % Text area for validation messages
         TxtModelGuide     % Text area for instructions
@@ -216,10 +216,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         % --- Kerf separate L/R ---
         KerfLeftValue  (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
         KerfRightValue (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
-        KerfLinkLR     (1,1) logical = true
+        KerfModeSwitch                  % UI Switch (Coupled/Independent)
         KerfLeftSpinner
         KerfRightSpinner
-        KerfLinkCheckbox
 
         % ---------- Billet Configuration ----------
         BtnAutoFitBillet                    % Button to auto-fit the billet
@@ -558,7 +557,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '';
                 '2. Select straight for prismatic, or tapered for independant profiles.';
                 '';
-                '3. Rotate Model: Align cut profile to Y-Z plane.';                                                      
+                '3. Rotate Model: Align cut profile to Y-Z plane.';
                 '';
                 '4. (Optional) Move the left/right planes if you want to cut a section of your model';
                 '';
@@ -566,7 +565,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '';
                 'TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
                 'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
-                'Rotate the model so this point is toward the front of the machine (Ymin)';  
+                'Rotate the model so this point is toward the front of the machine (Ymin)';
                 };
             app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
                 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -632,7 +631,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfileTolSpinner = uispinner(gridTol, ...
                 'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
                 'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
-                'Step',0.01, ... % <-- upgrade requested
+                'Step',0.01, ...
                 'ValueDisplayFormat','%.2f', ...
                 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
@@ -657,57 +656,61 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlKerf.Layout.Row = 4;
 
+            % 5 Rows: Switch, Left, Right, Points, Apply
             gridKerf = uigridlayout(pnlKerf,[5 2]);
-            gridKerf.ColumnWidth = {'1x',90};
+            % FIX: Use Fixed Width for Labels, '1x' (Spring) for Controls
+            % This ensures the Switch has enough room to display "Independent"
+            gridKerf.ColumnWidth = {95, '1x'};
             gridKerf.RowHeight = {'fit','fit','fit','fit','fit'};
-            gridKerf.Padding = [10 5 10 5];
+            gridKerf.Padding = [5 5 5 5];
 
-            % Kerf Left
-            lblKerfL = uilabel(gridKerf, 'Text','Kerf Left [mm]:', ...
-                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
-            lblKerfL.Layout.Row = 1; lblKerfL.Layout.Column = 1;
+            % 1. Mode Switch (Coupled / Independent)
+            lblKMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKMode.Layout.Row = 1; lblKMode.Layout.Column = 1;
+
+            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', ...
+                'Items', {'Coupled', 'Independent'}, ...
+                'Value', 'Coupled', ...
+                'FontColor', labelCol, ... % Ensure visibility immediately
+                'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
+            app.KerfModeSwitch.Layout.Row = 1;
+            app.KerfModeSwitch.Layout.Column = 2;
+            app.KerfModeSwitch.Tooltip = 'Uncoupling is only for tapered parts to compensate for the difference in wire speed between left and right profiles.';
+
+            % 2. Kerf Left
+            lblKerfL = uilabel(gridKerf, 'Text','Kerf Left [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfL.Layout.Row = 2; lblKerfL.Layout.Column = 1;
 
             app.KerfLeftSpinner = uispinner(gridKerf, ...
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',app.KerfLeftValue, ...
-                'Step',0.1, ...
-                'ValueDisplayFormat','%.2f', ...
+                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
                 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
-            app.KerfLeftSpinner.Layout.Row = 1; app.KerfLeftSpinner.Layout.Column = 2;
-            app.KerfLeftSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
+            app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
 
-            % Kerf Right
-            lblKerfR = uilabel(gridKerf, 'Text','Kerf Right [mm]:', ...
-                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
-            lblKerfR.Layout.Row = 2; lblKerfR.Layout.Column = 1;
+            % 3. Kerf Right
+            lblKerfR = uilabel(gridKerf, 'Text','Kerf Right [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfR.Layout.Row = 3; lblKerfR.Layout.Column = 1;
 
             app.KerfRightSpinner = uispinner(gridKerf, ...
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',app.KerfRightValue, ...
-                'Step',0.1, ...
-                'ValueDisplayFormat','%.2f', ...
+                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
+                'Enable', 'off', ... % Disabled by default (Coupled)
                 'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
-            app.KerfRightSpinner.Layout.Row = 2; app.KerfRightSpinner.Layout.Column = 2;
-            app.KerfRightSpinner.Tooltip = 'Compensation for width of cut. Offset distance = Kerf/2';
+            app.KerfRightSpinner.Layout.Row = 3; app.KerfRightSpinner.Layout.Column = 2;
 
-            % Link checkbox (spans both columns)
-            app.KerfLinkCheckbox = uicheckbox(gridKerf, ...
-                'Text','Link Left/Right', 'Value', true, ...
-                'ValueChangedFcn',@(src,~)app.onKerfLinkChanged(src));
-            app.KerfLinkCheckbox.Layout.Row = 3; app.KerfLinkCheckbox.Layout.Column = [1 2];
-
-            % Point count label (same as before)
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): -- / --', ...
-                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            % 4. Point Count Label
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): 0 / 0', ...
+                'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize',10);
             app.KerfPointCountLabel.Layout.Row = 4;
             app.KerfPointCountLabel.Layout.Column = [1 2];
 
-            % Apply button
+            % 5. Apply Button
             app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
             app.BtnApplyKerf.Layout.Row = 5;
             app.BtnApplyKerf.Layout.Column = [1 2];
-            app.BtnApplyKerf.Tooltip = 'After first press the offset spinner will auto-update the offset profile';
 
             % 5. GUIDANCE (Model-tab style)
             lbl_P_Guide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
@@ -724,7 +727,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'TIP: Kerf is the width of cut made by a tool or machine.'
                 '- For a hot wire cutter, kerf depends mainly on wire power and feed rate (and can vary with material).'
                 '- An offset must be applied to the profile to compensate.'
-                'Note: the offset distance applied is half the kerf value (Kerf/2).'                
+                'Note: the offset distance applied is half the kerf value (Kerf/2).'
                 };
 
             app.TxtProfileGuide = uitextarea(app.profilesLeft, 'Editable','off', 'Value', guideTextP, ...
@@ -1621,12 +1624,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Left Kerf Calc & Plot
-            kerfL = app.KerfValue;
-            if isprop(app,'KerfLeftValue'), kerfL = app.KerfLeftValue; end
-
-            if app.KerfEnabled && ~isempty(yL) && kerfL ~= 0
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kerfL, app.ProfileTolerance);
-                if ~isempty(yKerfL), nLk = numel(yKerfL); end
+            kL = app.KerfLeftValue;
+            if app.KerfEnabled && ~isempty(yL) && kL ~= 0
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxLeftProfile,'off');
@@ -1643,12 +1643,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Right Kerf Calc & Plot
-            kerfR = app.KerfValue;
-            if isprop(app,'KerfRightValue'), kerfR = app.KerfRightValue; end
-
-            if app.KerfEnabled && ~isempty(yR) && kerfR ~= 0
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kerfR, app.ProfileTolerance);
-                if ~isempty(yKerfR), nRk = numel(yKerfR); end
+            kR = app.KerfRightValue;
+            if app.KerfEnabled && ~isempty(yR) && kR ~= 0
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
                 app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxRightProfile,'off');
@@ -1965,86 +1962,105 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % --- 2. CALCULATE COUNTS (Updated with Tolerance) ---
+            % --- 2. CALCULATE COUNTS (Using L/R Values) ---
             nL_k = 0; nR_k = 0;
 
-            kerfL = app.KerfValue;
-            kerfR = app.KerfValue;
-            if isprop(app,'KerfLeftValue'),  kerfL = app.KerfLeftValue;  end
-            if isprop(app,'KerfRightValue'), kerfR = app.KerfRightValue; end
+            % Get specific values
+            kL = app.KerfLeftValue;
+            kR = app.KerfRightValue;
 
-            if ~isempty(yL) && kerfL ~= 0
-                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kerfL, app.ProfileTolerance);
+            if ~isempty(yL) && kL ~= 0
+                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
                 if ~isempty(yk), nL_k = numel(yk); end
             end
 
-            if ~isempty(yR) && kerfR ~= 0
-                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kerfR, app.ProfileTolerance);
+            if ~isempty(yR) && kR ~= 0
+                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
                 if ~isempty(ykR), nR_k = numel(ykR); end
             end
 
-            % --- 3. UPDATE LABEL (New Format) ---
-            if ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
-                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
+            % --- 3. UPDATE LABEL ---
+            if isgraphics(app.KerfPointCountLabel)
+                app.KerfPointCountLabel.Text = sprintf('Points: %d / %d', nL_k, nR_k);
             end
 
             % --- 4. REFRESH PLOT ---
+            % Note: We do NOT lock axes here. The caller (spinner callback) locks it.
+            % If clicked manually (button), we probably WANT to lock it too?
+            % Let's be safe: If caller didn't lock, we lock it here to be sure.
+            wasLocked = app.ProfileAxesLocked;
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
-            app.ProfileAxesLocked = false;
+            app.ProfileAxesLocked = wasLocked; % Restore state
 
-            % Update Status
+            % Update Status Text
             if app.KerfEnabled
-                app.TxtProfileStatus.Value = {
-                    sprintf('Kerf Applied (L/R): %.2f / %.2f mm', kerfL, kerfR)
-                    sprintf('Offsets (L/R): %.3f / %.3f mm', kerfL/2, kerfR/2)
-                    'Profiles Valid.'
-                    'Click Continue.'
-                    };
-                app.TxtProfileStatus.FontColor = [0.4 1 0.4]; % Green
+                if strcmp(app.KerfModeSwitch.Value, 'Coupled')
+                    msg = sprintf('Kerf Applied: %.2f mm', kL);
+                else
+                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', kL, kR);
+                end
+                app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
+                app.TxtProfileStatus.FontColor = [0.4 1 0.4];
             end
         end
-        
-        function onKerfLinkChanged(app, src)
-            app.KerfLinkLR = logical(src.Value);
-            if app.KerfLinkLR
-                % snap right to left
+
+        function onKerfModeChanged(app, src)
+            mode = src.Value;
+            isCoupled = strcmp(mode, 'Coupled');
+
+            if isCoupled
+                % Disable Right, Sync Right -> Left
+                app.KerfRightSpinner.Enable = 'off';
                 app.KerfRightValue = app.KerfLeftValue;
-                if ~isempty(app.KerfRightSpinner) && isvalid(app.KerfRightSpinner)
-                    app.KerfRightSpinner.Value = app.KerfRightValue;
-                end
+                app.KerfRightSpinner.Value = app.KerfLeftValue;
+
+                % Refresh plot without resetting view
+                app.ProfileAxesLocked = true;
+                app.onApplyKerf();
+                app.ProfileAxesLocked = false;
+            else
+                % Enable Right
+                app.KerfRightSpinner.Enable = 'on';
             end
         end
 
         function onKerfLeftChanged(app, src)
             app.KerfLeftValue = src.Value;
-            if app.KerfLinkLR
+
+            % If Coupled, update Right to match
+            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
                 app.KerfRightValue = app.KerfLeftValue;
-                if ~isempty(app.KerfRightSpinner) && isvalid(app.KerfRightSpinner)
+                if isvalid(app.KerfRightSpinner)
                     app.KerfRightSpinner.Value = app.KerfRightValue;
                 end
             end
-            app.KerfValue = app.KerfLeftValue; % keep legacy field in sync
-            app.onKerfChanged(src);            % reuse your existing status + auto-refresh
+
+            % Sync legacy property for backward compatibility if needed
+            app.KerfValue = app.KerfLeftValue;
+
+            % Update Plot WITHOUT resetting zoom
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
         end
 
         function onKerfRightChanged(app, src)
             app.KerfRightValue = src.Value;
-            if app.KerfLinkLR
+
+            % Logic check: If coupled, we shouldn't be here (it's disabled),
+            % but just in case:
+            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
                 app.KerfLeftValue = app.KerfRightValue;
-                if ~isempty(app.KerfLeftSpinner) && isvalid(app.KerfLeftSpinner)
-                    app.KerfLeftSpinner.Value = app.KerfLeftValue;
-                end
+                app.KerfLeftSpinner.Value = app.KerfLeftValue;
                 app.KerfValue = app.KerfLeftValue;
-                app.onKerfChanged(app.KerfLeftSpinner);
-            else
-                % still refresh plots/status if kerf already applied
-                if app.KerfEnabled
-                    try app.updatePlanes(); catch, end
-                end
             end
+
+            % Update Plot WITHOUT resetting zoom
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
         end
-        
         % ===========================================================
         % IMPORT STEP / STL
         % ===========================================================
@@ -5044,11 +5060,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if isReadout
                         obj.BackgroundColor = t.readoutBg;
                         obj.FontColor       = t.readoutTxt;
-                        continue; % Move to next object
+                        continue;
                     end
 
-                    % --- B. DETECT CONTAINERS (Panels/Inner Grids) ---
-                    % These MUST match the sidebar background to stay "invisible"
+                    % --- B. DETECT CONTAINERS ---
                     if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
                         obj.BackgroundColor = t.sideBg;
                         continue;
@@ -5057,18 +5072,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                     % --- C. DETECT LABELS ---
                     if isa(obj, 'matlab.ui.control.Label')
                         obj.FontColor = t.labelCol;
-                        % We make label backgrounds match the sidebar
                         obj.BackgroundColor = t.sideBg;
                         continue;
                     end
 
-                    % --- D. INPUT FIELDS (Numeric, Text, etc.) ---
-                    % WE DO NOTHING HERE.
-                    % This allows them to keep the colors set in buildUI/getTheme.
+                    % --- D. DETECT SWITCHES (NEW) ---
+                    if isa(obj, 'matlab.ui.control.Switch')
+                        obj.FontColor = t.labelCol;
+                        % Switches don't have a background color property in the same way,
+                        % but FontColor fixes the text visibility.
+                        continue;
+                    end
+
+                    % --- E. INPUT FIELDS ---
+                    % Left alone to preserve Edit/Readout distinctions
                 end
             end
 
-            % Refresh machine plot for 3D background matching
+            % Refresh machine plot
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
