@@ -1616,25 +1616,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
             doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
 
-            yKerfL = []; zKerfL =[];
+            yKerfL = []; zKerfL = [];
             yKerfR = []; zKerfR =[];
 
             if doKerfL
                 [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
-            if doKerfR
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            if doKerfR[yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
             % SYNC L/R to match point counts exactly (takes max of the two)
-            if doKerfL && doKerfR[yKerfL, zKerfL, yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yKerfL, zKerfL, yKerfR, zKerfR);
+            if doKerfL && doKerfR
+                [yKerfL, zKerfL, yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yKerfL, zKerfL, yKerfR, zKerfR);
             end
 
             % Counters for Label
             nLk = numel(yL); nRk = numel(yR); % Default to raw extracted point counts
-            if doKerfL && ~isempty(yKerfL), nLk = numel(yKerfL); end
-            if doKerfR && ~isempty(yKerfR), nRk = numel(yKerfR); end
-
+            if doKerfL && ~isempty(yKerfL)
+                nLk = numel(yKerfL);
+            end
+            if doKerfR && ~isempty(yKerfR)
+                nRk = numel(yKerfR);
+            end
             % ----- LEFT AXIS -----
             hold(app.AxLeftProfile,'on');
             if ~isempty(app.LeftProfileRawYZ)
@@ -3882,41 +3885,71 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function generateSimulationData(app)
-            % 1. Setup & Profile Extraction (Sparse / Truth)
+            % 1. Setup & Profile Extraction
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % FIX: Use KerfLeftValue and KerfRightValue explicitly
+            % --- FIX: Calculate Offset Paths Independently (Match Cutting Tab) ---
+            % We pass 'true' for doKerf, and the specific L/R values.
+            % preparePlotData calls offsetProfileLoop -> RDP -> AlignToParent.
+
             [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfLeftValue);
             [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfRightValue);
 
-            % --- CRITICAL FIX: Guard against empty/degenerate profiles ---
+            % Guard against failure
             if isempty(yL) || isempty(yR)
-                uialert(app.UIFigure, 'Could not generate toolpath. Profiles may be empty or invalid.', 'Simulation Error');
-                return;
+                uialert(app.UIFigure, 'Could not generate toolpath. Profiles invalid.', 'Error'); return;
             end
 
-            % Sync Geometry (TRUTH for G-Code)
+            % --- FIX: Sync the Resulting Paths ---
+            % We use the UNION strategy to preserve corners on both sides.
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+
+            % Store Truth
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
             % --- Helper: Densify for Visual Smoothness (Visual Only) ---
             function [yD, zD] = densify(y, z, step)
-                if nargin < 3, step = 2.0; end % 2mm visual resolution
+                if nargin < 3, step = 2.0; end
                 d = [0; cumsum(hypot(diff(y), diff(z)))];
                 if d(end) < 1e-3, yD=y; zD=z; return; end
 
-                % Create dense grid
                 d_fine = (0:step:d(end))';
                 if d_fine(end) ~= d(end), d_fine = [d_fine; d(end)]; end
 
-                % Interpolate (Linear preserves corners, just adds dots between them)
                 [du, iu] = unique(d,'stable');
                 yD = interp1(du, y(iu), d_fine, 'linear');
                 zD = interp1(du, z(iu), d_fine, 'linear');
+            end
+
+            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
+                if nargin < 5, step = 2.0; end
+                N = numel(yL);
+                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
+
+                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
+                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+
+                maxL = distL(end); if maxL < 1e-6, maxL = 1; end
+                maxR = distR(end); if maxR < 1e-6, maxR = 1; end
+
+                sL = distL / maxL; sR = distR / maxR;
+                s_orig = (sL + sR) / 2;
+
+                totalLen = max(distL(end), distR(end));
+                nSteps = ceil(totalLen / step); nSteps = max(nSteps, N);
+
+                s_smooth = linspace(0, 1, nSteps)';
+                s_combined = unique([s_orig; s_smooth]);
+
+                [su, iu] = unique(s_orig, 'stable');
+                yLD = interp1(su, yL(iu), s_combined, 'linear');
+                zLD = interp1(su, zL(iu), s_combined, 'linear');
+                yRD = interp1(su, yR(iu), s_combined, 'linear');
+                zRD = interp1(su, zR(iu), s_combined, 'linear');
             end
 
             % Helper for Segments
@@ -3960,54 +3993,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             rawRetL = mkReturn(rawLoL(end,:), app.EntryPointL, app.EntryPoint2L);
             rawRetR = mkReturn(rawLoR(end,:), app.EntryPointR, app.EntryPoint2R);
 
-            % 3. Densify Segments
-            % Distributes points based on PHYSICAL DISTANCE, not Index.
-            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
-                if nargin < 5, step = 2.0; end
-
-                N = numel(yL);
-                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
-
-                % 1. Calculate cumulative physical distance for both paths
-                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
-                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
-
-                % 2. Normalize both to 0..1 based on their own total length
-                maxL = distL(end); if maxL < 1e-6, maxL = 1; end
-                maxR = distR(end); if maxR < 1e-6, maxR = 1; end
-
-                sL = distL / maxL;
-                sR = distR / maxR;
-
-                % 3. Create a Master Parameter based on the "Longest" path behavior
-                s_orig = (sL + sR) / 2;
-
-                % 4. Determine step count based on the longest path
-                totalLen = max(distL(end), distR(end));
-                nSteps = ceil(totalLen / step);
-                nSteps = max(nSteps, N);
-
-                % 5. Create uniform grid for smooth animation (0..1)
-                s_smooth = linspace(0, 1, nSteps)';
-
-                % 6. Union: Include EXACT corner times + Smooth times
-                s_combined = unique([s_orig; s_smooth]);
-
-                % 7. Interpolate geometry onto this new time grid
-                [su, iu] = unique(s_orig, 'stable');
-                yLD = interp1(su, yL(iu), s_combined, 'linear');
-                zLD = interp1(su, zL(iu), s_combined, 'linear');
-                yRD = interp1(su, yR(iu), s_combined, 'linear');
-                zRD = interp1(su, zR(iu), s_combined, 'linear');
-            end
-
+            % 3. Densify All
             [dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
             [dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
+
+            % Densify Profile
             [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
+
             [dLoL_y, dLoL_z, dLoR_y, dLoR_z]         = densifySynced(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));
             [dRetL_y, dRetL_z, dRetR_y, dRetR_z]     = densifySynced(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
 
-            % 4. Combine into Simulation Path
+            % 4. Combine
             app.SimRapidCutoffIndex  = numel(dRapL_y);
             app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(dLiL_y);
             app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(dProfL_y);
@@ -4018,7 +4014,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             fullY_R = [dRapR_y; dLiR_y; dProfR_y; dLoR_y; dRetR_y];
             fullZ_R = [dRapR_z; dLiR_z; dProfR_z; dLoR_z; dRetR_z];
 
-            % 5. Map to 3D Machine Space
+            % 5. Map to Machine
             if ~isempty(app.LeftProfilePoints),  xL = app.LeftProfilePoints(1,1);  else, xL = app.MachineBilletPos(1); end
             if ~isempty(app.RightProfilePoints), xR = app.RightProfilePoints(1,1); else, xR = app.MachineBilletPos(1)+10; end
 

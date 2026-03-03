@@ -270,7 +270,9 @@ classdef HotWireSTEPApp_v6_helpers
 
         function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
             % Synchronizes two profiles based on GEOMETRIC ARC LENGTH.
-            % Ensures L and R have the same number of points at matching relative distances.
+            % Uses a UNION strategy: If a corner exists on Left OR Right,
+            % a corresponding point is created on both.
+            % This guarantees sharp corners are never "skipped" or smoothed.
 
             % 1. Clean Inputs
             function [x, y] = clean(x, y)
@@ -300,28 +302,34 @@ classdef HotWireSTEPApp_v6_helpers
             sL = getArcParam(yL, zL);
             sR = getArcParam(yR, zR);
 
-            % 3. Determine Target Resolution
-            % FIX: Removed the '200' floor. We now respect the input density.
-            % If inputs are sparse (e.g. RDP square), we keep them sparse.
-            nL = numel(yL); nR = numel(yR);
-            N = max(nL, nR);
-
-            % Edge case: If points are extremely low (e.g. <5), interpolation might be poor
-            % for curves, but for RDP lines it is exactly what we want.
-            % If the counts match exactly, we assume they are already synced (optimized path).
-            if nL == nR
-                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
-                return;
+            if isempty(sL) || isempty(sR)
+                yLS=yL; zLS=zL; yRS=yR; zRS=zR; return;
             end
 
-            % Create a uniform target grid (0 to 1)
-            s_target = linspace(0, 1, N)';
+            % 3. The "Union" Strategy (Critical for Corner Preservation)
+            % Instead of an arbitrary grid, we merge the 'time' of every feature.
+            % Rounding to 5 decimal places prevents creating double points for
+            % features that are already synced (within 0.01%).
 
-            % 4. Interpolate Left and Right onto the SAME normalized grid
-            yLS = interp1(sL, yL, s_target, 'linear');
-            zLS = interp1(sL, zL, s_target, 'linear');
-            yRS = interp1(sR, yR, s_target, 'linear');
-            zRS = interp1(sR, zR, s_target, 'linear');
+            s_combined = [sL; sR];
+            s_target = unique(round(s_combined, 5));
+
+            % Ensure 0 and 1 are exactly present
+            if s_target(1) ~= 0, s_target = [0; s_target]; end
+            if s_target(end) ~= 1, s_target = [s_target; 1]; end
+
+            % 4. Interpolate Left and Right onto the merged grid
+            % Because s_target includes the EXACT 's' value of every corner on L and R,
+            % linear interpolation will land exactly on the corner vertex, preserving it.
+
+            % We need unique sample points for interp1
+            [sL_u, iL] = unique(sL, 'stable');
+            [sR_u, iR] = unique(sR, 'stable');
+
+            yLS = interp1(sL_u, yL(iL), s_target, 'linear');
+            zLS = interp1(sL_u, zL(iL), s_target, 'linear');
+            yRS = interp1(sR_u, yR(iR), s_target, 'linear');
+            zRS = interp1(sR_u, zR(iR), s_target, 'linear');
         end
 
         function [towerL, towerR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
@@ -333,8 +341,10 @@ classdef HotWireSTEPApp_v6_helpers
 
         function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
             % ===========================================================
-            % OFFSET PROFILE LOOP: Kerf compensation via polybuffer
-            % Keeps RDP reduction to minimize G-code on straight lines.
+            % OFFSET PROFILE LOOP: Robust Polybuffer with Square Joints
+            % 1. Uses 'square' joints for stable CNC corners.
+            % 2. RDP Reduction to restore clean topology.
+            % 3. Proximity Alignment: Keeps Start Point locked to Parent.
             % ===========================================================
 
             % Default fallback
@@ -343,18 +353,20 @@ classdef HotWireSTEPApp_v6_helpers
 
             % 1. Validation
             if ~isfinite(kerf) || kerf == 0, return; end
+
+            % FIX: Radius = Kerf/2
+            offsetDist = abs(kerf) / 2.0;
+
             y = yIn(:); z = zIn(:);
-            valid = isfinite(y) & isfinite(z);
-            y = y(valid); z = z(valid);
             if numel(y) < 3, return; end
 
             % 2. Pre-clean
-            inputPoints = round([y, z], 8);
+            inputPoints = round([y, z], 6);
             [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
             y = y(uniqueIdx);
             z = z(uniqueIdx);
 
-            % 3. Polybuffer Offset
+            % 3. Polybuffer with Square Joints (No Lobes)
             originalState = warning('off', 'all');
             cleanupObj = onCleanup(@() warning(originalState));
 
@@ -362,29 +374,33 @@ classdef HotWireSTEPApp_v6_helpers
                 pgon = polyshape(y, z, 'Simplify', true);
                 if pgon.NumRegions == 0, return; end
 
-                pgonOut = polybuffer(pgon, kerf);
+                % FIX: Use 'square'. This creates a small chamfer at very sharp corners,
+                % but prevents infinite spikes and lobes.
+                % Do NOT pass MiterLimit to 'square'.
+                pgonOut = polybuffer(pgon, offsetDist, 'JointType', 'square');
+
                 if pgonOut.NumRegions == 0, return; end
 
+                % Handle artifacts (keep largest region)
                 if pgonOut.NumRegions > 1
-                    areaList = area(pgonOut.regions);
-                    [~, maxIdx] = max(areaList);
+                    areas = area(pgonOut.regions);
+                    [~, maxIdx] = max(areas);
                     pgonOut = pgonOut.regions(maxIdx);
                 end
 
                 [yo, zo] = boundary(pgonOut);
 
-                % ---> FIX: Clean NaNs from boundary output before RDP <---
-                nanIdx = find(isnan(yo), 1);
-                if ~isempty(nanIdx)
-                    yo = yo(1:nanIdx-1);
-                    zo = zo(1:nanIdx-1);
-                end
+                % Clean NaNs
+                validOut = isfinite(yo) & isfinite(zo);
+                yo = yo(validOut);
+                zo = zo(validOut);
 
             catch
-                return;
+                return; % Fallback
             end
 
-            % 4. RDP REDUCTION (Preserved exactly as you had it)
+            % 4. RDP REDUCTION
+            % Essential to remove the thousands of points from polybuffer arcs/chamfers
             if tol > 0 && numel(yo) > 5
                 pts = [yo, zo];
                 N = size(pts, 1);
@@ -395,7 +411,7 @@ classdef HotWireSTEPApp_v6_helpers
 
                 while ~isempty(stack)
                     idxEnd = stack(end); idxStart = stack(end-1);
-                    stack(end-1:end) =[];
+                    stack(end-1:end) = [];
 
                     if idxEnd - idxStart < 2, continue; end
 
@@ -422,7 +438,7 @@ classdef HotWireSTEPApp_v6_helpers
                         splitIdx = rng(localIdx);
                         keepMask(splitIdx) = true;
                         stack = [stack, splitIdx, idxEnd];
-                        stack =[stack, idxStart, splitIdx];
+                        stack = [stack, idxStart, splitIdx];
                     end
                 end
 
@@ -430,11 +446,43 @@ classdef HotWireSTEPApp_v6_helpers
                 zo = pts(keepMask, 2);
             end
 
-            % 5. FIX: ALIGN START POINT (Min Y)
-            [yo, zo] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
+            % 5. FIX: ALIGN TO PARENT START POINT
+            [yo, zo] = HotWireSTEPApp_v6_helpers.alignToParent(yIn, zIn, yo, zo);
 
-            % Transpose if needed
+            % Transpose
             if isrow(yIn), yo = yo.'; zo = zo.'; end
+        end
+
+        function [yOut, zOut] = alignToParent(yParent, zParent, yNew, zNew)
+            % Reorders (circshift) yNew/zNew so its start point is the one
+            % physically closest to the start point of yParent/zParent.
+            % Used to ensure Offset profiles start at the same geometric feature
+            % as the Raw profile.
+
+            if isempty(yNew) || isempty(yParent)
+                yOut=yNew; zOut=zNew; return;
+            end
+
+            % Parent Start Point (Raw)
+            pStart = [yParent(1), zParent(1)];
+
+            % Find closest point in New array (Offset)
+            d2 = (yNew - pStart(1)).^2 + (zNew - pStart(2)).^2;
+            [~, idx] = min(d2);
+
+            % Shift so closest point is first
+            % (idx-1 because circular shift by 1 moves index 2 to 1)
+            yOut = circshift(yNew, -(idx - 1));
+            zOut = circshift(zNew, -(idx - 1));
+
+            % Force Closure (Last = First) if inputs were closed
+            if (yOut(1) == yOut(end)) && (zOut(1) == zOut(end))
+                % It's already closed, do nothing or re-assert
+            else
+                % If the input loop convention expects closure
+                yOut(end+1) = yOut(1);
+                zOut(end+1) = zOut(1);
+            end
         end
 
         function [y, z] = reorderLoopByMinY(y, z)
