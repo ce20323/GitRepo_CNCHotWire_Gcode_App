@@ -334,7 +334,7 @@ classdef HotWireSTEPApp_v6_helpers
         function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
             % ===========================================================
             % OFFSET PROFILE LOOP: Kerf compensation via polybuffer
-            % Now includes RDP reduction and Geometric Alignment.
+            % Keeps RDP reduction to minimize G-code on straight lines.
             % ===========================================================
 
             % Default fallback
@@ -373,11 +373,18 @@ classdef HotWireSTEPApp_v6_helpers
 
                 [yo, zo] = boundary(pgonOut);
 
+                % ---> FIX: Clean NaNs from boundary output before RDP <---
+                nanIdx = find(isnan(yo), 1);
+                if ~isempty(nanIdx)
+                    yo = yo(1:nanIdx-1);
+                    zo = zo(1:nanIdx-1);
+                end
+
             catch
                 return;
             end
 
-            % 4. RDP REDUCTION
+            % 4. RDP REDUCTION (Preserved exactly as you had it)
             if tol > 0 && numel(yo) > 5
                 pts = [yo, zo];
                 N = size(pts, 1);
@@ -388,7 +395,7 @@ classdef HotWireSTEPApp_v6_helpers
 
                 while ~isempty(stack)
                     idxEnd = stack(end); idxStart = stack(end-1);
-                    stack(end-1:end) = [];
+                    stack(end-1:end) =[];
 
                     if idxEnd - idxStart < 2, continue; end
 
@@ -415,7 +422,7 @@ classdef HotWireSTEPApp_v6_helpers
                         splitIdx = rng(localIdx);
                         keepMask(splitIdx) = true;
                         stack = [stack, splitIdx, idxEnd];
-                        stack = [stack, idxStart, splitIdx];
+                        stack =[stack, idxStart, splitIdx];
                     end
                 end
 
@@ -424,7 +431,6 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % 5. FIX: ALIGN START POINT (Min Y)
-            % This ensures L and R profiles are rotationally synced.
             [yo, zo] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
 
             % Transpose if needed

@@ -1631,6 +1631,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.KerfEnabled && ~isempty(yL) && kL ~= 0
                 [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
+                nLk = numel(yKerfL);
             end
             hold(app.AxLeftProfile,'off');
 
@@ -1650,6 +1651,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.KerfEnabled && ~isempty(yR) && kR ~= 0
                 [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
                 app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
+                nRk = numel(yKerfR);
             end
             hold(app.AxRightProfile,'off');
 
