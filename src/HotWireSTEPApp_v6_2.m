@@ -1600,7 +1600,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Axis limits
-            yAll = [yL(:); yR(:)]; zAll = [zL(:); zR(:)];
+            yAll =[yL(:); yR(:)]; zAll = [zL(:); zR(:)];
             if isempty(yAll) || isempty(zAll), return; end
 
             yMin = min(yAll); yMax = max(yAll);
@@ -1612,8 +1612,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             app.clearProfiles2D();
 
-            % Initialize Counters for Label
-            nLk = 0; nRk = 0;
+            % --- NEW KERF & SYNC LOGIC ---
+            doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
+            doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
+
+            yKerfL = []; zKerfL =[];
+            yKerfR = []; zKerfR =[];
+
+            if doKerfL
+                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+            end
+            if doKerfR
+                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            end
+
+            % SYNC L/R to match point counts exactly (takes max of the two)
+            if doKerfL && doKerfR[yKerfL, zKerfL, yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yKerfL, zKerfL, yKerfR, zKerfR);
+            end
+
+            % Counters for Label
+            nLk = numel(yL); nRk = numel(yR); % Default to raw extracted point counts
+            if doKerfL && ~isempty(yKerfL), nLk = numel(yKerfL); end
+            if doKerfR && ~isempty(yKerfR), nRk = numel(yKerfR); end
 
             % ----- LEFT AXIS -----
             hold(app.AxLeftProfile,'on');
@@ -1625,13 +1645,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
             end
-
-            % Left Kerf Calc & Plot
-            kL = app.KerfLeftValue;
-            if app.KerfEnabled && ~isempty(yL) && kL ~= 0
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
+            if doKerfL && ~isempty(yKerfL)
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
-                nLk = numel(yKerfL);
             end
             hold(app.AxLeftProfile,'off');
 
@@ -1645,13 +1660,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yR)
                 app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
             end
-
-            % Right Kerf Calc & Plot
-            kR = app.KerfRightValue;
-            if app.KerfEnabled && ~isempty(yR) && kR ~= 0
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
+            if doKerfR && ~isempty(yKerfR)
                 app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
-                nRk = numel(yKerfR);
             end
             hold(app.AxRightProfile,'off');
 
@@ -1679,7 +1689,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
                 xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
             end
-            daspect(app.AxLeftProfile, [1 1 1]); daspect(app.AxRightProfile,[1 1 1]);
+            daspect(app.AxLeftProfile,[1 1 1]); daspect(app.AxRightProfile,[1 1 1]);
 
             title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value));
             title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value));
@@ -1971,7 +1981,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 1. Extract Data
             yL = []; zL = []; xLeft  = 0;
-            yR = []; zR = []; xRight = 0;
+            yR =[]; zR =[]; xRight = 0;
 
             if ~isempty(app.LeftProfilePoints)
                 xLeft = app.LeftProfilePoints(1,1);
@@ -1985,44 +1995,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % 2. Calculate Counts
-            % Default to Raw counts (if kerf is 0, we show this)
-            nL_k = numel(yL);
-            nR_k = numel(yR);
-
-            kL = app.KerfLeftValue;
-            kR = app.KerfRightValue;
-
-            if ~isempty(yL) && kL ~= 0
-                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
-                if ~isempty(yk), nL_k = numel(yk); end
-            end
-
-            if ~isempty(yR) && kR ~= 0
-                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
-                if ~isempty(ykR), nR_k = numel(ykR); end
-            end
-
-            % 3. Update Label (FIX)
-            if isprop(app, 'KerfPointCountLabel') && isgraphics(app.KerfPointCountLabel)
-                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
-            end
-
-            % 4. Refresh Plot
+            % 2. Refresh Plot (Math and Sync is now done inside updateProfiles2D)
             wasLocked = app.ProfileAxesLocked;
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
             app.ProfileAxesLocked = wasLocked;
 
-            % Update Status Text
+            % 3. Update Status Text
             if app.KerfEnabled && isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
                 if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                    msg = sprintf('Kerf Applied: %.2f mm', kL);
+                    msg = sprintf('Kerf Applied: %.2f mm', app.KerfLeftValue);
                 else
-                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', kL, kR);
+                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', app.KerfLeftValue, app.KerfRightValue);
                 end
                 app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
-                app.TxtProfileStatus.FontColor = [0.4 1 0.4];
+                app.TxtProfileStatus.FontColor =[0.4 1 0.4];
             end
         end
 
