@@ -106,7 +106,7 @@ classdef HotWireSTEPApp_v6_helpers
             nSeg = numel(idx)/2;
             p1 = [ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
             p2 = [ys(idx(2:2:end)).', zs(idx(2:2:end)).'];
-            allPts = [p1; p2]; 
+            allPts = [p1; p2];
             span = max(max(allPts)-min(allPts));
             tol = 1e-3 * max(span, 1);
             nodePos = zeros(0,2); nodeCount = 0; mapIdx = zeros(size(allPts,1),1);
@@ -157,44 +157,51 @@ classdef HotWireSTEPApp_v6_helpers
             zR = interp1(sU, zExt(idxU), linspace(0, totalLen, N).', 'linear');
         end
 
-        function [yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
-            % Clean Inputs (Remove duplicates/micro-steps < 0.001mm)
+        function[yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
             function [x,y] = clean_path(x,y)
-                if numel(x) < 2, return; end
-                d2 = [1; (diff(x).^2 + diff(y).^2)];
-                keep = d2 > 1e-8;
-                x = x(keep); y = y(keep);
-                if (x(1)~=x(end) || y(1)~=y(end)), x(end+1)=x(1); y(end+1)=y(1); end
-            end
+                if numel(x) < 2
+                    return;
+                end
 
-            [yL, zL] = clean_path(yL, zL);
+                d2 =[1; (diff(x).^2 + diff(y).^2)];
+                keep = d2 > 1e-8;
+                x = x(keep);
+                y = y(keep);
+                if (x(1)~=x(end) || y(1)~=y(end))
+                    x(end+1)=x(1);
+                    y(end+1)=y(1);
+                end
+            end[yL, zL] = clean_path(yL, zL);
             [yR, zR] = clean_path(yR, zR);
 
-            % Safety Check: Degenerate Geometry
             if numel(yL) < 3 || numel(yR) < 3
-                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
+                yLS = yL;
+                zLS = zL;
+                yRS = yR;
+                zRS = zR;
                 return;
             end
 
-            % 1. Align Start Points & Winding
             [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+
             [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
             areaR = sum((yR(1:end-1).*zR(2:end)) - (yR(2:end).*zR(1:end-1)));
             if sign(areaL) ~= sign(areaR)
-                yR = flipud(yR); zR = flipud(zR);
-                [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+                yR = flipud(yR);
+                zR = flipud(zR);[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
-            % 2. Baseline Generation (Oversample)
-            distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
-            distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
+            distL =[0; cumsum(hypot(diff(yL), diff(zL)))];
+            distR =[0; cumsum(hypot(diff(yR), diff(zR)))];
             maxLen = max(distL(end), distR(end));
 
-            % Handle nearly zero length
             if maxLen < 1e-6
-                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
+                yLS = yL;
+                zLS = zL;
+                yRS = yR;
+                zRS = zR;
                 return;
             end
 
@@ -202,30 +209,34 @@ classdef HotWireSTEPApp_v6_helpers
             N = ceil(maxLen / baselineRes);
             N = max(N, 1000);
 
-            s_rawL = distL / distL(end); s_rawR = distR / distR(end);
-            % Fix NaNs if length is zero (redundant but safe)
-            s_rawL(isnan(s_rawL)) = 0; s_rawR(isnan(s_rawR)) = 0;
+            s_rawL = distL / distL(end);
+            s_rawR = distR / distR(end);
+
+            s_rawL(isnan(s_rawL)) = 0;
+            s_rawR(isnan(s_rawR)) = 0;
 
             s_fine = linspace(0, 1, N)';
 
-            [suL, iuL] = unique(s_rawL,'stable'); [suR, iuR] = unique(s_rawR,'stable');
+            s_eval = unique(round([s_fine; s_rawL; s_rawR], 6));
 
-            yLf = interp1(suL, yL(iuL), s_fine, 'linear');
-            zLf = interp1(suL, zL(iuL), s_fine, 'linear');
-            yRf = interp1(suR, yR(iuR), s_fine, 'linear');
-            zRf = interp1(suR, zR(iuR), s_fine, 'linear');
+            [suL, iuL] = unique(round(s_rawL, 6), 'stable');[suR, iuR] = unique(round(s_rawR, 6), 'stable');
 
-            % 3. RDP Reduction (Iterative 4D)
-            pts4D = [yLf, zLf, yRf, zRf];
-            keepMask = false(N, 1);
-            keepMask(1) = true; keepMask(end) = true;
+            yLf = interp1(suL, yL(iuL), s_eval, 'linear');
+            zLf = interp1(suL, zL(iuL), s_eval, 'linear');
+            yRf = interp1(suR, yR(iuR), s_eval, 'linear');
+            zRf = interp1(suR, zR(iuR), s_eval, 'linear');
 
-            stack = [1, N];
+            pts4D =[yLf, zLf, yRf, zRf];
+            keepMask = false(size(pts4D, 1), 1);
+            keepMask(1) = true;
+            keepMask(end) = true;
+
+            stack = [1, size(pts4D, 1)];
 
             while ~isempty(stack)
                 idxEnd = stack(end);
                 idxStart = stack(end-1);
-                stack(end-1:end) = [];
+                stack(end-1:end) =[];
 
                 if idxEnd - idxStart < 2
                     continue;
@@ -245,7 +256,7 @@ classdef HotWireSTEPApp_v6_helpers
                     distsSq = sum(W.^2, 2);
                 else
                     t = (W * V') / lenSq;
-                    t = max(0, min(1, t)); % Clamp
+                    t = max(0, min(1, t));
                     Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
                     distsSq = sum((Pts - Closest).^2, 2);
                 end
@@ -256,46 +267,49 @@ classdef HotWireSTEPApp_v6_helpers
                     splitIdx = rng(localIdx);
                     keepMask(splitIdx) = true;
                     stack = [stack, splitIdx, idxEnd];
-                    stack = [stack, idxStart, splitIdx];
+                    stack =[stack, idxStart, splitIdx];
                 end
             end
 
-            % 4. Final Extract
-            yLS = pts4D(keepMask, 1); zLS = pts4D(keepMask, 2);
-            yRS = pts4D(keepMask, 3); zRS = pts4D(keepMask, 4);
+            yLS = pts4D(keepMask, 1);
+            zLS = pts4D(keepMask, 2);
+            yRS = pts4D(keepMask, 3);
+            zRS = pts4D(keepMask, 4);
 
-            yLS(end) = yLS(1); zLS(end) = zLS(1);
-            yRS(end) = yRS(1); zRS(end) = zRS(1);
+            yLS(end) = yLS(1);
+            zLS(end) = zLS(1);
+            yRS(end) = yRS(1);
+            zRS(end) = zRS(1);
         end
 
-        function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
-            % Synchronizes two profiles based on GEOMETRIC ARC LENGTH.
-            % Uses a UNION strategy: If a corner exists on Left OR Right,
-            % a corresponding point is created on both.
-            % This guarantees sharp corners are never "skipped" or smoothed.
-
-            % 1. Clean Inputs
-            function [x, y] = clean(x, y)
-                if numel(x) < 2, return; end
-                % Keep points that moved at least 0.0001mm
-                dist = [1; sqrt(diff(x).^2 + diff(y).^2)];
-                keep = dist > 1e-4;
-                x = x(keep); y = y(keep);
-                % Ensure Loop Closure
-                if (numel(x) > 2) && (hypot(x(1)-x(end), y(1)-y(end)) > 1e-4)
-                    x(end+1) = x(1); y(end+1) = y(1);
+        function[yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
+            function[x, y] = clean(x, y)
+                if numel(x) < 2
+                    return;
+                end
+                dist =[1; sqrt(diff(x).^2 + diff(y).^2)];
+                keep = dist > 1e-6;
+                x = x(keep);
+                y = y(keep);
+                if (numel(x) > 2) && (hypot(x(1)-x(end), y(1)-y(end)) > 1e-6)
+                    x(end+1) = x(1);
+                    y(end+1) = y(1);
                 end
             end
 
             [yL, zL] = clean(yL, zL);
             [yR, zR] = clean(yR, zR);
 
-            % 2. Calculate Normalized Arc Length (0.0 to 1.0)
             function s = getArcParam(y, z)
-                if numel(y) < 2, s=zeros(size(y)); return; end
-                d = [0; cumsum(hypot(diff(y), diff(z)))];
+                if numel(y) < 2
+                    s=zeros(size(y));
+                    return;
+                end
+                d =[0; cumsum(hypot(diff(y), diff(z)))];
                 maxD = d(end);
-                if maxD < 1e-6, maxD = 1; end
+                if maxD < 1e-6
+                    maxD = 1;
+                end
                 s = d / maxD;
             end
 
@@ -303,33 +317,27 @@ classdef HotWireSTEPApp_v6_helpers
             sR = getArcParam(yR, zR);
 
             if isempty(sL) || isempty(sR)
-                yLS=yL; zLS=zL; yRS=yR; zRS=zR; return;
+                yLS = yL;
+                zLS = zL;
+                yRS = yR;
+                zRS = zR;
+                return;
             end
 
-            % 3. The "Union" Strategy (Critical for Corner Preservation)
-            % Instead of an arbitrary grid, we merge the 'time' of every feature.
-            % Rounding to 5 decimal places prevents creating double points for
-            % features that are already synced (within 0.01%).
+            if numel(sL) == numel(sR) && max(abs(sL - sR)) < 1e-3
+                yLS = yL;
+                zLS = zL;
+                yRS = yR;
+                zRS = zR;
+                return;
+            end
 
-            s_combined = [sL; sR];
-            s_target = unique(round(s_combined, 5));
+            s_target = unique(round([sL; sR], 5));[sL_u, idxL] = unique(round(sL, 6), 'stable');[sR_u, idxR] = unique(round(sR, 6), 'stable');
 
-            % Ensure 0 and 1 are exactly present
-            if s_target(1) ~= 0, s_target = [0; s_target]; end
-            if s_target(end) ~= 1, s_target = [s_target; 1]; end
-
-            % 4. Interpolate Left and Right onto the merged grid
-            % Because s_target includes the EXACT 's' value of every corner on L and R,
-            % linear interpolation will land exactly on the corner vertex, preserving it.
-
-            % We need unique sample points for interp1
-            [sL_u, iL] = unique(sL, 'stable');
-            [sR_u, iR] = unique(sR, 'stable');
-
-            yLS = interp1(sL_u, yL(iL), s_target, 'linear');
-            zLS = interp1(sL_u, zL(iL), s_target, 'linear');
-            yRS = interp1(sR_u, yR(iR), s_target, 'linear');
-            zRS = interp1(sR_u, zR(iR), s_target, 'linear');
+            yLS = interp1(sL_u, yL(idxL), s_target, 'linear');
+            zLS = interp1(sL_u, zL(idxL), s_target, 'linear');
+            yRS = interp1(sR_u, yR(idxR), s_target, 'linear');
+            zRS = interp1(sR_u, zR(idxR), s_target, 'linear');
         end
 
         function [towerL, towerR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
@@ -340,82 +348,88 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
-            % ===========================================================
-            % OFFSET PROFILE LOOP: Robust Polybuffer with Square Joints
-            % 1. Uses 'square' joints for stable CNC corners.
-            % 2. RDP Reduction to restore clean topology.
-            % 3. Proximity Alignment: Keeps Start Point locked to Parent.
-            % ===========================================================
+            yo = yIn;
+            zo = zIn;
+            if nargin < 4
+                tol = 0;
+            end
 
-            % Default fallback
-            yo = yIn; zo = zIn;
-            if nargin < 4, tol = 0; end
+            if ~isfinite(kerf) || kerf == 0
+                return;
+            end
 
-            % 1. Validation
-            if ~isfinite(kerf) || kerf == 0, return; end
+            y = yIn(:);
+            z = zIn(:);
+            valid = isfinite(y) & isfinite(z);
+            y = y(valid);
+            z = z(valid);
 
-            % FIX: Radius = Kerf/2
-            offsetDist = abs(kerf) / 2.0;
+            if numel(y) < 3
+                return;
+            end
 
-            y = yIn(:); z = zIn(:);
-            if numel(y) < 3, return; end
+            offsetDist = kerf / 2.0;
 
-            % 2. Pre-clean
-            inputPoints = round([y, z], 6);
+            inputPoints = round([y, z], 8);
+
             [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
+
             y = y(uniqueIdx);
             z = z(uniqueIdx);
 
-            % 3. Polybuffer with Square Joints (No Lobes)
             originalState = warning('off', 'all');
             cleanupObj = onCleanup(@() warning(originalState));
 
             try
                 pgon = polyshape(y, z, 'Simplify', true);
-                if pgon.NumRegions == 0, return; end
-
-                % FIX: Use 'square'. This creates a small chamfer at very sharp corners,
-                % but prevents infinite spikes and lobes.
-                % Do NOT pass MiterLimit to 'square'.
-                pgonOut = polybuffer(pgon, offsetDist, 'JointType', 'square');
-
-                if pgonOut.NumRegions == 0, return; end
-
-                % Handle artifacts (keep largest region)
-                if pgonOut.NumRegions > 1
-                    areas = area(pgonOut.regions);
-                    [~, maxIdx] = max(areas);
-                    pgonOut = pgonOut.regions(maxIdx);
+                if pgon.NumRegions == 0
+                    return;
                 end
 
+                pgonOut = polybuffer(pgon, offsetDist);
+                if pgonOut.NumRegions == 0
+                    return;
+                end
+
+                if pgonOut.NumRegions > 1
+                    areaList = area(pgonOut.regions);
+
+                    [~, maxIdx] = max(areaList);
+
+                    pgonOut = pgonOut.regions(maxIdx);
+                end
                 [yo, zo] = boundary(pgonOut);
 
-                % Clean NaNs
-                validOut = isfinite(yo) & isfinite(zo);
-                yo = yo(validOut);
-                zo = zo(validOut);
+                nanIdx = find(isnan(yo), 1);
+                if ~isempty(nanIdx)
+                    yo = yo(1:nanIdx-1);
+                    zo = zo(1:nanIdx-1);
+                end
 
             catch
-                return; % Fallback
+                return;
             end
 
-            % 4. RDP REDUCTION
-            % Essential to remove the thousands of points from polybuffer arcs/chamfers
             if tol > 0 && numel(yo) > 5
-                pts = [yo, zo];
+                pts =[yo, zo];
                 N = size(pts, 1);
                 keepMask = false(N, 1);
-                keepMask(1) = true; keepMask(end) = true;
+                keepMask(1) = true;
+                keepMask(end) = true;
 
                 stack = [1, N];
 
                 while ~isempty(stack)
-                    idxEnd = stack(end); idxStart = stack(end-1);
-                    stack(end-1:end) = [];
+                    idxEnd = stack(end);
+                    idxStart = stack(end-1);
+                    stack(end-1:end) =[];
 
-                    if idxEnd - idxStart < 2, continue; end
+                    if idxEnd - idxStart < 2
+                        continue;
+                    end
 
-                    P1 = pts(idxStart, :); P2 = pts(idxEnd, :);
+                    P1 = pts(idxStart, :);
+                    P2 = pts(idxEnd, :);
                     rng = (idxStart+1):(idxEnd-1);
                     Pts = pts(rng, :);
 
@@ -431,13 +445,12 @@ classdef HotWireSTEPApp_v6_helpers
                         Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
                         distsSq = sum((Pts - Closest).^2, 2);
                     end
-
                     [maxSq, localIdx] = max(distsSq);
 
                     if maxSq > (tol^2)
                         splitIdx = rng(localIdx);
                         keepMask(splitIdx) = true;
-                        stack = [stack, splitIdx, idxEnd];
+                        stack =[stack, splitIdx, idxEnd];
                         stack = [stack, idxStart, splitIdx];
                     end
                 end
@@ -446,42 +459,11 @@ classdef HotWireSTEPApp_v6_helpers
                 zo = pts(keepMask, 2);
             end
 
-            % 5. FIX: ALIGN TO PARENT START POINT
-            [yo, zo] = HotWireSTEPApp_v6_helpers.alignToParent(yIn, zIn, yo, zo);
+            [yo, zo] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
 
-            % Transpose
-            if isrow(yIn), yo = yo.'; zo = zo.'; end
-        end
-
-        function [yOut, zOut] = alignToParent(yParent, zParent, yNew, zNew)
-            % Reorders (circshift) yNew/zNew so its start point is the one
-            % physically closest to the start point of yParent/zParent.
-            % Used to ensure Offset profiles start at the same geometric feature
-            % as the Raw profile.
-
-            if isempty(yNew) || isempty(yParent)
-                yOut=yNew; zOut=zNew; return;
-            end
-
-            % Parent Start Point (Raw)
-            pStart = [yParent(1), zParent(1)];
-
-            % Find closest point in New array (Offset)
-            d2 = (yNew - pStart(1)).^2 + (zNew - pStart(2)).^2;
-            [~, idx] = min(d2);
-
-            % Shift so closest point is first
-            % (idx-1 because circular shift by 1 moves index 2 to 1)
-            yOut = circshift(yNew, -(idx - 1));
-            zOut = circshift(zNew, -(idx - 1));
-
-            % Force Closure (Last = First) if inputs were closed
-            if (yOut(1) == yOut(end)) && (zOut(1) == zOut(end))
-                % It's already closed, do nothing or re-assert
-            else
-                % If the input loop convention expects closure
-                yOut(end+1) = yOut(1);
-                zOut(end+1) = zOut(1);
+            if isrow(yIn)
+                yo = yo.';
+                zo = zo.';
             end
         end
 
