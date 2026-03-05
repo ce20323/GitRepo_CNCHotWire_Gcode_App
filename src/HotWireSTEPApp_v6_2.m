@@ -1023,7 +1023,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % -- Reset --
-            btnMReset = uibutton(app.MachineLeftPanel, 'Text','Center on Bed', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
+            btnMReset = uibutton(app.MachineLeftPanel, 'Text','Auto-position Billet', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
             btnMReset.Layout.Row = 3;
 
             % -- Guidance --
@@ -3160,39 +3160,133 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % 1. X-Center Logic (Center strictly on the Bed, not the machine span)
-            mBedX = app.MachineBedSize(1);
-            app.MachineBilletPos(1) = app.MachineBedPos(1) + (mBedX - app.BilletSize(1)) / 2;
+            % Physical Bed Constraints
+            bedX = app.MachineBedPos(1);
+            maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
+            centerX = bedX + maxXLimit / 2;
 
-            % 2. Y-Default Logic (Snap to front edge)
-            app.MachineBilletPos(2) = app.MachineBedPos(2);
+            % 1. X-Center Logic & Tower Path Length Optimization
+            % Enforce 50mm buffer from left and right bed edges
+            minSafeX = bedX + 50.0;
+            maxSafeX = bedX + maxXLimit - 50.0;
 
-            % 3. Z-Lift Logic (Default to sitting flush on bed)
-            app.MachineBilletPos(3) = 0;
+            % Generate 50mm snapping grid
+            if maxSafeX >= minSafeX
+                startTick = ceil(minSafeX / 50.0) * 50.0;
+                endTick = floor(maxSafeX / 50.0) * 50.0;
+                if startTick <= endTick
+                    testXs = startTick : 50.0 : endTick;
+                else
+                    testXs = round(centerX / 50.0) * 50.0;
+                end
+            else
+                % Fallback if the billet is too large to respect the 50mm buffer
+                testXs = round(centerX / 50.0) * 50.0;
+            end
+
+            % Clamp to absolute bed limits just in case
+            testXs = max(bedX, min(bedX + maxXLimit, testXs));
+            testXs = unique(testXs);
+
+            % Default to the middle of the available grid
+            bestX = testXs(max(1, ceil(numel(testXs)/2)));
 
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                xL_mach = app.MachineBilletPos(1) + app.NumLeftOffset.Value;
-                xR_mach = app.MachineBilletPos(1) + app.NumRightOffset.Value;
 
-                [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                % Sync profiles to ensure 1:1 path comparison
+                [ yL, zL, yR, zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
                     app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
-                [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                    yL + app.MachineBilletPos(2) + app.BilletShift(2), zL, xL_mach, ...
-                    yR + app.MachineBilletPos(2) + app.BilletShift(2), zR, xR_mach, ...
-                    app.MachineSpanX);
+                % Base profile coordinates (including Billet Shift)
+                yL_base = yL + app.BilletShift(2);
+                zL_base = zL + app.BilletShift(3);
+                yR_base = yR + app.BilletShift(2);
+                zR_base = zR + app.BilletShift(3);
 
-                minProjZ = min([tL.z; tR.z]);
+                planeDist = abs(app.NumRightOffset.Value - app.NumLeftOffset.Value);
 
-                if minProjZ < 5
-                    app.MachineBilletPos(3) = abs(minProjZ) + 5;
+                % Only optimize if there is a distinct distance between planes
+                if planeDist > 1e-3
+                    bestDiff = inf;
+
+                    % Sweep ONLY the valid 50mm increments
+                    for x = testXs
+                        xL_m = x + app.BilletShift(1) + app.NumLeftOffset.Value;
+                        xR_m = x + app.BilletShift(1) + app.NumRightOffset.Value;[ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                            yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+
+                        % Calculate total path length on the towers
+                        lenL = sum(hypot(diff(tL.y), diff(tL.z)));
+                        lenR = sum(hypot(diff(tR.y), diff(tR.z)));
+
+                        % Small penalty to favor center if lengths are equal
+                        penalty = 1e-6 * abs(x - centerX);
+                        diffLen = abs(lenL - lenR) + penalty;
+
+                        if diffLen < bestDiff
+                            bestDiff = diffLen;
+                            bestX = x;
+                        end
+                    end
                 end
             end
 
+            % Apply best found X position
+            app.MachineBilletPos(1) = bestX;
+
+            % 2. Evaluate Base Tower Heights at new X to solve Y and Z
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                xL_m = bestX + app.BilletShift(1) + app.NumLeftOffset.Value;
+                xR_m = bestX + app.BilletShift(1) + app.NumRightOffset.Value;
+
+                [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                    yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+
+                % --- Z Logic (Standardized Stock Heights) ---
+                minProjZ = min([tL.z; tR.z]);
+
+                if minProjZ >= 0
+                    app.MachineBilletPos(3) = 0; % No lift needed
+                else
+                    reqZ = -minProjZ; % Absolute lift needed to prevent crashing
+                    % Snap to increments of 25mm (e.g., 25, 50, 75, 100...)
+                    targetZ = ceil(reqZ / 25.0) * 25;
+
+                    % User constraint: must be 50, 75, 100...
+                    if targetZ > 0 && targetZ < 50
+                        targetZ = 50;
+                    end
+                    app.MachineBilletPos(3) = targetZ;
+                end
+
+                % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
+                minProjY = min([tL.y; tR.y]);
+
+                % We need the absolute Y of the wire to be > 50mm
+                % Absolute Y = minProjY + Billet_Y. Therefore: Billet_Y >= 50 - minProjY
+                reqBilletY = max(50.0, 50.0 - minProjY);
+
+                % Snap to the nearest 50mm multiple
+                targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
+
+                % Cap at machine max depth
+                bedD = app.MachineBedSize(2);
+                bY = app.BilletSize(2);
+                maxY = app.MachineBedPos(2) + bedD - bY;
+
+                app.MachineBilletPos(2) = min(targetBilletY, maxY);
+            else
+                % Safe defaults if no profile is loaded
+                app.MachineBilletPos(2) = app.MachineBedPos(2);
+                app.MachineBilletPos(3) = 0;
+            end
+
+            % 3. Synchronize, Check Status, and Redraw
             app.syncMachineUI();
 
-            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
