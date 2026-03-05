@@ -1039,7 +1039,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '1. Position the stock material securely on the physical machine bed.';
                 '';
                 'X: Distance from the LEFT edge of the physical bed to the left face of the billet.';
+                ''
                 'Y: Distance from the front HOME position to the front face of the billet. (Must be >50mm as the sacrificial bed starts at 50mm).';
+                ''
                 'Z: Height from the bed surface to the bottom of the billet. (Raise by 50, 75, or 100mm to match standard stock packing if needed).';
                 '';
                 'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
@@ -3503,10 +3505,53 @@ classdef HotWireSTEPApp_v6_2 < handle
                     plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.0);
                     plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.0);
 
-                    % 4. SPECTRUM SYNC DOTS & WIRES
-                    step = max(1, floor(numel(tL.y)/20));
-                    idx = 1:step:numel(tL.y);
-                    if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
+                    % 4. SPECTRUM SYNC DOTS & WIRES (Smart Distribution)
+                    N_pts = numel(tL.y);
+                    idx = 1;
+                    last_idx = 1;
+
+                    % Target ~40 lines, but at least 10mm apart to prevent crowding
+                    total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
+                    target_spacing = max(10.0, total_len / 40.0);
+
+                    for i = 2:N_pts-1
+                        % Physical distance from the last drawn wire
+                        d = hypot(ySyncL(i) - ySyncL(last_idx), zSyncL(i) - zSyncL(last_idx));
+
+                        % Segment vectors and lengths
+                        v1 =[ ySyncL(i) - ySyncL(i-1), zSyncL(i) - zSyncL(i-1) ];
+                        v2 =[ ySyncL(i+1) - ySyncL(i), zSyncL(i+1) - zSyncL(i) ];
+                        n1 = norm(v1);
+                        n2 = norm(v2);
+
+                        % Turning angle at this specific point
+                        angle_deg = 0;
+                        if n1 > 1e-4 && n2 > 1e-4
+                            dp = dot(v1, v2) / (n1 * n2);
+                            angle_deg = acosd(max(-1, min(1, dp)));
+                        end
+
+                        % --- RULES FOR DRAWING A WIRE ---
+                        % 1. Spacing: Traveled far enough along a gentle curve or straight
+                        isSpaced = (d >= target_spacing);
+
+                        % 2. Sharpness: Sharp internal corner (> 15 deg)
+                        isSharp = (angle_deg > 15.0);
+
+                        % 3. Transition: Start/End of an external curve or straight.
+                        % Triggers if one segment is >1mm and at least 3x longer than the other.
+                        isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2));
+
+                        if isSpaced || isSharp || isTransition
+                            idx(end+1) = i;
+                            last_idx = i;
+                        end
+                    end
+
+                    % Always include the very last point
+                    idx(end+1) = N_pts;
+                    idx = unique(idx);
+
                     dotCMap = hsv(numel(idx));
 
                     bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
@@ -3515,11 +3560,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                     for k = 1:numel(idx)
                         currIdx = idx(k);
                         % WIRE COLOR FIX: Higher alpha (0.6) and adjusted base color
-                        wCol = [wireBaseCol, 0.60];
-                        if bad(currIdx), wCol = [1 0.8 0 0.8]; end % Yellow alert
+                        wCol = [ wireBaseCol, 0.60 ];
+                        if bad(currIdx), wCol = [ 1 0.8 0 0.8 ]; end % Yellow alert
 
                         % Wire
-                        plot3(ax, [-offX, mX-offX], [tL.y(currIdx), tR.y(currIdx)], [tL.z(currIdx), tR.z(currIdx)], ...
+                        plot3(ax, [ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ],[ tL.z(currIdx), tR.z(currIdx) ], ...
                             'Color', wCol, 'LineWidth', 0.8);
 
                         % Dots
