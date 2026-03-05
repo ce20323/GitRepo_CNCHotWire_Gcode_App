@@ -126,7 +126,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         TxtProfileGuide
         TxtBilletStatus
         TxtBilletGuide
-        BilletMessageLabel %remove later!
+        TxtMachineStatus
+        TxtMachineGuide
  
         % Background panels
         cutPanel; cutGrid               % Toggle switch containers
@@ -926,7 +927,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'This tab identifies what size billet is needed and positions the model within the billet.'
                 'Find the smallest scrap block in the cupboard that is just large enough to fit the model before trimming on the manual hot wire cutters.'
                 'You only need to leave a 4mm boundary/gap around the model in Y and Z.'
+                ''
                 '1. Use the auto-fit billet and position buttons!'
+                ''
                 '2. Adjust using the control blocks if needed.'
                 };
             app.TxtBilletGuide = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -978,12 +981,12 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.GLMachine = uigridlayout(app.TabMachine, [1 2]);
             app.GLMachine.ColumnWidth = {320, '1x'};
-            app.GLMachine.Padding = [10 10 10 10];
+            app.GLMachine.Padding =[10 10 10 10];
 
             % --- Left Control Panel ---
-            app.MachineLeftPanel = uigridlayout(app.GLMachine, [6 1]);
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit'};
-            app.MachineLeftPanel.Padding = [10 10 10 10];
+            app.MachineLeftPanel = uigridlayout(app.GLMachine, [8 1]);
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.MachineLeftPanel.Padding =[10 10 10 10];
             app.MachineLeftPanel.BackgroundColor = sideBg;
 
             % -- View --
@@ -1004,12 +1007,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblMAx = uilabel(gridMPlace, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol); lblMAx.Layout.Row=1;
             lblMPos = uilabel(gridMPlace, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol); lblMPos.Layout.Column=2;
 
-            mAxisLabels = {'X (Machine)','Y (Machine)','Z (Machine)'};
+            mAxisLabels = {'X (Left Bed Edge)','Y (Home Position)','Z (Bed Surface)'};
             mTooltips   = { ...
-                ["Distance from the left side of bed > left side of billet", "(Between left and right towers)"], ...
-                ["Distance from the front 'home' position > front of billet", "(Depth)","must be > 50mm"], ...
-                ["Distance from bed surface > bottom of billet", "(Z-Axis Height)"] ...
+                "Distance from the LEFT edge of the physical bed to the left face of the billet.", ...
+                "Distance from the front 'HOME' position to the front face of the billet.", ...
+                "Distance from the BED SURFACE to the bottom of the billet." ...
                 };
+
             app.MachinePosSpinners = gobjects(1,3);
             for i=1:3
                 lblMAxRow = uilabel(gridMPlace, 'Text',mAxisLabels{i}, 'FontColor',labelCol);
@@ -1019,22 +1023,40 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % -- Reset --
-            btnMReset = uibutton(app.MachineLeftPanel, 'Text','Reset Billet Position', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
+            btnMReset = uibutton(app.MachineLeftPanel, 'Text','Center on Bed', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
             btnMReset.Layout.Row = 3;
 
-            % -- Message --
-            app.MachineMessageLabel = uilabel(app.MachineLeftPanel, 'Text','Machine configuration valid.', 'WordWrap','on', 'FontWeight','bold', 'FontColor',[1 1 1], 'VerticalAlignment','top');
-            app.MachineMessageLabel.Layout.Row = 4;
+            % -- Guidance --
+            lbl_Mach_Guide = uilabel(app.MachineLeftPanel, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_Mach_Guide.Layout.Row = 4;
+
+            guideMach = {
+                '1. Position the stock material securely on the physical machine bed.';
+                '';
+                'X: Distance from the LEFT edge of the physical bed to the left face of the billet.';
+                'Y: Distance from the front HOME position to the front face of the billet. (Must be >50mm as the sacrificial bed starts at 50mm).';
+                'Z: Height from the bed surface to the bottom of the billet. (Raise by 50, 75, or 100mm to match standard stock packing if needed).';
+                '';
+                'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
+                };
+            app.TxtMachineGuide = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', guideMach, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtMachineGuide.Layout.Row = 5;
+
+            % -- Status --
+            lbl_Mach_Stat = uilabel(app.MachineLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_Mach_Stat.Layout.Row = 6;
+
+            app.TxtMachineStatus = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', [0.2 0.2 0.2], 'FontColor',[1 0.8 0]);
+            app.TxtMachineStatus.Layout.Row = 7;
 
             % -- Continue --
             app.BtnMachineContinue = uibutton(app.MachineLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnMachineContinue.Layout.Row = 6;
+            app.BtnMachineContinue.Layout.Row = 8;
 
             % --- Right Panel: 3D Machine Plot ---
             app.AxMachine = uiaxes(app.GLMachine); app.AxMachine.Layout.Column=2; app.AxMachine.BackgroundColor=[0.05 0.05 0.05];
             grid(app.AxMachine,'on'); view(app.AxMachine,3); hold(app.AxMachine,'on');
-
 
             % ===========================================================
             % TAB 5: CUTTING STRATEGY
@@ -1360,52 +1382,85 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % STATE & PROFILE HELPERS
         % ===========================================================
-        function [isValid, statusColor, msg] = checkMachineState(app)
+        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
             % Centralized Logic for Machine & Bed Safety
 
-            % 1. Defaults (Green)
-            isValid = true;
-            statusColor = app.getTheme().sideBg;
-            msg = "Machine configuration valid.";
-
-            % 2. Geometry
             bPos  = app.MachineBilletPos;
             bSize = app.BilletSize;
-            bMin = bPos; bMax = bPos + bSize;
+
+            bMin = bPos;
+            bMax = bPos + bSize;
 
             bedMin = app.MachineBedPos;
             bedMax = app.MachineBedPos + app.MachineBedSize;
 
-            % Limits (Construct ranges from Scalars)
-            limX = [0, app.MachineSpanX];
-            limY = [0, app.MachineLimitY]; % Scalar -> Range
             limZ = [0, app.MachineLimitZ];
 
-            % 3. Critical Checks (Red)
-            crit = strings(0);
-            if bMin(1) < limX(1) || bMax(1) > limX(2), crit(end+1)="Billet hits Towers (X)."; end
-            if bMin(2) < limY(1) || bMax(2) > limY(2), crit(end+1)="Billet exceeds Y-Travel."; end
-            if bMin(3) < limZ(1) || bMax(3) > limZ(2), crit(end+1)="Billet exceeds Z-Travel."; end
-
-            % Check Bed Support
-            if bMin(1) < bedMin(1) || bMax(1) > bedMax(1), crit(end+1)="Billet overhangs Bed (X)."; end
-            if bMin(2) < bedMin(2) || bMax(2) > bedMax(2), crit(end+1)="Billet overhangs Bed (Y)."; end
-
-            if ~isempty(crit)
-                isValid = false; statusColor = [0.3 0.1 0.1]; msg = "CRITICAL: " + crit(1); return;
+            if app.UIFigure.Color(1) < 0.5
+                panelBg =[0.16 0.16 0.16];
+            else
+                panelBg =[0.94 0.94 0.94];
             end
 
-            % 4. Warning Checks (Amber)
-            warn = strings(0);
-            buf  = app.SafetyBuffer_BedEdge;
+            % Critical Checks (Red)
+            crit = strings(0);
 
-            if (bMin(1)-bedMin(1) < buf) || (bedMax(1)-bMax(1) < buf) || ...
-                    (bMin(2)-bedMin(2) < buf) || (bedMax(2)-bMax(2) < buf)
-                warn(end+1) = sprintf("Billet close (<%.0fmm) to bed edge.", buf);
+            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1
+                crit(end+1) = "Billet overhangs Bed (X).";
+            end
+
+            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1
+                crit(end+1) = "Billet overhangs Bed (Y).";
+            end
+
+            if bMin(3) < 0 - 0.1
+                crit(end+1) = "Billet below bed surface (Z < 0).";
+            end
+
+            if bMax(3) > limZ(2) + 0.1
+                crit(end+1) = "Billet exceeds max Z travel.";
+            end
+
+            if ~isempty(crit)
+                isValid = false;
+                panelCol =[0.4 0.16 0.16];
+                textCol =[1 0.4 0.4];
+                msgLines = ["CRITICAL ERROR:"; crit'];
+                return;
+            end
+
+            % Warning Checks (Amber)
+            warn = strings(0);
+            buf = app.SafetyBuffer_BedEdge;
+
+            if (bMin(1) - bedMin(1) < buf)
+                warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf);
+            end
+
+            if (bedMax(1) - bMax(1) < buf)
+                warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
+                % FIX: Taper warning for brass fitting
+                if strcmp(app.TaperToggle.Value, 'Tapered')
+                    warn(end+1) = "TAPER WARNING: Brass wire fixture may hit right tower.";
+                end
+            end
+
+            % Front edge Y=50 is ok (bedMin(2)), so we skip checking it.
+            % Back edge check only:
+            if (bedMax(2) - bMax(2) < buf)
+                warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf);
             end
 
             if ~isempty(warn)
-                isValid = true; statusColor = [0.3 0.25 0.1]; msg = "Warning: " + warn(end);
+                isValid = true;
+                panelCol =[0.45 0.35 0.1];
+                textCol =[1 0.8 0.4]; % Amber Text
+                msgLines =["Warning: Proximity to bed edge."; warn'];
+            else
+                isValid = true;
+                panelCol = panelBg;
+                textCol = [0.4 1 0.4]; % Green Text
+                msgLines = ["Machine configuration valid.", "Ready to proceed."];
             end
         end
 
@@ -1621,9 +1676,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Update Status
             if ~isempty(yLoopL)
                 app.TxtProfileStatus.Value = {
-                    sprintf('Profiles extracted.'),
-                    sprintf('Left: %d pts', numel(yLoopL)),
-                    sprintf('Right: %d pts', numel(yLoopR)),
+                    sprintf('Profiles extracted.');
+                    sprintf('Left: %d pts', numel(yLoopL));
+                    sprintf('Right: %d pts', numel(yLoopR));
                     'Ready to apply Kerf.'
                     };
                 app.TxtProfileStatus.FontColor = [1 1 1]; % White
@@ -1880,11 +1935,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.refreshBilletPlots();
 
             elseif targetTab == app.TabMachine
-                % Validate state on entry
-                [isValid, col, txt] = app.checkMachineState();
-                app.MachineLeftPanel.BackgroundColor = col;
-                app.MachineMessageLabel.Text = txt;
-                if isValid, app.MachineMessageLabel.FontColor=[1 1 1]; else, app.MachineMessageLabel.FontColor=[1 0.4 0.4]; end
+                app.syncMachineUI(); % Ensures limits apply
+
+                [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+                app.MachineLeftPanel.BackgroundColor = pCol;
+                app.TxtMachineStatus.Value = txtLines;
+                app.TxtMachineStatus.FontColor = tCol;
+
+                if isValid
+                    app.BtnMachineContinue.Enable = 'on';
+                else
+                    app.BtnMachineContinue.Enable = 'off';
+                end
 
                 app.refreshMachinePlot();
 
@@ -2649,7 +2711,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.TabGroup.SelectedTab = app.TabMachine;
 
                 % 3. Explicitly refresh the machine simulation
-                app.syncMachineUI();
+                app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
+                app.MachineLeftPanel.BackgroundColor = pCol;
+                app.TxtMachineStatus.Value = txtLines;
+                app.TxtMachineStatus.FontColor = tCol;
+
                 app.refreshMachinePlot();
 
             elseif currTab == app.TabMachine
@@ -2661,7 +2727,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.onAutoEntry();
 
                 app.updateCuttingPlots();
-                app.onResetCuttingViewBillet();;
+                app.onResetCuttingViewBillet();
 
             elseif currTab == app.TabCutting
                 % Leave Cutting -> Enter Simulation
@@ -2965,11 +3031,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
-            % 2D Line Style
-            outlineCol = 'k--'; if isDark, outlineCol = 'w--'; end
+            % Style Settings
+            outlineStyle = '--';
+            outlineColor = 'k';
+            if isDark, outlineColor = 'w'; end
 
-            % 3D Edge Color (Explicit for Patch)
-            edgeCol = 'k'; if isDark, edgeCol = 'w'; end
+            % Match Model Appearance across all views
+            modelColor = [0.5 0.5 0.6];
+            modelAlpha = 0.4;
 
             % 2. Calculate Global Bounding Box (Union of Billet & Model)
             V_shifted = V + shift;
@@ -2990,59 +3059,63 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 3. Plot
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            % Pairs: [X Y], [X Z], [Y Z], [3D]
             dims = {[1 2], [1 3], [2 3], [1 2 3]};
             labs = {
-                {'X (mm)','Y (mm)'},
-                {'X (mm)','Z (mm)'},
-                {'Y (mm)','Z (mm)'},
+                {'X (mm)','Y (mm)'};
+                {'X (mm)','Z (mm)'};
+                {'Y (mm)','Z (mm)'};
                 {'X','Y','Z'}
                 };
 
             for i = 1:4
                 ax = axs{i}; d = dims{i};
 
-                % Check handle validity
                 if isempty(ax) || ~isgraphics(ax), continue; end
 
                 cla(ax); hold(ax,'on');
 
                 if i < 4
-                    % 2D Views
+                    % --- 2D ORTHOGRAPHIC VIEWS ---
+                    % Draw Billet Rectangle
                     bx = [0 bSize(d(1)) bSize(d(1)) 0 0];
                     by = [0 0 bSize(d(2)) bSize(d(2)) 0];
-                    plot(ax, bx, by, outlineCol, 'LineWidth', 1.5);
+                    plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
 
+                    % Draw Model Projection
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
-                        'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
+                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
                 else
-                    % 3D Iso View
+                    % --- 3D ISO VIEW ---
+                    % Draw Billet Box (Wireframe)
                     [bx, by, bz] = app.makeBoxVertices(0,0,0, bSize(1), bSize(2), bSize(3));
 
-                    % Draw Billet Box (Match 2D style: Dashed, Contrast Color)
+                    % Use patch for 3D box edges
                     patch(ax, 'Vertices',[bx,by,bz], 'Faces', app.boxFaces, ...
                         'FaceColor', 'none', ...
-                        'EdgeColor', edgeCol, ...
-                        'LineStyle', '--', ...
+                        'EdgeColor', outlineColor, ...
+                        'LineStyle', outlineStyle, ...
                         'LineWidth', 1.5);
 
-                    % Draw Model (Match 2D style: 0.4 Alpha)
+                    % Draw Model (3D)
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
-                        'FaceColor', [0.5 0.5 0.6], 'EdgeColor', 'none', 'FaceAlpha', 0.4);
+                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
 
+                    % Standard 3D View settings
                     view(ax, 3);
-                    camlight(ax,'headlight'); lighting(ax,'gouraud');
+                    % REMOVED: camlight / lighting gouraud
+                    % keeping it flat shaded matches the 2D views perfectly
                 end
 
-                % Apply Scaling
+                % Apply Common Styling
                 axis(ax, 'equal');
                 grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
 
-                if i==1, xlim(ax, commonX); ylim(ax, commonY); end % Top
-                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end % Front
-                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end % Right
-                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end % Iso
+                % Apply synced limits
+                if i==1, xlim(ax, commonX); ylim(ax, commonY); end
+                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
+                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
+                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
 
                 xlabel(ax, labs{i}{1});
                 ylabel(ax, labs{i}{2});
@@ -3060,24 +3133,22 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onMachinePosEdited(app, axisIdx, src)
             val = src.Value;
             if axisIdx == 1
-                % Input is Bed-Relative -> Store Absolute
                 app.MachineBilletPos(1) = app.MachineBedPos(1) + val;
             else
-                % Input is Absolute
                 app.MachineBilletPos(axisIdx) = val;
             end
 
-            % Validation
-            [isValid, col, txt] = app.checkMachineState();
+            app.syncMachineUI();
 
-            app.MachineLeftPanel.BackgroundColor = col;
-            app.MachineMessageLabel.Text = txt;
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
 
             if isValid
-                app.MachineMessageLabel.FontColor = [1 1 1];
                 app.BtnMachineContinue.Enable = 'on';
             else
-                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
                 app.BtnMachineContinue.Enable = 'off';
             end
 
@@ -3085,19 +3156,18 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetMachineBilletPosition(app)
-            if isempty(app.ModelPatch), return; end
+            if isempty(app.ModelPatch)
+                return;
+            end
 
-            % 1. X-Center Logic
-            mSpanX = app.MachineSpanX;
-            app.MachineBilletPos(1) = (mSpanX - app.BilletSize(1)) / 2;
+            % 1. X-Center Logic (Center strictly on the Bed, not the machine span)
+            mBedX = app.MachineBedSize(1);
+            app.MachineBilletPos(1) = app.MachineBedPos(1) + (mBedX - app.BilletSize(1)) / 2;
 
-            % 2. Y-Default Logic (50mm from home)
-            currentMinY = app.ModelYMin + app.BilletShift(2);
-            targetY = app.MachineBedPos(2); % Front edge
-            app.MachineBilletPos(2) = round((targetY - currentMinY) / 10) * 10;
-            if app.MachineBilletPos(2) < targetY, app.MachineBilletPos(2) = targetY; end
+            % 2. Y-Default Logic (Snap to front edge)
+            app.MachineBilletPos(2) = app.MachineBedPos(2);
 
-            % 3. Z-Lift Logic
+            % 3. Z-Lift Logic (Default to sitting flush on bed)
             app.MachineBilletPos(3) = 0;
 
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
@@ -3114,6 +3184,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.MachineSpanX);
 
                 minProjZ = min([tL.z; tR.z]);
+
                 if minProjZ < 5
                     app.MachineBilletPos(3) = abs(minProjZ) + 5;
                 end
@@ -3121,16 +3192,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.syncMachineUI();
 
-            % Validation
-            [isValid, col, txt] = app.checkMachineState();
-            app.MachineLeftPanel.BackgroundColor = col;
-            app.MachineMessageLabel.Text = txt;
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
+
             if isValid
                 app.BtnMachineContinue.Enable = 'on';
-                app.MachineMessageLabel.FontColor = [1 1 1];
             else
                 app.BtnMachineContinue.Enable = 'off';
-                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
             end
 
             app.refreshMachinePlot();
@@ -3381,24 +3452,59 @@ classdef HotWireSTEPApp_v6_2 < handle
             zlim(ax, [-bs(3)-20, mLimZ + 80]);
 
             % --- 8. STATUS UPDATE ---
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+
             if isViolated
-                app.MachineMessageLabel.Text = 'CRITICAL: Tower travel exceeds physical limits!';
-                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
-                app.MachineLeftPanel.BackgroundColor = [0.4 0.16 0.16];
-                app.BtnMachineContinue.Enable = 'off';
-            else
-                app.MachineMessageLabel.Text = 'Machine configuration valid.';
-                app.MachineMessageLabel.FontColor = [0.4 1 0.4];
-                app.MachineLeftPanel.BackgroundColor = t.sideBg;
+                isValid = false;
+                pCol =[0.4 0.16 0.16];
+                tCol =[1 0.4 0.4];
+                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
+            end
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
+
+            if isValid
                 app.BtnMachineContinue.Enable = 'on';
+            else
+                app.BtnMachineContinue.Enable = 'off';
             end
             drawnow limitrate;
         end
 
         function syncMachineUI(app)
-            % X is relative to bed left edge
-            app.MachinePosSpinners(1).Value = app.MachineBilletPos(1) - app.MachineBedPos(1);
-            % Y and Z are machine absolute
+            % Enforces physical boundaries directly on the Spinners
+
+            bX = app.BilletSize(1);
+            bY = app.BilletSize(2);
+            bZ = app.BilletSize(3);
+
+            bedX = app.MachineBedPos(1);
+            bedY = app.MachineBedPos(2);
+            bedW = app.MachineBedSize(1);
+            bedD = app.MachineBedSize(2);
+
+            % X is relative to bed left edge. Max = Bed Width - Billet Width
+            maxX = max(0, bedW - bX);
+            app.MachinePosSpinners(1).Limits = [0, maxX];
+
+            % Y is absolute. Min = Bed Front, Max = Bed Depth - Billet Depth
+            minY = bedY;
+            maxY = max(minY, bedY + bedD - bY);
+            app.MachinePosSpinners(2).Limits = [minY, maxY];
+
+            % Z is absolute (Bed surface is 0). Max = Tower Limit - Billet Height
+            maxZ = max(0, app.MachineLimitZ - bZ);
+            app.MachinePosSpinners(3).Limits = [0, maxZ];
+
+            % Clamp absolute positions to ensure safety
+            app.MachineBilletPos(1) = max(bedX, min(bedX + maxX, app.MachineBilletPos(1)));
+            app.MachineBilletPos(2) = max(minY, min(maxY, app.MachineBilletPos(2)));
+            app.MachineBilletPos(3) = max(0, min(maxZ, app.MachineBilletPos(3)));
+
+            % Map back to UI
+            app.MachinePosSpinners(1).Value = app.MachineBilletPos(1) - bedX;
             app.MachinePosSpinners(2).Value = app.MachineBilletPos(2);
             app.MachinePosSpinners(3).Value = app.MachineBilletPos(3);
         end
