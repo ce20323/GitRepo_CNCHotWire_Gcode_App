@@ -640,6 +640,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
                 'Step',0.01, ...
                 'ValueDisplayFormat','%.2f', ...
+                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ... 
                 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
 
@@ -692,6 +693,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',app.KerfLeftValue, ...
                 'Step',0.1, 'ValueDisplayFormat','%.2f', ...
+                'Tooltip', 'Offset distance = Kerf/2', ... 
                 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
 
@@ -732,8 +734,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '3. Check both profiles look correct, then click Continue.'
                 ''
                 'TIP: Kerf is the width of cut made by a tool or machine.'
+                ''
                 '- For a hot wire cutter, kerf depends mainly on wire power and feed rate (and can vary with material).'
+                ''
                 '- An offset must be applied to the profile to compensate.'
+                ''
                 'Note: the offset distance applied is half the kerf value (Kerf/2).'
                 };
 
