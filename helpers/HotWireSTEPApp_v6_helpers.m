@@ -467,28 +467,80 @@ classdef HotWireSTEPApp_v6_helpers
             end
         end
 
-        function [y, z] = reorderLoopByMinY(y, z)
+        function [yOut, zOut] = reorderLoopByMinY(y, z)
             % 1. Force to Column Vectors
-            y = y(:); z = z(:);
+            y = y(:);
+            z = z(:);
 
             % 2. Remove tailing point duplicate for math
             if numel(y) > 1 && abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                ytemp = y(1:end-1); ztemp = z(1:end-1);
-            else
-                ytemp = y; ztemp = z;
+                y(end) = [];
+                z(end) =[];
             end
 
-            % 3. Find Geometric Centroid
-            cy = mean(ytemp);
-            [~, startIdx] = min(ytemp - cy);
+            if numel(y) < 3
+                yOut = y;
+                zOut = z;
+                return;
+            end
 
-            % 4. Reorder (Using SEMICOLON for vertical concatenation)
-            y = [ytemp(startIdx:end); ytemp(1:startIdx-1)];
-            z = [ztemp(startIdx:end); ztemp(1:startIdx-1)];
+            % 3. Find Geometric Centroid in Z and Front Face (min Y)
+            cz = mean(z);
+            minY = min(y);
 
-            % 5. Force exact closure
-            y(end+1) = y(1);
-            z(end+1) = z(1);
+            % 4. Check for intersections with Z = cz along the front face
+            N = numel(y);
+            insert_idx = -1;
+            best_yi = inf;
+
+            for i = 1:N
+                i_next = mod(i, N) + 1;
+                z1 = z(i);
+                z2 = z(i_next);
+                y1 = y(i);
+                y2 = y(i_next);
+
+                % Does segment cross centroid Z?
+                if (z1 - cz) * (z2 - cz) <= 0 && z1 ~= z2
+                    t = (cz - z1) / (z2 - z1);
+                    yi = y1 + t * (y2 - y1);
+
+                    % Is it on the front face? (within a 0.01mm tolerance)
+                    if abs(yi - minY) < 1e-2
+                        insert_idx = i;
+                        best_yi = yi;
+                        break; % Found a great injection point
+                    end
+                end
+            end
+
+            % 5. Reorder or Inject
+            if insert_idx > 0
+                % INJECT: Split the front face and insert a point exactly at the Z-centroid!
+                y_new =[ y(1:insert_idx); best_yi; y(insert_idx+1:end) ];
+                z_new =[ z(1:insert_idx); cz; z(insert_idx+1:end) ];
+
+                startIdx = insert_idx + 1;
+                yOut =[ y_new(startIdx:end); y_new(1:startIdx-1) ];
+                zOut =[ z_new(startIdx:end); z_new(1:startIdx-1) ];
+            else
+                % FALLBACK: Find existing points on the front face, pick the one closest to cz
+                front_indices = find(abs(y - minY) < 1e-3);
+
+                if isempty(front_indices)
+                    [ ~, startIdx ] = min(y);
+                else
+                    [ ~, local_idx ] = min(abs(z(front_indices) - cz));
+                    startIdx = front_indices(local_idx);
+                end
+
+                yOut =[ y(startIdx:end); y(1:startIdx-1) ];
+                zOut =[ z(startIdx:end); z(1:startIdx-1) ];
+            end
+
+            % 6. Force exact closure
+            yOut(end+1) = yOut(1);
+            zOut(end+1) = zOut(1);
         end
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB, bufferY, bufferZ)

@@ -1700,86 +1700,96 @@ classdef HotWireSTEPApp_v6_2 < handle
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
             % Draw 2D Y–Z profiles on the Profiles tab with shared scaling.
 
-            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) ...
-                    || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
                 return;
             end
 
-            % If no profiles, nothing to show
             if isempty(yL) && isempty(yR)
                 return;
             end
 
             % Axis limits
-            yAll = [yL(:); yR(:)]; zAll = [zL(:); zR(:)];
-            if isempty(yAll) || isempty(zAll), return; end
+            yAll = [yL(:); yR(:)];
+            zAll = [zL(:); zR(:)];
+            if isempty(yAll) || isempty(zAll)
+                return;
+            end
 
             yMin = min(yAll); yMax = max(yAll);
             zMin = min(zAll); zMax = max(zAll);
             dy = max(yMax - yMin, 1); dz = max(zMax - zMin, 1);
             padY = 0.1 * dy; padZ = 0.1 * dz;
-            yLim = [yMin - padY, yMax + padY]; zLim = [zMin - padZ, zMax + padZ];
+            yLim = [yMin - padY, yMax + padY];
+            zLim =[zMin - padZ, zMax + padZ];
 
             t = app.getTheme();
             app.clearProfiles2D();
 
-            % Initialize Counters for Label
-            nLk = 0; nRk = 0;
+            % --- 1. DETERMINE FINAL PROFILES (Raw or Kerfed) ---
+            final_yL = yL;
+            final_zL = zL;
+            final_yR = yR;
+            final_zR = zR;
 
-            % ----- LEFT AXIS -----
+            doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
+            doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
+
+            if doKerfL
+                [final_yL, final_zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+            end
+
+            if doKerfR[final_yR, final_zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            end
+
+            % --- 2. SYNC POINT COUNTS UNIVERSALLY ---
+            % Always sync the final shapes so the UI exactly matches the Simulation.
+            if ~isempty(final_yL) && ~isempty(final_yR)[final_yL, final_zL, final_yR, final_zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+            end
+
+            nLk = numel(final_yL);
+            nRk = numel(final_yR);
+
+            % --- 3. DRAW PLOTS ---
+            % LEFT
             hold(app.AxLeftProfile,'on');
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), ...
-                    'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
             end
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
             end
-
-            % Left Kerf Calc & Plot
-            kL = app.KerfLeftValue;
-            if app.KerfEnabled && ~isempty(yL) && kL ~= 0
-                [yKerfL, zKerfL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
-                app.LeftKerf2DLine = plot(app.AxLeftProfile, yKerfL, zKerfL, 'Color', t.wireKerf, 'LineWidth',0.75);
-                nLk = numel(yKerfL);
+            if doKerfL && ~isempty(final_yL)
+                app.LeftKerf2DLine = plot(app.AxLeftProfile, final_yL, final_zL, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxLeftProfile,'off');
 
-            % ----- RIGHT AXIS -----
+            % RIGHT
             hold(app.AxRightProfile,'on');
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), ...
-                    'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
             end
             if ~isempty(yR)
                 app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
             end
-
-            % Right Kerf Calc & Plot
-            kR = app.KerfRightValue;
-            if app.KerfEnabled && ~isempty(yR) && kR ~= 0
-                [yKerfR, zKerfR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
-                app.RightKerf2DLine = plot(app.AxRightProfile, yKerfR, zKerfR, 'Color', t.wireKerf, 'LineWidth',0.75);
-                nRk = numel(yKerfR);
+            if doKerfR && ~isempty(final_yR)
+                app.RightKerf2DLine = plot(app.AxRightProfile, final_yR, final_zR, 'Color', t.wireKerf, 'LineWidth',0.75);
             end
             hold(app.AxRightProfile,'off');
 
-            % ----- UPDATE LABEL (Dynamic) -----
+            % --- 4. UPDATE LABEL ---
             if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
                 app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nLk, nRk);
             end
 
             % ----- LEGENDS & VIEW -----
-            % Left Legend
             hL = gobjects(0); txtL = {};
             if isgraphics(app.LeftProfile2DMeshLine), hL(end+1)=app.LeftProfile2DMeshLine; txtL{end+1}='Model mesh slice'; end
             if isgraphics(app.LeftProfile2DLine), hL(end+1)=app.LeftProfile2DLine; txtL{end+1}='Extracted profile'; end
             if isgraphics(app.LeftKerf2DLine), hL(end+1)=app.LeftKerf2DLine; txtL{end+1}='Kerf path'; end
             if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; end
 
-            % Right Legend
             hR = gobjects(0); txtR = {};
             if isgraphics(app.RightProfile2DMeshLine), hR(end+1)=app.RightProfile2DMeshLine; txtR{end+1}='Model mesh slice'; end
             if isgraphics(app.RightProfile2DLine), hR(end+1)=app.RightProfile2DLine; txtR{end+1}='Extracted profile'; end
@@ -1790,11 +1800,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
                 xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
             end
-            daspect(app.AxLeftProfile, [1 1 1]); daspect(app.AxRightProfile,[1 1 1]);
+            daspect(app.AxLeftProfile, [1 1 1]);
+            daspect(app.AxRightProfile,[1 1 1]);
 
             title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value));
             title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value));
-            grid(app.AxLeftProfile,'on'); grid(app.AxRightProfile,'on');
+            grid(app.AxLeftProfile,'on');
+            grid(app.AxRightProfile,'on');
         end
 
         function resetProfilesView(app)
@@ -3672,185 +3684,243 @@ classdef HotWireSTEPApp_v6_2 < handle
         % CUTTING TAB LOGIC
         % ===========================================================
         function updateCuttingPlots(app)
-            % Visualizes the data on the Cutting Tab.
-
-            if isempty(app.AxCutLeft) || isempty(app.AxCutRight), return; end
-
+            if isempty(app.AxCutLeft) || isempty(app.AxCutRight)
+                return;
+            end
             t = app.getTheme();
 
-            % 1. View Persistence
             preserveView = true;
             curXL = xlim(app.AxCutLeft);
-            isInitialized = ~isequal(curXL, [0 1]);
+            isInitialized = ~isequal(curXL, [ 0 1 ]);
 
-            limsL = []; limsR = [];
+            limsL = [];
+            limsR = [];
             if isInitialized
-                limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
-                limsR = [xlim(app.AxCutRight); ylim(app.AxCutRight)];
+                limsL =[ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
+                limsR =[ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
             end
 
-            cla(app.AxCutLeft); cla(app.AxCutRight);
-            hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
+            cla(app.AxCutLeft);
+            cla(app.AxCutRight);
+            hold(app.AxCutLeft,'on');
+            hold(app.AxCutRight,'on');
 
-            % 2. Setup
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % 3. Backgrounds
-            bedY=[50,750,750,50]; bedZ=[-20,-20,0,0];
-            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha',0.1, 'EdgeColor','none', 'HitTest','off');
-            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha',0.1, 'EdgeColor','none', 'HitTest','off');
+            bedY =[ 50, 750, 750, 50 ];
+            bedZ =[ -20, -20, 0, 0 ];
+            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
+            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
 
-            mBoxY=[0,app.MachineLimitY,app.MachineLimitY,0,0]; mBoxZ=[0,0,app.MachineLimitZ,app.MachineLimitZ,0];
-            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color',t.labelCol, 'LineWidth',0.5, 'HitTest','off');
-            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color',t.labelCol, 'LineWidth',0.5, 'HitTest','off');
+            mBoxY =[ 0, app.MachineLimitY, app.MachineLimitY, 0, 0 ];
+            mBoxZ =[ 0, 0, app.MachineLimitZ, app.MachineLimitZ, 0 ];
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
 
-            bY=app.MachineBilletPos(2); bZ=app.MachineBilletPos(3); bW=app.BilletSize(2); bH=app.BilletSize(3);
-            boxY=[bY, bY+bW, bY+bW, bY, bY]; boxZ=[bZ, bZ, bZ+bH, bZ+bH, bZ];
-            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color',t.labelCol, 'LineWidth',1.5, 'HitTest','off');
-            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color',t.labelCol, 'LineWidth',1.5, 'HitTest','off');
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2);
+            bH = app.BilletSize(3);
+            boxY =[ bY, bY+bW, bY+bW, bY, bY ];
+            boxZ =[ bZ, bZ, bZ+bH, bZ+bH, bZ ];
+            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
+            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
 
-            % 4. Process Data (FIX: Uses Distinct L/R Kerf Values)
-            [yL, zL, hGhostL] = app.preparePlotData(app.AxCutLeft, app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfLeftValue);
+            % --- BASE SYNCED PROFILES ---
+            syncY_L = []; syncZ_L = [];
+            syncY_R =[]; syncZ_R =[];
+            hGhostL = gobjects(0);
+            hGhostR = gobjects(0);
 
-            [yR, zR, hGhostR] = app.preparePlotData(app.AxCutRight, app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfRightValue);
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                rYL = app.LeftProfilePoints(:,2);
+                rZL = app.LeftProfilePoints(:,3);
+                rYR = app.RightProfilePoints(:,2);
+                rZR = app.RightProfilePoints(:,3);
 
-            % 5. Draw
+                hGhostL = plot(app.AxCutLeft, rYL+offsetY, rZL+offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
+                hGhostR = plot(app.AxCutRight, rYR+offsetY, rZR+offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
+
+                yLk = rYL; zLk = rZL;
+                yRk = rYR; zRk = rZR;
+                if app.KerfEnabled
+                    if app.KerfLeftValue ~= 0
+                        [ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
+                    end
+                    if app.KerfRightValue ~= 0
+                        [ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                    end
+                end
+
+                [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
+            end
+
+            % Local Mod function
+            function [ yo, zo ] = localApplyMods(yi, zi, startIdx, ccw)
+                if numel(yi) > 2
+                    if abs(yi(1)-yi(end)) < 1e-6 && abs(zi(1)-zi(end)) < 1e-6
+                        yi(end) =[];
+                        zi(end) =[];
+                    end
+                    N = numel(yi);
+                    idx = max(1, min(startIdx, N));
+                    yo = circshift(yi, -(idx - 1));
+                    zo = circshift(zi, -(idx - 1));
+                    if ccw
+                        yo(2:end) = flipud(yo(2:end));
+                        zo(2:end) = flipud(zo(2:end));
+                    end
+                    yo(end+1) = yo(1);
+                    zo(end+1) = zo(1);
+                else
+                    yo = yi;
+                    zo = zi;
+                end
+            end
+
+            yL = []; zL = []; yR = []; zR =[];
+
+            if ~isempty(syncY_L)
+                [ yL, zL ] = localApplyMods(syncY_L, syncZ_L, app.SelectedStartIdxL, isCCW);
+                yL = yL + offsetY;
+                zL = zL + offsetZ;
+            end
+
+            if ~isempty(syncY_R)
+                [ yR, zR ] = localApplyMods(syncY_R, syncZ_R, app.SelectedStartIdxR, isCCW);
+                yR = yR + offsetY;
+                zR = zR + offsetZ;
+            end
+
             function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
-                if nargin < 5, lWidth = 1.0; end
+                if nargin < 5
+                    lWidth = 1.0;
+                end
                 hD = plot(ax, NaN, NaN, style, 'Color', color, 'MarkerFaceColor', mFace, 'LineWidth', lWidth);
             end
 
-            hRapidL=gobjects(0); hLeadL=gobjects(0); hStartL=gobjects(0); hPathDummyL=gobjects(0); hEntryDotL=gobjects(0); hLoadL=gobjects(0);
+            hRapidL = gobjects(0); hLeadL = gobjects(0); hStartL = gobjects(0); hPathDummyL = gobjects(0); hEntryDotL = gobjects(0); hLoadL = gobjects(0);
 
             if ~isempty(yL)
-                c=(1:numel(yL))';
-                patch(app.AxCutLeft, 'XData',[yL;NaN], 'YData',[zL;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',1.0, 'HitTest','off');
-                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
-
-                [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft, [yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L);
+                c = (1:numel(yL))';
+                patch(app.AxCutLeft, 'XData',[ yL; NaN ], 'YData', [ zL; NaN ], 'CData', [ c; NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft,[ yL(1), zL(1) ],[ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L);
 
                 if numel(yL) > 1
                     idxNext = 2;
-                    while idxNext < numel(yL) && norm([yL(idxNext),zL(idxNext)] - [yL(1),zL(1)]) < 1e-4
+                    while idxNext < numel(yL) && norm([ yL(idxNext), zL(idxNext) ] - [ yL(1), zL(1) ]) < 1e-4
                         idxNext = idxNext + 1;
                     end
-                    app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)], [yL(idxNext), zL(idxNext)], 'start');
-                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
+                    app.drawRotatedMarker(app.AxCutLeft,[ yL(1), zL(1) ],[ yL(idxNext), zL(idxNext) ], 'start');
+                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^',[ 0 1 0 ], 'none');
                 end
             end
 
-            hRapidR=gobjects(0); hLeadR=gobjects(0); hStartR=gobjects(0); hPathDummyR=gobjects(0); hEntryDotR=gobjects(0); hLoadR=gobjects(0);
-            if ~isempty(yR)
-                c=(1:numel(yR))';
-                patch(app.AxCutRight, 'XData',[yR;NaN], 'YData',[zR;NaN], 'CData',[c;NaN], 'FaceColor','none', 'EdgeColor','interp', 'LineWidth',1.0, 'HitTest','off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-', [0 0.5 1], 'none', 1.0);
+            hRapidR = gobjects(0); hLeadR = gobjects(0); hStartR = gobjects(0); hPathDummyR = gobjects(0); hEntryDotR = gobjects(0); hLoadR = gobjects(0);
 
-                [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight, [yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R);
+            if ~isempty(yR)
+                c = (1:numel(yR))';
+                patch(app.AxCutRight, 'XData',[ yR; NaN ], 'YData',[ zR; NaN ], 'CData', [ c; NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight,[ yR(1), zR(1) ],[ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R);
 
                 if numel(yR) > 1
                     idxNext = 2;
-                    while idxNext < numel(yR) && norm([yR(idxNext),zR(idxNext)] - [yR(1),zR(1)]) < 1e-4
+                    while idxNext < numel(yR) && norm([ yR(idxNext), zR(idxNext) ] - [ yR(1), zR(1) ]) < 1e-4
                         idxNext = idxNext + 1;
                     end
-                    app.drawRotatedMarker(app.AxCutRight, [yR(1), zR(1)], [yR(idxNext), zR(idxNext)], 'start');
-                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [0 1 0], 'none');
+                    app.drawRotatedMarker(app.AxCutRight, [ yR(1), zR(1) ],[ yR(idxNext), zR(idxNext) ], 'start');
+                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [ 0 1 0 ], 'none');
                 end
             end
 
-            % 6. Legends
             labels = {'Start Point', 'Load Point', 'Cut Path', 'Rapid Links (Yellow)', 'Leads (Orange)', 'Entry Point', 'Machine Limits', 'Raw Profile'};
 
-            if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', [1 0.5 0], [1 0.5 0], 1.0); end
-            if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [1 0.5 0], [1 0.5 0], 1.0); end
+            if ~isgraphics(hEntryDotL)
+                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.',[ 1 0.5 0 ],[ 1 0.5 0 ], 1.0);
+            end
 
-            handlesL = [hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL];
+            if ~isgraphics(hEntryDotR)
+                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [ 1 0.5 0 ],[ 1 0.5 0 ], 1.0);
+            end
+
+            handlesL =[ hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL ];
             if any(isgraphics(handlesL))
-                lgd = legend(app.AxCutLeft, handlesL(isgraphics(handlesL)), labels(isgraphics(handlesL)), 'Location','northeast');
-                lgd.Box='off'; lgd.TextColor=t.labelCol;
+                lgd = legend(app.AxCutLeft, handlesL(isgraphics(handlesL)), labels(isgraphics(handlesL)), 'Location', 'northeast');
+                lgd.Box = 'off';
+                lgd.TextColor = t.labelCol;
             end
 
-            handlesR = [hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR];
+            handlesR =[ hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR ];
             if any(isgraphics(handlesR))
-                lgd = legend(app.AxCutRight, handlesR(isgraphics(handlesR)), labels(isgraphics(handlesR)), 'Location','northeast');
-                lgd.Box='off'; lgd.TextColor=t.labelCol;
+                lgd = legend(app.AxCutRight, handlesR(isgraphics(handlesR)), labels(isgraphics(handlesR)), 'Location', 'northeast');
+                lgd.Box = 'off';
+                lgd.TextColor = t.labelCol;
             end
 
-            % 7. Restore View
-            title(app.AxCutLeft,'Left Tower'); title(app.AxCutRight,'Right Tower');
-            colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
+            title(app.AxCutLeft, 'Left Tower');
+            title(app.AxCutRight, 'Right Tower');
+            colormap(app.AxCutLeft, 'turbo');
+            colormap(app.AxCutRight, 'turbo');
 
             if isInitialized
-                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
-                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
-                daspect(app.AxCutLeft,[1 1 1]); daspect(app.AxCutRight,[1 1 1]);
+                xlim(app.AxCutLeft, limsL(1,:));
+                ylim(app.AxCutLeft, limsL(2,:));
+                xlim(app.AxCutRight, limsR(1,:));
+                ylim(app.AxCutRight, limsR(2,:));
+                daspect(app.AxCutLeft,[ 1 1 1 ]);
+                daspect(app.AxCutRight, [ 1 1 1 ]);
             else
-                axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
+                axis(app.AxCutLeft, 'equal');
+                axis(app.AxCutRight, 'equal');
             end
         end
 
-        function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
-            % Prepares profile data:
-            % 1. Extracts raw coordinates
-            % 2. Plots "Ghost" (Raw) profile
-            % 3. Applies Kerf (if enabled)
-            % 4. Applies Offsets (Machine Position)
-            % 5. Applies Modifications (Start Point Shift, Direction Reverse)
-
-            y=[]; z=[]; hGhost=gobjects(0);
-            if isempty(pts), return; end
-
-            % 1. Setup Raw Data (Model Coordinates)
-            rawY = pts(:,2);
-            rawZ = pts(:,3);
-
-            % 2. Plot Ghost (Raw Profile in Machine Coords)
-            % We plot this BEFORE applying Kerf or Reordering, so it represents
-            % the "Reference Geometry" (the dotted line).
-            if ~isempty(ax) && isgraphics(ax)
-                gY = rawY + offY;
-                gZ = rawZ + offZ;
-                hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
+        function [yL, zL, yR, zR] = getSyncedKerfProfiles(app)
+            % Centralized Kerf & Sync logic to guarantee exact 1:1 topology
+            % BEFORE any user modifications (Start Index, Flip) are applied.
+            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                yL=[]; zL=[]; yR=[]; zR=[];
+                return;
             end
 
-            % 3. Apply Kerf (if enabled)
-            if doKerf
-                % Note: We pass app.ProfileTolerance to ensure the kerf offset
-                % doesn't generate 1000s of tiny points for corner arcs.
-                [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
+            yL = app.LeftProfilePoints(:,2); zL = app.LeftProfilePoints(:,3);
+            yR = app.RightProfilePoints(:,2); zR = app.RightProfilePoints(:,3);
+
+            if app.KerfEnabled
+                [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
-            % 4. Apply Machine Offsets (THIS WAS THE MISSING LINE)
-            % Transform from Model Relative -> Machine Absolute
-            y = rawY + offY;
-            z = rawZ + offZ;
+            [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+        end
 
-            % 5. Apply User Modifications (Start Point & Direction)
-            if numel(y) > 2
-                % A. Clean up duplicate end point
-                if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                    y(end)=[]; z(end)=[];
+        function [yOut, zOut] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
+            % Applies offsets, user start index, and direction to a synced array
+            if isempty(yIn)
+                yOut=[]; zOut=[]; return;
+            end
+            yOut = yIn + offY;
+            zOut = zIn + offZ;
+
+            if numel(yOut) > 2
+                if abs(yOut(1)-yOut(end)) < 1e-6 && abs(zOut(1)-zOut(end)) < 1e-6
+                    yOut(end)=[]; zOut(end)=[];
                 end
 
-                % B. Shift Start Point
-                % Ensure index is valid
-                N = numel(y);
+                N = numel(yOut);
                 idx = max(1, min(startIdx, N));
+                yOut = circshift(yOut, -(idx - 1));
+                zOut = circshift(zOut, -(idx - 1));
 
-                y = circshift(y, -(idx - 1));
-                z = circshift(z, -(idx - 1));
-
-                % C. Apply Cut Direction (CW/CCW)
-                % We keep the new Start Point (1), and flip the rest (2:end)
                 if isCCW
-                    y(2:end) = flipud(y(2:end));
-                    z(2:end) = flipud(z(2:end));
+                    yOut(2:end) = flipud(yOut(2:end));
+                    zOut(2:end) = flipud(zOut(2:end));
                 end
 
-                % D. Force Loop Closure
-                y(end+1) = y(1);
-                z(end+1) = z(1);
+                yOut(end+1) = yOut(1);
+                zOut(end+1) = zOut(1);
             end
         end
 
@@ -3967,55 +4037,76 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onCutAxesClick(app, ax, ~, side)
             cp = ax.CurrentPoint(1, 1:2);
-            clickY = cp(1); clickZ = cp(2);
+            clickY = cp(1);
+            clickZ = cp(2);
 
-            % --- CASE 1: SET START POINT ---
             if app.BtnPickStart.Value
+                if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                    return;
+                end
 
-                yData = []; zData = [];
+                yLk = app.LeftProfilePoints(:,2); zLk = app.LeftProfilePoints(:,3);
+                yRk = app.RightProfilePoints(:,2); zRk = app.RightProfilePoints(:,3);
+
+                if app.KerfEnabled
+                    if app.KerfLeftValue ~= 0[ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
+                    end
+                    if app.KerfRightValue ~= 0
+                        [ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                    end
+                end
+                [ yL_b, zL_b, yR_b, zR_b ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
+
+                if isempty(yL_b)
+                    return;
+                end
+
                 offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
                 offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
 
-                pts = [];
-                if strcmp(side, 'Left'), pts = app.LeftProfilePoints;
-                elseif strcmp(side, 'Right'), pts = app.RightProfilePoints; end
-
-                if ~isempty(pts)
-                    rawY = pts(:,2); rawZ = pts(:,3);
-                    if app.KerfEnabled
-                        % FIX: Pick specific value
-                        kVal = app.KerfLeftValue;
-                        if strcmp(side, 'Right'), kVal = app.KerfRightValue; end
-
-                        [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
-                    end
-                    yData = rawY + offsetY;
-                    zData = rawZ + offsetZ;
+                if strcmp(side, 'Left')
+                    yData = yL_b + offsetY;
+                    zData = zL_b + offsetZ;
+                else
+                    yData = yR_b + offsetY;
+                    zData = zR_b + offsetZ;
                 end
-
-                if isempty(yData), return; end
 
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
-                [~, minIdx] = min(distances);
+                [ ~, minIdx ] = min(distances);
 
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                    app.SelectedStartIdxL = minIdx; app.SelectedStartIdxR = minIdx;
+                    app.SelectedStartIdxL = minIdx;
+                    app.SelectedStartIdxR = minIdx;
                 else
-                    if strcmp(side, 'Left'), app.SelectedStartIdxL = minIdx; else, app.SelectedStartIdxR = minIdx; end
+                    if strcmp(side, 'Left')
+                        app.SelectedStartIdxL = minIdx;
+                    else
+                        app.SelectedStartIdxR = minIdx;
+                    end
                 end
 
-                % ... [Keep Entry 1/2 Logic same as before] ...
             elseif app.BtnPickEntry.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPointL = cp; app.EntryPointR = cp;
+                    app.EntryPointL = cp;
+                    app.EntryPointR = cp;
                 else
-                    if strcmp(side, 'Left'), app.EntryPointL = cp; else, app.EntryPointR = cp; end
+                    if strcmp(side, 'Left')
+                        app.EntryPointL = cp;
+                    else
+                        app.EntryPointR = cp;
+                    end
                 end
             elseif app.BtnPickEntry2.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPoint2L = cp; app.EntryPoint2R = cp;
+                    app.EntryPoint2L = cp;
+                    app.EntryPoint2R = cp;
                 else
-                    if strcmp(side, 'Left'), app.EntryPoint2L = cp; else, app.EntryPoint2R = cp; end
+                    if strcmp(side, 'Left')
+                        app.EntryPoint2L = cp;
+                    else
+                        app.EntryPoint2R = cp;
+                    end
                 end
             end
 
@@ -4039,116 +4130,143 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoStart(app)
-            % Finds the point with Minimum Y (Machine Front) and sets it as Start
-
-            % Helper to find min index of a profile
-            function idx = findMinYIndex(pts, kerfVal, doKerf, tol)
-                if isempty(pts), idx = 1; return; end
-                y = pts(:,2); z = pts(:,3);
-                if doKerf
-                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kerfVal, tol);
-                end
-                [~, idx] = min(y);
+            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                return;
             end
 
-            doKerf = app.KerfEnabled && app.KerfValue > 0; % Legacy check, but using L/R vals below
-            tol    = app.ProfileTolerance;
+            yLk = app.LeftProfilePoints(:,2);
+            zLk = app.LeftProfilePoints(:,3);
 
-            % FIX: Use L/R Values
-            idxL = findMinYIndex(app.LeftProfilePoints, app.KerfLeftValue, doKerf, tol);
-            app.SelectedStartIdxL = idxL;
+            yRk = app.RightProfilePoints(:,2);
+            zRk = app.RightProfilePoints(:,3);
 
-            idxR = findMinYIndex(app.RightProfilePoints, app.KerfRightValue, doKerf, tol);
-            app.SelectedStartIdxR = idxR;
+            if app.KerfEnabled
+                if app.KerfLeftValue ~= 0
+                    [ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
+                end
+                if app.KerfRightValue ~= 0[ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                end
+            end
 
-            disp(['Auto Start: Reset indices to nearest Machine Front (L=' num2str(idxL) ', R=' num2str(idxR) ')']);
+            [ yL_b, ~, yR_b, ~ ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
+
+            idxL = 1;
+            idxR = 1;
+
+            if ~isempty(yL_b)[ ~, idxL ] = min(yL_b);
+            end
+
+            if ~isempty(yR_b)
+                [ ~, idxR ] = min(yR_b);
+            end
+
+            % --- CRITICAL SYNC FIX ---
+            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
+                % Force Left and Right to shift by the exact same index!
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxL;
+            else
+                % Independent mode (Allows twisting if the user specifically requests it)
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxR;
+            end
+
             app.updateCuttingPlots();
         end
 
         function onAutoEntry(app)
-            % Calculates Auto Entry points.
-
-            % --- Nested Helper ---
-            function [e1, e2] = calcEntryLogic(pts, startIdx, billetMinY, doKerf, kVal, tol, useDual)
-                e1 = []; e2 = [];
-                if isempty(pts), return; end
-
-                y = pts(:,2); z = pts(:,3);
-
-                if doKerf
-                    % FIX: Pass Tolerance
-                    [y, z] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(y, z, kVal, tol);
-                end
-
-                N = numel(y);
-                if startIdx > N, startIdx = 1; end
-                if startIdx < 1, startIdx = 1; end
-
-                % 2. Identify Points
-                idxS = startIdx;
-                idxN = mod(startIdx, N) + 1;
-                idxP = mod(startIdx - 2, N) + 1;
-
-                S = [y(idxS), z(idxS)]; P = [y(idxP), z(idxP)]; N_pt = [y(idxN), z(idxN)];
-
-                % 3. Calculate Bisector
-                vSP = P - S; vSP = vSP / (norm(vSP)+eps);
-                vSN = N_pt - S; vSN = vSN / (norm(vSN)+eps);
-                vBisect = -(vSP + vSN);
-
-                if norm(vBisect) < 1e-6
-                    vTan = N_pt - P; vBisect = [vTan(2), -vTan(1)];
-                end
-                vBisect = vBisect / norm(vBisect);
-
-                % 4. Outward Check
-                testPt = S + vBisect * 0.5;
-                if inpolygon(testPt(1), testPt(2), y, z), vBisect = -vBisect; end
-
-                % 5. Project Target Point (15mm)
-                distT = 15;
-                targetPt = S + vBisect * distT;
-
-                if targetPt(2) < 5.0, targetPt(2) = 5.0; end
-
-                if useDual
-                    e2 = targetPt;
-                    retractY = billetMinY - 10;
-                    e1 = [retractY, e2(2)];
-                else
-                    e1 = targetPt;
-                    e2 = [];
-                end
+            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                return;
             end
 
-            doKerf = app.KerfEnabled; % General flag
-            tol    = app.ProfileTolerance;
+            yLk = app.LeftProfilePoints(:,2); zLk = app.LeftProfilePoints(:,3);
+            yRk = app.RightProfilePoints(:,2); zRk = app.RightProfilePoints(:,3);
+
+            if app.KerfEnabled
+                if app.KerfLeftValue ~= 0
+                    [ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
+                end
+                if app.KerfRightValue ~= 0
+                    [ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                end
+            end
+            [ yL_b, zL_b, yR_b, zR_b ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
+
+            if isempty(yL_b)
+                return;
+            end
+
             bMinY  = app.MachineBilletPos(2);
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             useDualMode = ~isempty(app.EntryPoint2L);
 
-            % --- LEFT (KerfLeftValue) ---
-            if ~isempty(app.LeftProfilePoints)
-                ptsL = app.LeftProfilePoints;
-                yL_shift = ptsL(:,2) + offsetY; zL_shift = ptsL(:,3) + offsetZ;
-                ptsL_shifted = [ptsL(:,1)*0, yL_shift, zL_shift];
+            function [ e1, e2 ] = calcEntryLogic(y, z, startIdx, billetMinY, useDual)
+                e1 = [];
+                e2 =[];
+                if isempty(y)
+                    return;
+                end
 
-                [e1L, e2L] = calcEntryLogic(ptsL_shifted, app.SelectedStartIdxL, bMinY, doKerf, app.KerfLeftValue, tol, useDualMode);
-                app.EntryPointL  = e1L; app.EntryPoint2L = e2L;
+                N = numel(y);
+                if startIdx > N || startIdx < 1
+                    startIdx = 1;
+                end
+
+                idxS = startIdx;
+                idxN = mod(startIdx, N) + 1;
+                idxP = mod(startIdx - 2, N) + 1;
+
+                S =[ y(idxS), z(idxS) ];
+                P =[ y(idxP), z(idxP) ];
+                N_pt = [ y(idxN), z(idxN) ];
+
+                vSP = P - S;
+                vSP = vSP / (norm(vSP)+eps);
+                vSN = N_pt - S;
+                vSN = vSN / (norm(vSN)+eps);
+                vBisect = -(vSP + vSN);
+
+                if norm(vBisect) < 1e-6
+                    vTan = N_pt - P;
+                    vBisect =[ vTan(2), -vTan(1) ];
+                end
+                vBisect = vBisect / norm(vBisect);
+
+                testPt = S + vBisect * 0.5;
+                if inpolygon(testPt(1), testPt(2), y, z)
+                    vBisect = -vBisect;
+                end
+
+                distT = 15;
+                targetPt = S + vBisect * distT;
+                if targetPt(2) < 5.0
+                    targetPt(2) = 5.0;
+                end
+
+                if useDual
+                    e2 = targetPt;
+                    e1 =[ billetMinY - 10, e2(2) ];
+                else
+                    e1 = targetPt;
+                end
             end
 
-            % --- RIGHT (KerfRightValue) ---
+            yL_shift = yL_b + offsetY;
+            zL_shift = zL_b + offsetZ;
+
+            [ e1L, e2L ] = calcEntryLogic(yL_shift, zL_shift, app.SelectedStartIdxL, bMinY, useDualMode);
+            app.EntryPointL  = e1L;
+            app.EntryPoint2L = e2L;
+
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                 app.EntryPointR  = app.EntryPointL;
                 app.EntryPoint2R = app.EntryPoint2L;
-            elseif ~isempty(app.RightProfilePoints)
-                ptsR = app.RightProfilePoints;
-                yR_shift = ptsR(:,2) + offsetY; zR_shift = ptsR(:,3) + offsetZ;
-                ptsR_shifted = [ptsR(:,1)*0, yR_shift, zR_shift];
-
-                [e1R, e2R] = calcEntryLogic(ptsR_shifted, app.SelectedStartIdxR, bMinY, doKerf, app.KerfRightValue, tol, useDualMode);
-                app.EntryPointR  = e1R; app.EntryPoint2R = e2R;
+            else
+                yR_shift = yR_b + offsetY;
+                zR_shift = zR_b + offsetZ;[ e1R, e2R ] = calcEntryLogic(yR_shift, zR_shift, app.SelectedStartIdxR, bMinY, useDualMode);
+                app.EntryPointR  = e1R;
+                app.EntryPoint2R = e2R;
             end
 
             app.updateCuttingPlots();
@@ -4286,9 +4404,80 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % FIX: Use KerfLeftValue and KerfRightValue explicitly
-            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints,  offsetY, offsetZ, app.SelectedStartIdxL, isCCW, t, app.KerfEnabled, app.KerfLeftValue);
-            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, isCCW, t, app.KerfEnabled, app.KerfRightValue);
+            % --- NEW PIPELINE: Kerf -> Sync -> Shift -> Machine Offset ---
+
+            % A. Extract Raw Profiles
+            rawYL = [];
+            rawZL =[];
+            rawYR = [];
+            rawZR =[];
+
+            if ~isempty(app.LeftProfilePoints)
+                rawYL = app.LeftProfilePoints(:,2);
+                rawZL = app.LeftProfilePoints(:,3);
+            end
+            if ~isempty(app.RightProfilePoints)
+                rawYR = app.RightProfilePoints(:,2);
+                rawZR = app.RightProfilePoints(:,3);
+            end
+
+            % B. Apply Kerf
+            yL_k = rawYL;
+            zL_k = rawZL;
+            yR_k = rawYR;
+            zR_k = rawZR;
+
+            if app.KerfEnabled
+                if app.KerfLeftValue ~= 0 && ~isempty(yL_k)
+                    [ yL_k, zL_k ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfLeftValue, app.ProfileTolerance);
+                end
+                if app.KerfRightValue ~= 0 && ~isempty(yR_k)
+                    [ yR_k, zR_k ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfRightValue, app.ProfileTolerance);
+                end
+            end
+
+            % C. Sync Topologies IMMEDIATELY
+            syncY_L = [];
+            syncZ_L = [];
+            syncY_R =[];
+            syncZ_R =[];
+
+            if ~isempty(yL_k) && ~isempty(yR_k)
+                [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
+            end
+
+            % D. Apply Shifts and Machine Offsets
+            function[ yo, zo ] = localApplyMods(yi, zi, startIdx, offY, offZ, ccw)
+                if numel(yi) > 2
+                    if abs(yi(1)-yi(end)) < 1e-6 && abs(zi(1)-zi(end)) < 1e-6
+                        yi(end) = [];
+                        zi(end) =[];
+                    end
+                    N = numel(yi);
+                    idx = max(1, min(startIdx, N));
+
+                    yo = circshift(yi, -(idx - 1));
+                    zo = circshift(zi, -(idx - 1));
+
+                    if ccw
+                        yo(2:end) = flipud(yo(2:end));
+                        zo(2:end) = flipud(zo(2:end));
+                    end
+
+                    yo(end+1) = yo(1);
+                    zo(end+1) = zo(1);
+                else
+                    yo = yi;
+                    zo = zi;
+                end
+
+                % Convert to Absolute Machine Space
+                yo = yo + offY;
+                zo = zo + offZ;
+            end
+
+            [ yL, zL ] = localApplyMods(syncY_L, syncZ_L, app.SelectedStartIdxL, offsetY, offsetZ, isCCW);
+            [ yR, zR ] = localApplyMods(syncY_R, syncZ_R, app.SelectedStartIdxR, offsetY, offsetZ, isCCW);
 
             % --- CRITICAL FIX: Guard against empty/degenerate profiles ---
             if isempty(yL) || isempty(yR)
@@ -4296,20 +4485,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % Sync Geometry (TRUTH for G-Code)
-            [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
-            app.ProfileSyncL = [yL(:), zL(:)];
-            app.ProfileSyncR = [yR(:), zR(:)];
+            % Assign Truth Geometry for G-Code (Already Perfectly Synced!)
+            app.ProfileSyncL = [ yL(:), zL(:) ];
+            app.ProfileSyncR = [ yR(:), zR(:) ];
 
             % --- Helper: Densify for Visual Smoothness (Visual Only) ---
             function [yD, zD] = densify(y, z, step)
-                if nargin < 3, step = 2.0; end % 2mm visual resolution
+                if nargin < 3
+                    step = 2.0;
+                end
                 d = [0; cumsum(hypot(diff(y), diff(z)))];
-                if d(end) < 1e-3, yD=y; zD=z; return; end
+                if d(end) < 1e-3
+                    yD=y;
+                    zD=z;
+                    return;
+                end
 
                 % Create dense grid
                 d_fine = (0:step:d(end))';
-                if d_fine(end) ~= d(end), d_fine = [d_fine; d(end)]; end
+                if d_fine(end) ~= d(end)
+                    d_fine = [d_fine; d(end)];
+                end
 
                 % Interpolate (Linear preserves corners, just adds dots between them)
                 [du, iu] = unique(d,'stable');
@@ -4319,30 +4515,48 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Helper for Segments
             function pts = mkRapid(e1, e2)
-                pZero=[0,0]; pSafe=[10,10];
+                pZero=[0,0];
+                pSafe=[10,10];
                 pLoad=[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
                 pRet=[pLoad(1)-10, pLoad(2)];
                 pts=[pZero; pSafe; pLoad; pRet];
-                if ~isempty(e1), pts=[pts; e1]; end
-                if ~isempty(e2), pts=[pts; e2]; end
+
+                if ~isempty(e1)
+                    pts=[pts; e1];
+                end
+                if ~isempty(e2)
+                    pts=[pts; e2];
+                end
             end
 
             function pts = mkLeadIn(start, e1, e2)
                 pRet=[app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2];
-                if ~isempty(e2), last=e2; elseif ~isempty(e1), last=e1; else, last=pRet; end
+                if ~isempty(e2)
+                    last=e2;
+                elseif ~isempty(e1)
+                    last=e1;
+                else
+                    last=pRet;
+                end
                 pts=[last; start];
             end
 
             function pts = mkLeadOut(en, e1, e2)
                 first=en;
-                if ~isempty(e2), first=e2; elseif ~isempty(e1), first=e1; end
+                if ~isempty(e2)
+                    first=e2;
+                elseif ~isempty(e1)
+                    first=e1;
+                end
                 pts=[en; first];
             end
 
             function pts = mkReturn(en, e1, e2)
                 pts=en;
-                if ~isempty(e2) && ~isempty(e1), pts=[pts; e1]; end
-                pts=[pts; [0, pts(end,2)]; [0,0]];
+                if ~isempty(e2) && ~isempty(e1)
+                    pts=[pts; e1];
+                end
+                pts=[pts;[0, pts(end,2)]; [0,0]];
             end
 
             % 2. Generate Raw Segments
@@ -4361,10 +4575,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3. Densify Segments
             % Distributes points based on PHYSICAL DISTANCE, not Index.
             function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
-                if nargin < 5, step = 2.0; end
+                if nargin < 5
+                    step = 2.0;
+                end
 
                 N = numel(yL);
-                if N < 2, yLD=yL; zLD=zL; yRD=yR; zRD=zR; return; end
+                if N < 2
+                    yLD=yL; zLD=zL; yRD=yR; zRD=zR; return;
+                end
 
                 % 1. Calculate cumulative physical distance for both paths
                 distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
@@ -4397,13 +4615,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zLD = interp1(su, zL(iu), s_combined, 'linear');
                 yRD = interp1(su, yR(iu), s_combined, 'linear');
                 zRD = interp1(su, zR(iu), s_combined, 'linear');
-            end
-
-            [dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
-            [dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
-            [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
-            [dLoL_y, dLoL_z, dLoR_y, dLoR_z]         = densifySynced(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));
-            [dRetL_y, dRetL_z, dRetR_y, dRetR_z]     = densifySynced(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
+            end[dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));[dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));[dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);[dLoL_y, dLoL_z, dLoR_y, dLoR_z]         = densifySynced(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));[dRetL_y, dRetL_z, dRetR_y, dRetR_z]     = densifySynced(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
 
             % 4. Combine into Simulation Path
             app.SimRapidCutoffIndex  = numel(dRapL_y);
@@ -4411,26 +4623,35 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(dProfL_y);
             app.SimLeadOutEndIndex   = app.SimFeedEndIndex + numel(dLoL_y);
 
-            fullY_L = [dRapL_y; dLiL_y; dProfL_y; dLoL_y; dRetL_y];
-            fullZ_L = [dRapL_z; dLiL_z; dProfL_z; dLoL_z; dRetL_z];
-            fullY_R = [dRapR_y; dLiR_y; dProfR_y; dLoR_y; dRetR_y];
-            fullZ_R = [dRapR_z; dLiR_z; dProfR_z; dLoR_z; dRetR_z];
+            fullY_L =[dRapL_y; dLiL_y; dProfL_y; dLoL_y; dRetL_y];
+            fullZ_L =[dRapL_z; dLiL_z; dProfL_z; dLoL_z; dRetL_z];
+            fullY_R =[dRapR_y; dLiR_y; dProfR_y; dLoR_y; dRetR_y];
+            fullZ_R =[dRapR_z; dLiR_z; dProfR_z; dLoR_z; dRetR_z];
 
             % 5. Map to 3D Machine Space
-            if ~isempty(app.LeftProfilePoints),  xL = app.LeftProfilePoints(1,1);  else, xL = app.MachineBilletPos(1); end
-            if ~isempty(app.RightProfilePoints), xR = app.RightProfilePoints(1,1); else, xR = app.MachineBilletPos(1)+10; end
+            if ~isempty(app.LeftProfilePoints)
+                xL = app.LeftProfilePoints(1,1);
+            else
+                xL = app.MachineBilletPos(1);
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                xR = app.RightProfilePoints(1,1);
+            else
+                xR = app.MachineBilletPos(1)+10;
+            end
 
             xL = xL + app.BilletShift(1) + app.MachineBilletPos(1);
             xR = xR + app.BilletShift(1) + app.MachineBilletPos(1);
 
-            app.SimPathL = [repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
-            app.SimPathR = [repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
+            app.SimPathL =[repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
+            app.SimPathR =[repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
 
             % 6. Physics
             dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL)) = 0;
             dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR)) = 0;
             app.SimArcLenL = [0; cumsum(dL)];
-            app.SimArcLenR = [0; cumsum(dR)];
+            app.SimArcLenR =[0; cumsum(dR)];
             app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
             app.SimPlayDist = 0;
 
