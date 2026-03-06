@@ -469,19 +469,15 @@ classdef HotWireSTEPApp_v6_helpers
 
         function [yOut, zOut] = reorderLoopByMinY(y, z)
             % 1. Force to Column Vectors
-            y = y(:);
-            z = z(:);
+            y = y(:); z = z(:);
 
-            % 2. Remove tailing point duplicate for math
+            % 2. Remove tailing point duplicate
             if numel(y) > 1 && abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                y(end) = [];
-                z(end) =[];
+                y(end) = []; z(end) = [];
             end
 
             if numel(y) < 3
-                yOut = y;
-                zOut = z;
-                return;
+                yOut = y; zOut = z; return;
             end
 
             % 3. Find Geometric Centroid in Z and Front Face (min Y)
@@ -489,16 +485,15 @@ classdef HotWireSTEPApp_v6_helpers
             minY = min(y);
 
             % 4. Check for intersections with Z = cz along the front face
+            % This detects if we need to split a long vertical edge
             N = numel(y);
             insert_idx = -1;
             best_yi = inf;
 
             for i = 1:N
                 i_next = mod(i, N) + 1;
-                z1 = z(i);
-                z2 = z(i_next);
-                y1 = y(i);
-                y2 = y(i_next);
+                z1 = z(i); z2 = z(i_next);
+                y1 = y(i); y2 = y(i_next);
 
                 % Does segment cross centroid Z?
                 if (z1 - cz) * (z2 - cz) <= 0 && z1 ~= z2
@@ -509,7 +504,7 @@ classdef HotWireSTEPApp_v6_helpers
                     if abs(yi - minY) < 1e-2
                         insert_idx = i;
                         best_yi = yi;
-                        break; % Found a great injection point
+                        break; % Found the split point
                     end
                 end
             end
@@ -517,25 +512,26 @@ classdef HotWireSTEPApp_v6_helpers
             % 5. Reorder or Inject
             if insert_idx > 0
                 % INJECT: Split the front face and insert a point exactly at the Z-centroid!
-                y_new =[ y(1:insert_idx); best_yi; y(insert_idx+1:end) ];
-                z_new =[ z(1:insert_idx); cz; z(insert_idx+1:end) ];
+                y_new = [y(1:insert_idx); best_yi; y(insert_idx+1:end)];
+                z_new = [z(1:insert_idx); cz;      z(insert_idx+1:end)];
 
                 startIdx = insert_idx + 1;
-                yOut =[ y_new(startIdx:end); y_new(1:startIdx-1) ];
-                zOut =[ z_new(startIdx:end); z_new(1:startIdx-1) ];
+                yOut = [y_new(startIdx:end); y_new(1:startIdx-1)];
+                zOut = [z_new(startIdx:end); z_new(1:startIdx-1)];
             else
-                % FALLBACK: Find existing points on the front face, pick the one closest to cz
+                % FALLBACK: Find existing points on the front face
                 front_indices = find(abs(y - minY) < 1e-3);
 
                 if isempty(front_indices)
-                    [ ~, startIdx ] = min(y);
+                    [~, startIdx] = min(y);
                 else
-                    [ ~, local_idx ] = min(abs(z(front_indices) - cz));
+                    % Pick the one closest to Z-centroid
+                    [~, local_idx] = min(abs(z(front_indices) - cz));
                     startIdx = front_indices(local_idx);
                 end
 
-                yOut =[ y(startIdx:end); y(1:startIdx-1) ];
-                zOut =[ z(startIdx:end); z(1:startIdx-1) ];
+                yOut = [y(startIdx:end); y(1:startIdx-1)];
+                zOut = [z(startIdx:end); z(1:startIdx-1)];
             end
 
             % 6. Force exact closure
