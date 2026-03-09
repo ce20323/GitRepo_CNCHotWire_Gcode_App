@@ -700,7 +700,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',app.KerfLeftValue, ...
                 'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Offset distance = Kerf/2', ... 
+                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ... 
                 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
 
@@ -1169,7 +1169,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % We reuse a new dynamic property/button for Link 2
             app.BtnPickEntry3 = uibutton(gridCInter, 'state', 'Text','Link 2', 'FontWeight','bold', ...
                 'BackgroundColor',bCols.LinkInactive, 'FontColor',bCols.TextInactive, ...
-                'Tooltip','Additional Rapid move point.', ...
+                'Tooltip','Optional 2nd Rapid move point (useful to got over the top of the block.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry3.Layout.Row=3; app.BtnPickEntry3.Layout.Column=2;
 
@@ -3754,68 +3754,150 @@ classdef HotWireSTEPApp_v6_2 < handle
         % CUTTING TAB LOGIC
         % ===========================================================
         function [isValid, pCol, tCol, msgLines] = validateCuttingStrategy(app)
-            % Evaluates the safety of the current Start, Lead-In, and Link points.
+            % Validates the cutting path against physical constraints and model geometry.
+            
             isValid = true;
-
-            if app.UIFigure.Color(1) < 0.5
-                pCol =[0.16 0.16 0.16];
-            else
-                pCol =[0.94 0.94 0.94];
-            end
-
-            tCol = [0.4 1 0.4];
-            msgLines = ["Strategy valid.", "Review paths and continue."];
-
-            % Billet Boundaries (Absolute Machine Coords)
-            bY_min = app.MachineBilletPos(2);
-            bY_max = app.MachineBilletPos(2) + app.BilletSize(2);
-            bZ_min = app.MachineBilletPos(3);
-            bZ_max = app.MachineBilletPos(3) + app.BilletSize(3);
-
-            % Tolerance for "inside" check
-            tol = 0.1;
-
             crit = strings(0);
+            warn = strings(0);
 
-            function checkSide(sideStr, leadPt, linkPt)
-                if isempty(leadPt)
-                    crit(end+1) = sprintf("%s: Missing Lead In point.", sideStr);
-                    return;
-                end
+            % 1. Setup Geometry
+            bMinY = app.MachineBilletPos(2);
+            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
+            bMinZ = app.MachineBilletPos(3);
+            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
+            
+            % Billet Polygon (for intersection checks)
+            billetBoxY =[bMinY; bMaxY; bMaxY; bMinY; bMinY]; 
+            billetBoxZ =[bMinZ; bMinZ; bMaxZ; bMaxZ; bMinZ]; 
 
-                % Rule 1: Lead In must be > 5mm above the bed (Z=0)
-                if leadPt(2) < 5.0
-                    crit(end+1) = sprintf("%s: Lead In is too close to the bed (Z < 5mm).", sideStr);
-                end
+            % Get Final Profiles (Machine Absolute) to check for gouging
+            offsetY = app.BilletShift(2) + bMinY;
+            offsetZ = app.BilletShift(3) + bMinZ;
+            
+            [yL, zL] = app.preparePlotData([], app.LeftProfilePoints, offsetY, offsetZ, app.SelectedStartIdxL, false,[], app.KerfEnabled, app.KerfLeftValue);
+            [yR, zR] = app.preparePlotData([], app.RightProfilePoints, offsetY, offsetZ, app.SelectedStartIdxR, false,[], app.KerfEnabled, app.KerfRightValue);
 
-                % Rule 2: Lead In must NOT be inside the billet
-                isInsideY = (leadPt(1) > bY_min + tol) && (leadPt(1) < bY_max - tol);
-                isInsideZ = (leadPt(2) > bZ_min + tol) && (leadPt(2) < bZ_max - tol);
-                if isInsideY && isInsideZ
-                    crit(end+1) = sprintf("%s: Lead In point is inside the billet stock!", sideStr);
-                end
+            % --- Custom Intersection Helper ---
+            % Replaces polyxpoly to avoid Mapping Toolbox dependency.
+            % Checks a single line segment (p1 -> p2) against a polyline.
+            function [xi, zi] = intersectSegPoly(p1, p2, polyY, polyZ)
+                xi =[]; zi =[];
+                y1 = p1(1); z1 = p1(2);
+                y2 = p2(1); z2 = p2(2);
+                dy1 = y2 - y1; dz1 = z2 - z1;
 
-                % Rule 3: If Link is used, it must be above the Safe Height if it crosses the block Y
-                if ~isempty(linkPt)
-                    isCrossingY = (linkPt(1) > bY_min - tol) && (linkPt(1) < bY_max + tol);
-                    safeZ = bZ_max + app.MachineSafeHeight;
-                    if isCrossingY && (linkPt(2) < safeZ - tol)
-                        crit(end+1) = sprintf("%s: Link point over billet must be at least %.0fmm above stock (Z >= %.0f).", sideStr, app.MachineSafeHeight, safeZ);
+                for i = 1:(numel(polyY)-1)
+                    y3 = polyY(i); z3 = polyZ(i);
+                    y4 = polyY(i+1); z4 = polyZ(i+1);
+                    dy2 = y4 - y3; dz2 = z4 - z3;
+
+                    den = dy1*dz2 - dz1*dy2;
+                    if abs(den) < 1e-9 % Parallel or collinear
+                        continue;
+                    end
+
+                    t1 = ((y3 - y1)*dz2 - (z3 - z1)*dy2) / den;
+                    t2 = ((y3 - y1)*dz1 - (z3 - z1)*dy1) / den;
+
+                    % Use a tiny tolerance to avoid floating point misses on perfect corners
+                    if t1 >= -1e-6 && t1 <= 1+1e-6 && t2 >= -1e-6 && t2 <= 1+1e-6
+                        xi(end+1) = y1 + t1 * dy1;
+                        zi(end+1) = z1 + t1 * dz1;
                     end
                 end
             end
 
-            checkSide("Left", app.EntryPointL, app.EntryPoint2L);
-            checkSide("Right", app.EntryPointR, app.EntryPoint2R);
-
+            % --- Helper: Check One Side ---
+            function checkSide(sideName, lead, link1, link2, profY, profZ)
+                if isempty(lead), return; end
+                
+                % A. Check Proximity (<5mm from Bed or Billet)
+                % Check Bed Z
+                if lead(2) < 5.0
+                    warn(end+1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
+                end
+                
+                % Check Billet Proximity
+                distY = max(0, max(bMinY - lead(1), lead(1) - bMaxY));
+                distZ = max(0, max(bMinZ - lead(2), lead(2) - bMaxZ));
+                if (distY < 5.0 && distZ < 5.0) && (distY > 0 || distZ > 0)
+                    warn(end+1) = sprintf("%s: Lead In <5mm from Billet.", sideName);
+                end
+                
+                % B. CRITICAL: Link Line Collision with Billet
+                % Front Retract Point (approximate load pos offset)
+                pRet = [bMinY - 10, bMaxZ/2]; 
+                
+                pathPts = [pRet; link1; link2; lead];
+                pathPts = pathPts(~all(pathPts==0, 2), :); % Clean empty rows
+                
+                for k = 1:size(pathPts, 1)-1
+                    p1 = pathPts(k,:); p2 = pathPts(k+1,:);
+                    [xi, zi] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
+                    
+                    if ~isempty(xi)
+                        crit(end+1) = sprintf("%s: Rapid move passes THROUGH the billet!", sideName);
+                        break; 
+                    end
+                end
+                
+                % C. CRITICAL: Lead-In Gouging (Bisecting) Model
+                if ~isempty(profY)
+                    startPt = [profY(1), profZ(1)];
+                    [xi, zi] = intersectSegPoly([lead(1), lead(2)],[startPt(1), startPt(2)], profY, profZ);
+                    
+                    validHit = false;
+                    for k = 1:numel(xi)
+                        distS = hypot(xi(k)-startPt(1), zi(k)-startPt(2));
+                        if distS > 1e-3
+                            validHit = true; % Hit somewhere else besides the Start Point!
+                        end
+                    end
+                    
+                    if validHit
+                        crit(end+1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
+                    end
+                    
+                    % C2. Check if Lead-In is INSIDE the profile (trapped)
+                    % Base MATLAB inpolygon is safe to use
+                    midPt = (lead + startPt) / 2;
+                    if inpolygon(midPt(1), midPt(2), profY, profZ)
+                        crit(end+1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
+                    end
+                end
+            end
+            
+            % Check Left
+            checkSide("Left", app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L, yL, zL);
+            
+            % Check Right (only if independent or forced check)
+            if ~isempty(app.EntryPointR)
+                checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
+            end
+            
+            % 2. Determine State
+            if app.UIFigure.Color(1) < 0.5
+                pCol =[0.16 0.16 0.16]; % Dark
+            else
+                pCol =[0.94 0.94 0.94]; % Light
+            end
+            
             if ~isempty(crit)
                 isValid = false;
-                pCol =[0.4 0.16 0.16];
-                tCol =[1 0.4 0.4];
-                msgLines = ["CRITICAL ERROR:"; crit'];
+                pCol = [0.4 0.16 0.16]; % Red
+                tCol = [1 0.4 0.4];
+                msgLines =["CRITICAL ERROR:"; crit(1)]; 
+            elseif ~isempty(warn)
+                isValid = true;
+                pCol =[0.45 0.35 0.1]; % Amber
+                tCol =[1 0.8 0.4];
+                msgLines = ["Warning:"; warn(1)];
+            else
+                tCol = [0.4 1 0.4]; % Green
+                msgLines =["Strategy valid.", "Ready to cut."];
             end
         end
-
+        
         function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
             % Prepares profile data:
             % 1. Extracts raw coordinates
@@ -3989,18 +4071,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- VALIDATE AND UPDATE STATUS UI ---
-            % (Assuming validateCuttingStrategy is implemented as discussed)
-            if ismethod(app, 'validateCuttingStrategy')
-                [isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
-                app.CuttingLeftPanel.BackgroundColor = pCol;
-                app.TxtCuttingStatus.Value = msgLines;
-                app.TxtCuttingStatus.FontColor = tCol;
+            % Run the new logic to check for collisions/gouges
+            [isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
 
-                if isValidCut
-                    app.BtnCuttingContinue.Enable = 'on';
-                else
-                    app.BtnCuttingContinue.Enable = 'off';
-                end
+            app.CuttingLeftPanel.BackgroundColor = pCol;
+            app.TxtCuttingStatus.Value = msgLines;
+            app.TxtCuttingStatus.FontColor = tCol;
+
+            if isValidCut
+                app.BtnCuttingContinue.Enable = 'on';
+            else
+                app.BtnCuttingContinue.Enable = 'off';
             end
 
             % 7. Restore View
