@@ -145,7 +145,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         AxBilletFront                   % Billet Front View
         AxBilletRight                   % Billet Right View
         AxBilletIso                     % Billet Iso View (Added)
-        AxMachine                       % 3D Machine Placement View 
+        AxMachine                       % 3D Machine Placement View
         AxCutLeft                       % 2D Cut Strategy View (Left)
         AxCutRight                      % 2D Cut Strategy View (Right)
         AxSim                           % 3D Simulation View
@@ -647,7 +647,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
                 'Step',0.01, ...
                 'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ... 
+                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ...
                 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
 
@@ -700,7 +700,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
                 'Value',app.KerfLeftValue, ...
                 'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ... 
+                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ...
                 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
 
@@ -1447,10 +1447,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.AxPost.BackgroundColor = [0.05 0.05 0.05];
             xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
             grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
-            
+
             % Force initial UI state sync
             app.onTaperModeChanged();
-            
+
             % --- Final Theme Application ---
             app.applyTheme();
 
@@ -1813,7 +1813,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 2. SYNC POINT COUNTS UNIVERSALLY ---
             % Always sync the final shapes so the UI exactly matches the Simulation.
-            if ~isempty(final_yL) && ~isempty(final_yR)[final_yL, final_zL, final_yR, final_zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+            if ~isempty(final_yL) && ~isempty(final_yR)
+                [final_yL, final_zL, final_yR, final_zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
             end
 
             nLk = numel(final_yL);
@@ -2800,7 +2801,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.TabGroup.SelectedTab = app.TabMachine;
 
                 % 3. Explicitly refresh the machine simulation
-                app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
+                app.syncMachineUI();
+                [isValid, pCol, tCol, txtLines] = app.checkMachineState();
                 app.MachineLeftPanel.BackgroundColor = pCol;
                 app.TxtMachineStatus.Value = txtLines;
                 app.TxtMachineStatus.FontColor = tCol;
@@ -3302,7 +3304,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                     % Sweep ONLY the valid 50mm increments
                     for x = testXs
                         xL_m = x + app.BilletShift(1) + app.NumLeftOffset.Value;
-                        xR_m = x + app.BilletShift(1) + app.NumRightOffset.Value;[ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                        xR_m = x + app.BilletShift(1) + app.NumRightOffset.Value;
+                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                             yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                         % Calculate total path length on the towers
@@ -3772,9 +3775,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Get Final Profiles (Machine Absolute) to check for gouging
             offsetY = app.BilletShift(2) + bMinY;
-            offsetZ = app.BilletShift(3) + bMinZ;[ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+            offsetZ = app.BilletShift(3) + bMinZ;
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
 
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);[ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);
+            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
 
             % --- Custom Intersection Helper ---
             % Replaces polyxpoly to avoid Mapping Toolbox dependency.
@@ -4057,7 +4062,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yL)
                 c = (1:numel(yL))';
                 patch(app.AxCutLeft, 'XData', [yL;NaN], 'YData',[zL;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);[hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft,[yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
+                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
+                [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft,[yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
 
                 if numel(yL) > 1
                     idxNext = 2;
@@ -4074,7 +4080,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yR)
                 c = (1:numel(yR))';
                 patch(app.AxCutRight, 'XData', [yR;NaN], 'YData',[zR;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[0 0.5 1], 'none', 1.0);[hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight,[yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[0 0.5 1], 'none', 1.0);
+                [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight,[yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
                 if numel(yR) > 1
                     idxNext = 2;
@@ -4416,7 +4423,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if app.KerfLeftValue ~= 0
                     [ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
                 end
-                if app.KerfRightValue ~= 0[ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                if app.KerfRightValue ~= 0
+                    [ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
                 end
             end
 
@@ -4425,7 +4433,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             idxL = 1;
             idxR = 1;
 
-            if ~isempty(yL_b)[ ~, idxL ] = min(yL_b);
+            if ~isempty(yL_b)
+                [ ~, idxL ] = min(yL_b);
             end
 
             if ~isempty(yR_b)
@@ -4579,53 +4588,67 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function [hRapid, hLead, hDot, hLoad] = drawTravelPath(app, ax, startPt, endPt, lead, link1, link2)
-            hRapid=gobjects(0); hLead=gobjects(0); hDot=gobjects(0); hLoad=gobjects(0);
-            if isempty(startPt) || isempty(lead), return; end
+            hRapid = gobjects(0);
+            hLead = gobjects(0);
+            hDot = gobjects(0);
+            hLoad = gobjects(0);
 
-            % Standard Points
-            pZero    = [0, 0];
+            if isempty(startPt) || isempty(lead)
+                return;
+            end
+
+            pZero    =[0, 0];
             pSafe    = [10, 10];
-            pLoad    = [app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
-            pRetract = [pLoad(1)-10, pLoad(2)];
+            pLoad    =[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
+            pRetract =[pLoad(1)-10, pLoad(2)];
 
-            % Draw Load Point
             hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [1 0 1], 'LineWidth', 1.5, 'HitTest','off');
 
             % --- INBOUND PATH ---
-            % Sequence: Zero -> Safe -> Load -> Retract -> Link1 -> Link2 -> LeadIn -> Start
-            pts = [pZero; pSafe; pLoad; pRetract];
-            if ~isempty(link1), pts = [pts; link1]; end
-            if ~isempty(link2), pts = [pts; link2]; end
+            pts =[pZero; pSafe; pLoad; pRetract];
+            if ~isempty(link1)
+                pts =[pts; link1];
+            end
+            if ~isempty(link2)
+                pts =[pts; link2];
+            end
             pts = [pts; lead];
 
-            % Plot Rapid (Yellow)
             if size(pts,1) > 1
                 hRapid = plot(ax, pts(:,1), pts(:,2), '-', 'Color',[0.9 0.8 0], 'LineWidth',0.5, 'HitTest','off');
             end
 
-            % Plot Lead-In (Orange)
-            hLead = plot(ax, [lead(1), startPt(1)], [lead(2), startPt(2)], '-', 'Color',[1 0.5 0], 'LineWidth',0.5, 'HitTest','off');
+            hLead = plot(ax, [lead(1), startPt(1)],[lead(2), startPt(2)], '-', 'Color',[1 0.5 0], 'LineWidth',0.5, 'HitTest','off');
 
-            % --- OUTBOUND PATH ---
-            % Sequence: End -> LeadIn -> Link2 -> Link1 -> Retract -> HomeY -> Zero
-            % Lead Out (Orange Dashed)
-            plot(ax, [endPt(1), lead(1)], [endPt(2), lead(2)], '--', 'Color',[1 0.5 0], 'LineWidth',1.0, 'HitTest','off');
+            % --- OUTBOUND PATH (Retrace) ---
+            plot(ax,[endPt(1), lead(1)], [endPt(2), lead(2)], '--', 'Color',[1 0.5 0], 'LineWidth',1.0, 'HitTest','off');
 
             ptsOut = lead;
-            if ~isempty(link2), ptsOut = [ptsOut; link2]; end
-            if ~isempty(link1), ptsOut = [ptsOut; link1]; end
-            ptsOut = [ptsOut; pRetract];
+            if ~isempty(link2)
+                ptsOut = [ptsOut; link2];
+            end
+            if ~isempty(link1)
+                ptsOut = [ptsOut; link1];
+            end
+
+            % Retract back to safe point in front of block
+            ptsOut =[ptsOut; pRetract];
 
             % Home Y First for safety
-            pHomeY = [0, ptsOut(end,2)];
+            pHomeY =[0, pRetract(2)];
             ptsOut = [ptsOut; pHomeY; pZero];
 
-            % Rapid Return (Yellow Dashed)
             plot(ax, ptsOut(:,1), ptsOut(:,2), '--', 'Color',[0.9 0.8 0], 'LineWidth',0.5, 'HitTest','off');
 
             % --- DOTS ---
-            if ~isempty(link1), plot(ax, link1(1), link1(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off'); end
-            if ~isempty(link2), plot(ax, link2(1), link2(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off'); end
+            hDot = plot(ax, lead(1), lead(2), '.', 'Color',[1 0.5 0], 'MarkerSize', 10, 'HitTest', 'off');
+
+            if ~isempty(link1)
+                plot(ax, link1(1), link1(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off');
+            end
+            if ~isempty(link2)
+                plot(ax, link2(1), link2(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off');
+            end
         end
 
         function hMarker = drawRotatedMarker(app, ax, pCurrent, pNext, type)
@@ -4836,15 +4859,25 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             function pts = mkReturn(lead, link1, link2)
-                if isempty(lead), pts=[0,0]; return; end
+                if isempty(lead)
+                    pts = [0, 0];
+                    return;
+                end
+
                 pts = lead;
 
                 % Reverse order for return
-                if ~isempty(link2), pts=[pts; link2]; end
-                if ~isempty(link1), pts=[pts; link1]; end
+                if ~isempty(link2)
+                    pts = [pts; link2];
+                end
+                if ~isempty(link1)
+                    pts = [pts; link1];
+                end
 
-                pRet=[app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2];
-                pts=[pts; pRet; [0, pts(end,2)]; [0,0]];
+                % Explicitly capture the retract Z so it doesn't drift diagonally
+                pRetract =[app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2];
+
+                pts = [pts; pRetract; [0, pRetract(2)]; [0, 0]];
             end
 
             % 2. Generate Raw Segments
@@ -4856,10 +4889,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             rawLoL = mkLeadOut([yL(end),zL(end)], app.EntryPointL);
             rawLoR = mkLeadOut([yR(end),zR(end)], app.EntryPointR);
-            
+
             rawRetL = mkReturn(app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
             rawRetR = mkReturn(app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
-            
+
             % 3. Densify Segments
             % Distributes points based on PHYSICAL DISTANCE, not Index.
             function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
@@ -4903,7 +4936,45 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zLD = interp1(su, zL(iu), s_combined, 'linear');
                 yRD = interp1(su, yR(iu), s_combined, 'linear');
                 zRD = interp1(su, zR(iu), s_combined, 'linear');
-            end[dRapL_y, dRapL_z, dRapR_y, dRapR_z]     = densifySynced(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));[dLiL_y, dLiL_z, dLiR_y, dLiR_z]         = densifySynced(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));[dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);[dLoL_y, dLoL_z, dLoR_y, dLoR_z]         = densifySynced(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));[dRetL_y, dRetL_z, dRetR_y, dRetR_z]     = densifySynced(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
+            end
+
+            function out = densifyWaypoints(yL, zL, yR, zR, step)
+                % Synchronizes non-cutting moves strictly by waypoint pairs to prevent diagonal drift
+                if nargin < 5, step = 2.0; end
+                yLD=[]; zLD=[]; yRD=[]; zRD=[];
+                for i = 1:(numel(yL)-1)
+                    d1 = hypot(yL(i+1)-yL(i), zL(i+1)-zL(i));
+                    d2 = hypot(yR(i+1)-yR(i), zR(i+1)-zR(i));
+                    N_pts = max(2, ceil(max(d1, d2) / step));
+
+                    yLD =[yLD; linspace(yL(i), yL(i+1), N_pts)'];
+                    zLD =[zLD; linspace(zL(i), zL(i+1), N_pts)'];
+                    yRD =[yRD; linspace(yR(i), yR(i+1), N_pts)'];
+                    zRD =[zRD; linspace(zR(i), zR(i+1), N_pts)'];
+
+                    if i < numel(yL)-1
+                        yLD(end)=[]; zLD(end)=[]; yRD(end)=[]; zRD(end)=[];
+                    end
+                end
+                out.yL = yLD; out.zL = zLD; out.yR = yRD; out.zR = zRD;
+            end
+
+            % Process Rapids using Waypoint logic (Prevents angled drifting!)
+            tmp = densifyWaypoints(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
+            dRapL_y = tmp.yL; dRapL_z = tmp.zL; dRapR_y = tmp.yR; dRapR_z = tmp.zR;
+
+            tmp = densifyWaypoints(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
+            dLiL_y = tmp.yL; dLiL_z = tmp.zL; dLiR_y = tmp.yR; dLiR_z = tmp.zR;
+
+            % Process Profile Cut using the length-based sync
+            [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
+
+            % Process LeadOut and Return using Waypoint logic
+            tmp = densifyWaypoints(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));
+            dLoL_y = tmp.yL; dLoL_z = tmp.zL; dLoR_y = tmp.yR; dLoR_z = tmp.zR;
+
+            tmp = densifyWaypoints(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
+            dRetL_y = tmp.yL; dRetL_z = tmp.zL; dRetR_y = tmp.yR; dRetR_z = tmp.zR;
 
             % 4. Combine into Simulation Path
             app.SimRapidCutoffIndex  = numel(dRapL_y);
