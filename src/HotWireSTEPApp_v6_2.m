@@ -3128,13 +3128,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isDark, outlineColor = 'w'; end
 
             % Match Model Appearance across all views
-            modelColor = [0.5 0.5 0.6];
+            modelColor =[0.5, 0.5, 0.6];
             modelAlpha = 0.4;
+
+            % Pale Profile Colors for "Wireframe" look using Theme!
+            % We add an alpha value (0.6) to make them semi-transparent
+            wireRed   = [t.planeRed, 0.6];
+            wireGreen =[t.planeGreen, 0.6];
 
             % 2. Calculate Global Bounding Box (Union of Billet & Model)
             V_shifted = V + shift;
 
-            allMin = min([0 0 0; min(V_shifted,[],1)]);
+            allMin = min([0, 0, 0; min(V_shifted,[],1)]);
             allMax = max([bSize; max(V_shifted,[],1)]);
 
             % Add padding (10%)
@@ -3146,11 +3151,19 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             commonX = [center(1)-limitRange, center(1)+limitRange];
             commonY = [center(2)-limitRange, center(2)+limitRange];
-            commonZ = [center(3)-limitRange, center(3)+limitRange];
+            commonZ =[center(3)-limitRange, center(3)+limitRange];
+
+            % Prep Profiles Data (Shifted)
+            hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
+
+            if hasProfiles
+                pL_shifted = app.LeftProfilePoints + shift;
+                pR_shifted = app.RightProfilePoints + shift;
+            end
 
             % 3. Plot
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[1 2], [1 3], [2 3], [1 2 3]};
+            dims = {[1 2], [1 3],[2 3], [1 2 3]};
             labs = {
                 {'X (mm)','Y (mm)'};
                 {'X (mm)','Z (mm)'};
@@ -3159,42 +3172,55 @@ classdef HotWireSTEPApp_v6_2 < handle
                 };
 
             for i = 1:4
-                ax = axs{i}; d = dims{i};
+                ax = axs{i};
+                d = dims{i};
 
                 if isempty(ax) || ~isgraphics(ax), continue; end
 
-                cla(ax); hold(ax,'on');
+                cla(ax);
+                hold(ax,'on');
 
                 if i < 4
                     % --- 2D ORTHOGRAPHIC VIEWS ---
-                    % Draw Billet Rectangle
-                    bx = [0 bSize(d(1)) bSize(d(1)) 0 0];
-                    by = [0 0 bSize(d(2)) bSize(d(2)) 0];
-                    plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
-
-                    % Draw Model Projection
+                    % 1. Draw Model Projection (Background)
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
                         'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+
+                    % 2. Draw Ghost Profiles (Midground)
+                    if hasProfiles
+                        plot(ax, pL_shifted(:,d(1)), pL_shifted(:,d(2)), 'Color', wireRed, 'LineWidth', 0.75);
+                        plot(ax, pR_shifted(:,d(1)), pR_shifted(:,d(2)), 'Color', wireGreen, 'LineWidth', 0.75);
+                    end
+
+                    % 3. Draw Billet Rectangle (Foreground - on top)
+                    bx =[0, bSize(d(1)), bSize(d(1)), 0, 0];
+                    by = [0, 0, bSize(d(2)), bSize(d(2)), 0];
+                    plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                 else
                     % --- 3D ISO VIEW ---
-                    % Draw Billet Box (Wireframe)
-                    [bx, by, bz] = app.makeBoxVertices(0,0,0, bSize(1), bSize(2), bSize(3));
+                    % 1. Draw Model (3D)
+                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
+                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+
+                    % 2. Draw Ghost Profiles (3D)
+                    if hasProfiles
+                        plot3(ax, pL_shifted(:, 1), pL_shifted(:, 2), pL_shifted(:, 3), 'Color', wireRed, 'LineWidth', 0.75);
+                        plot3(ax, pR_shifted(:, 1), pR_shifted(:, 2), pR_shifted(:, 3), 'Color', wireGreen, 'LineWidth', 0.75);
+                    end
+
+                    % 3. Draw Billet Box Wireframe (Foreground - on top)
+                    b0 = 0; % Dummy variable to defeat markdown bug
+                    [bx, by, bz] = app.makeBoxVertices(b0, b0, b0, bSize(1), bSize(2), bSize(3));
 
                     % Use patch for 3D box edges
-                    patch(ax, 'Vertices',[bx,by,bz], 'Faces', app.boxFaces, ...
+                    patch(ax, 'Vertices', [bx, by, bz], 'Faces', app.boxFaces, ...
                         'FaceColor', 'none', ...
                         'EdgeColor', outlineColor, ...
                         'LineStyle', outlineStyle, ...
                         'LineWidth', 1.5);
 
-                    % Draw Model (3D)
-                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
-                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
-
                     % Standard 3D View settings
                     view(ax, 3);
-                    % REMOVED: camlight / lighting gouraud
-                    % keeping it flat shaded matches the 2D views perfectly
                 end
 
                 % Apply Common Styling
