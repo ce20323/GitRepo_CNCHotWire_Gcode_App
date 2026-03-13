@@ -1989,14 +1989,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
             if targetTab ~= app.TabModel && ~hasModel
                 uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabModel; return;
+                app.TabGroup.SelectedTab = app.TabModel;
+                return;
             end
 
             % --- GUARD 2: Profiles Required ---
             hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
             if targetTab ~= app.TabModel && targetTab ~= app.TabProfiles && ~hasProfiles
                 uialert(app.UIFigure, 'Please generate Cutting Profiles first.', 'Step 2 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabProfiles; return;
+                app.TabGroup.SelectedTab = app.TabProfiles;
+                return;
             end
 
             % --- GUARD 3: Billet Validity ---
@@ -2004,16 +2006,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isValidBillet = app.syncBilletUI();
                 if ~isValidBillet
                     uialert(app.UIFigure, 'Billet configuration is invalid (Model outside stock).', 'Billet Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabBillet; return;
+                    app.TabGroup.SelectedTab = app.TabBillet;
+                    return;
                 end
             end
 
             % --- GUARD 4: Machine Validity ---
-            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)
-                [isValidMach, ~, msg] = app.checkMachineState();
+            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)[isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
                 if ~isValidMach
-                    uialert(app.UIFigure, msg, 'Machine Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabMachine; return;
+                    uialert(app.UIFigure, join(msgLines, newline), 'Machine Error', 'Icon','error');
+                    app.TabGroup.SelectedTab = app.TabMachine;
+                    return;
                 end
             end
 
@@ -2022,10 +2025,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if targetTab == app.TabBillet
                 app.syncBilletUI();
+                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.refreshBilletPlots();
 
             elseif targetTab == app.TabMachine
-                app.syncMachineUI(); % Ensures limits apply
+                app.syncMachineUI();
 
                 [isValid, pCol, tCol, txtLines] = app.checkMachineState();
                 app.MachineLeftPanel.BackgroundColor = pCol;
@@ -2038,6 +2042,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.BtnMachineContinue.Enable = 'off';
                 end
 
+                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.refreshMachinePlot();
 
             elseif targetTab == app.TabCutting
@@ -2045,11 +2050,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.onAutoStart();
                     app.onAutoEntry();
                 end
+
+                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
             elseif targetTab == app.TabSimulation
                 app.applyTheme();
+                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.generateSimulationData();
 
             elseif targetTab == app.TabPostProcess
@@ -2058,30 +2066,22 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onProfileToleranceChanged(app, src)
-            % Update stored profile tolerance and recompute profiles if active,
-            % preserving any active kerf and current zoom/pan on the Profiles tab.
-
             val = src.Value;
             if ~isfinite(val) || val <= 0
-                % Revert to previous good value
                 src.Value = app.ProfileTolerance;
                 return;
             end
 
             app.ProfileTolerance = val;
 
-            % If we're already in STATE 1 (planes + profiles live),
-            % recompute profiles (and kerf if enabled) without resetting zoom.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.ProfileAxesLocked = true;
-                app.updatePlanes();           % calls computeProfiles() -> updateProfiles2D()
+                app.updatePlanes();
                 app.ProfileAxesLocked = false;
             end
         end
 
         function onResetProfileTolerance(app)
-            % Reset profile tolerance to its default and refresh profiles
-            % without resetting the Profiles tab zoom/pan.
             defaultTol = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
             app.ProfileTolerance = defaultTol;
 
@@ -2089,7 +2089,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.ProfileTolSpinner.Value = defaultTol;
             end
 
-            % Recompute profiles (and kerf if enabled) but keep zoom.
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.ProfileAxesLocked = true;
                 app.updatePlanes();
@@ -2098,13 +2097,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onKerfChanged(app, src)
-            % Kerf value changed.
-            % If kerf has already been applied once, your app auto-updates the kerf offset paths,
-            % so the status should reflect that (instead of implying a manual re-apply is needed).
-
             val = src.Value;
-
-            % Basic validation / clamp (keep it gentle; spinner limits should enforce anyway)
             if ~isfinite(val)
                 src.Value = app.KerfValue;
                 return;
@@ -2112,67 +2105,30 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.KerfValue = val;
 
-            % If the app is already in a state where profiles exist, refresh the profiles/kerf paths.
-            % (This mirrors your "kerf change auto-applies" behaviour.)
             try
                 if isprop(app,'AppState') && app.AppState >= 1
-                    % If you have a standard refresh function, call it here instead.
-                    % Many builds recompute profiles through updatePlanes()/computeProfiles() chain.
                     if ismethod(app,'updatePlanes')
                         app.ProfileAxesLocked = true;
                         app.updatePlanes();
                         app.ProfileAxesLocked = false;
-                    elseif ismethod(app,'computeProfiles')
-                        app.ProfileAxesLocked = true;
-                        app.computeProfiles();
-                        app.ProfileAxesLocked = false;
                     end
                 end
             catch
-                % Don't hard-fail on UI refresh; status message still updates below.
-            end
-
-            % --- Status messaging ---
-            % We don't assume the exact status field name; try the common ones.
-            statusHandle = [];
-            if isprop(app,'TxtProfileStatus'), statusHandle = app.TxtProfileStatus; end
-            if isempty(statusHandle) && isprop(app,'ProfileStatusTextArea'), statusHandle = app.ProfileStatusTextArea; end
-
-            if ~isempty(statusHandle) && isvalid(statusHandle)
-                if isprop(app,'KerfEnabled') && app.KerfEnabled
-                    statusHandle.Value = {
-                        sprintf('Kerf updated: %.2f mm', app.KerfValue)
-                        sprintf('Offset distance: %.3f mm (Kerf/2)', app.KerfValue/2)
-                        'Kerf-compensated profiles updated automatically.'
-                        'Continue when ready.'
-                        };
-                else
-                    statusHandle.Value = {
-                        sprintf('Kerf set: %.2f mm', app.KerfValue)
-                        sprintf('Offset distance (when applied): %.3f mm (Kerf/2)', app.KerfValue/2)
-                        'Click "Apply Kerf Offset" to generate compensated profiles.'
-                        };
-                end
             end
         end
 
         function onApplyKerf(app)
-            % Enable kerf drawing and (re)draw kerf paths
-
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
                 return;
             end
-
             app.KerfEnabled = true;
 
-            % --- ACTIVATE CONTINUE BUTTON ---
             app.BtnProfilesContinue.Enable = 'on';
-            app.BtnProfilesContinue.BackgroundColor = [0.1 0.6 0.1];
+            app.BtnProfilesContinue.BackgroundColor =[0.1 0.6 0.1];
             app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            % 1. Extract Data
             yL = []; zL = []; xLeft  = 0;
-            yR = []; zR = []; xRight = 0;
+            yR =[]; zR =[]; xRight = 0;
 
             if ~isempty(app.LeftProfilePoints)
                 xLeft = app.LeftProfilePoints(1,1);
@@ -2186,41 +2142,16 @@ classdef HotWireSTEPApp_v6_2 < handle
                 zR     = app.RightProfilePoints(:,3);
             end
 
-            % 2. Calculate Counts
-            % Default to Raw counts (if kerf is 0, we show this)
-            nL_k = numel(yL);
-            nR_k = numel(yR);
-
-            kL = app.KerfLeftValue;
-            kR = app.KerfRightValue;
-
-            if ~isempty(yL) && kL ~= 0
-                [yk, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, kL, app.ProfileTolerance);
-                if ~isempty(yk), nL_k = numel(yk); end
-            end
-
-            if ~isempty(yR) && kR ~= 0
-                [ykR, ~] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, kR, app.ProfileTolerance);
-                if ~isempty(ykR), nR_k = numel(ykR); end
-            end
-
-            % 3. Update Label (FIX)
-            if isprop(app, 'KerfPointCountLabel') && isgraphics(app.KerfPointCountLabel)
-                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL_k, nR_k);
-            end
-
-            % 4. Refresh Plot
             wasLocked = app.ProfileAxesLocked;
             app.ProfileAxesLocked = true;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
             app.ProfileAxesLocked = wasLocked;
 
-            % Update Status Text
-            if app.KerfEnabled && isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
+            if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
                 if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                    msg = sprintf('Kerf Applied: %.2f mm', kL);
+                    msg = sprintf('Kerf Applied: %.2f mm', app.KerfLeftValue);
                 else
-                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', kL, kR);
+                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', app.KerfLeftValue, app.KerfRightValue);
                 end
                 app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
                 app.TxtProfileStatus.FontColor = [0.4 1 0.4];
@@ -2232,17 +2163,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             isCoupled = strcmp(mode, 'Coupled');
 
             if isCoupled
-                % Disable Right, Sync Right -> Left
                 app.KerfRightSpinner.Enable = 'off';
                 app.KerfRightValue = app.KerfLeftValue;
                 app.KerfRightSpinner.Value = app.KerfLeftValue;
 
-                % Refresh plot without resetting view
                 app.ProfileAxesLocked = true;
                 app.onApplyKerf();
                 app.ProfileAxesLocked = false;
             else
-                % Enable Right
                 app.KerfRightSpinner.Enable = 'on';
             end
         end
@@ -2250,7 +2178,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onKerfLeftChanged(app, src)
             app.KerfLeftValue = src.Value;
 
-            % If Coupled, update Right to match
             if strcmp(app.KerfModeSwitch.Value, 'Coupled')
                 app.KerfRightValue = app.KerfLeftValue;
                 if isvalid(app.KerfRightSpinner)
@@ -2258,10 +2185,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % Sync legacy property for backward compatibility if needed
             app.KerfValue = app.KerfLeftValue;
 
-            % Update Plot WITHOUT resetting zoom
             app.ProfileAxesLocked = true;
             app.onApplyKerf();
             app.ProfileAxesLocked = false;
@@ -2270,15 +2195,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onKerfRightChanged(app, src)
             app.KerfRightValue = src.Value;
 
-            % Logic check: If coupled, we shouldn't be here (it's disabled),
-            % but just in case:
             if strcmp(app.KerfModeSwitch.Value, 'Coupled')
                 app.KerfLeftValue = app.KerfRightValue;
                 app.KerfLeftSpinner.Value = app.KerfLeftValue;
                 app.KerfValue = app.KerfLeftValue;
             end
 
-            % Update Plot WITHOUT resetting zoom
             app.ProfileAxesLocked = true;
             app.onApplyKerf();
             app.ProfileAxesLocked = false;
@@ -2768,20 +2690,21 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         function onGenerateProfiles(app)
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return; % nothing loaded
+                return;
             end
 
             if app.AppState == 0
-                % Transition from STATE 0 → STATE 1
                 app.enterState1();
             else
-                % Already in STATE 1: recompute with current rotation / offsets / taper
-                app.updatePlanes();  % will call computeProfiles()
+                app.updatePlanes();
             end
         end
 
         function onContinue(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+
             currTab = app.TabGroup.SelectedTab;
 
             if currTab == app.TabModel
@@ -2789,54 +2712,24 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
-                % Ensure the billet view is fresh
-                app.syncBilletUI();
-                app.refreshBilletPlots();
 
             elseif currTab == app.TabBillet
-                % 1. Trigger the logic to center the Billet on the machine bed
+                % Modify state BEFORE switching.
+                % The tab switch will automatically trigger onTabChanged -> refreshMachinePlot
                 app.onResetMachineBilletPosition();
-
-                % 2. Switch to Machine Tab
                 app.TabGroup.SelectedTab = app.TabMachine;
 
-                % 3. Explicitly refresh the machine simulation
-                app.syncMachineUI();
-                [isValid, pCol, tCol, txtLines] = app.checkMachineState();
-                app.MachineLeftPanel.BackgroundColor = pCol;
-                app.TxtMachineStatus.Value = txtLines;
-                app.TxtMachineStatus.FontColor = tCol;
-
-                app.refreshMachinePlot();
-
             elseif currTab == app.TabMachine
-                % Transition Machine -> Cutting
                 app.TabGroup.SelectedTab = app.TabCutting;
 
-                % Auto-Execute
-                app.onAutoStart();
-                app.onAutoEntry();
-
-                app.updateCuttingPlots();
-                app.onResetCuttingViewBillet();
-
             elseif currTab == app.TabCutting
-                % Leave Cutting -> Enter Simulation
-                app.resetInteractionState(); % <--- ADD THIS
-
                 app.TabGroup.SelectedTab = app.TabSimulation;
-                app.applyTheme();
-                app.generateSimulationData();
 
             elseif currTab == app.TabSimulation
-                % Transition Simulation -> Post Process
                 app.TabGroup.SelectedTab = app.TabPostProcess;
-                app.updatePostProcessUI();
-                % (We will add plotting init here later)
-
             end
         end
-
+        
         function onContinueFromProfiles(app)
             % If a Billet tab exists, go there; otherwise just stay on Profiles.
             if isprop(app,'TabBillet') && ~isempty(app.TabBillet) && isgraphics(app.TabBillet)
@@ -3110,10 +3003,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
-            % Check if we have a model to plot
             if isempty(app.ModelPatch), return; end
 
-            % 1. Setup Data
             V     = app.ModelPatch.Vertices;
             F     = app.ModelPatch.Faces;
             bSize = app.BilletSize;
@@ -3122,38 +3013,33 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
-            % Style Settings
             outlineStyle = '--';
             outlineColor = 'k';
             if isDark, outlineColor = 'w'; end
 
-            % Match Model Appearance across all views
-            modelColor =[0.5, 0.5, 0.6];
+            modelColor =[ 0.5 0.5 0.6 ];
             modelAlpha = 0.4;
 
             % Pale Profile Colors for "Wireframe" look using Theme!
             % We add an alpha value (0.6) to make them semi-transparent
-            wireRed   = [t.planeRed, 0.6];
-            wireGreen =[t.planeGreen, 0.6];
+            wireRed   =[ t.planeRed, 0.6 ];
+            wireGreen = [ t.planeGreen, 0.6 ];
 
-            % 2. Calculate Global Bounding Box (Union of Billet & Model)
             V_shifted = V + shift;
 
-            allMin = min([0, 0, 0; min(V_shifted,[],1)]);
-            allMax = max([bSize; max(V_shifted,[],1)]);
+            allMin = min([ 0 0 0; min(V_shifted,[],1) ]);
+            allMax = max([ bSize; max(V_shifted,[],1) ]);
 
-            % Add padding (10%)
             span = max(allMax - allMin);
             if span < 1, span = 100; end
             center = (allMin + allMax) / 2;
 
-            limitRange = span * 0.6; % Half-width with padding
+            limitRange = span * 0.6;
 
-            commonX = [center(1)-limitRange, center(1)+limitRange];
-            commonY = [center(2)-limitRange, center(2)+limitRange];
-            commonZ =[center(3)-limitRange, center(3)+limitRange];
+            commonX =[ center(1)-limitRange, center(1)+limitRange ];
+            commonY =[ center(2)-limitRange, center(2)+limitRange ];
+            commonZ = [ center(3)-limitRange, center(3)+limitRange ];
 
-            % Prep Profiles Data (Shifted)
             hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
 
             if hasProfiles
@@ -3161,9 +3047,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pR_shifted = app.RightProfilePoints + shift;
             end
 
-            % 3. Plot
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[1 2], [1 3],[2 3], [1 2 3]};
+            dims = {[ 1 2 ], [ 1 3 ],[ 2 3 ], [ 1 2 3 ]};
             labs = {
                 {'X (mm)','Y (mm)'};
                 {'X (mm)','Z (mm)'};
@@ -3181,54 +3066,42 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hold(ax,'on');
 
                 if i < 4
-                    % --- 2D ORTHOGRAPHIC VIEWS ---
-                    % 1. Draw Model Projection (Background)
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
                         'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
 
-                    % 2. Draw Ghost Profiles (Midground)
                     if hasProfiles
                         plot(ax, pL_shifted(:,d(1)), pL_shifted(:,d(2)), 'Color', wireRed, 'LineWidth', 0.75);
                         plot(ax, pR_shifted(:,d(1)), pR_shifted(:,d(2)), 'Color', wireGreen, 'LineWidth', 0.75);
                     end
 
-                    % 3. Draw Billet Rectangle (Foreground - on top)
-                    bx =[0, bSize(d(1)), bSize(d(1)), 0, 0];
-                    by = [0, 0, bSize(d(2)), bSize(d(2)), 0];
+                    bx =[ 0 bSize(d(1)) bSize(d(1)) 0 0 ];
+                    by =[ 0 0 bSize(d(2)) bSize(d(2)) 0 ];
                     plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                 else
-                    % --- 3D ISO VIEW ---
-                    % 1. Draw Model (3D)
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
                         'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
 
-                    % 2. Draw Ghost Profiles (3D)
                     if hasProfiles
                         plot3(ax, pL_shifted(:, 1), pL_shifted(:, 2), pL_shifted(:, 3), 'Color', wireRed, 'LineWidth', 0.75);
                         plot3(ax, pR_shifted(:, 1), pR_shifted(:, 2), pR_shifted(:, 3), 'Color', wireGreen, 'LineWidth', 0.75);
                     end
 
-                    % 3. Draw Billet Box Wireframe (Foreground - on top)
-                    b0 = 0; % Dummy variable to defeat markdown bug
-                    [bx, by, bz] = app.makeBoxVertices(b0, b0, b0, bSize(1), bSize(2), bSize(3));
+                    d1 = 0; % Anti-markdown bug
+                    [ bx, by, bz ] = app.makeBoxVertices(d1, d1, d1, bSize(1), bSize(2), bSize(3));
 
-                    % Use patch for 3D box edges
-                    patch(ax, 'Vertices', [bx, by, bz], 'Faces', app.boxFaces, ...
+                    patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
                         'FaceColor', 'none', ...
                         'EdgeColor', outlineColor, ...
                         'LineStyle', outlineStyle, ...
                         'LineWidth', 1.5);
 
-                    % Standard 3D View settings
                     view(ax, 3);
                 end
 
-                % Apply Common Styling
                 axis(ax, 'equal');
                 grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
 
-                % Apply synced limits
                 if i==1, xlim(ax, commonX); ylim(ax, commonY); end
                 if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
                 if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
@@ -3504,216 +3377,173 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshMachinePlot(app)
-            % REFRESH MACHINE PLOT: High-Fidelity Sim with Blue Billet & Ghost Profiles
+            % REFRESH MACHINE PLOT: High-Fidelity Sim with Blue Billet & Extracted Profiles
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
 
-            % Clear and start fresh
             delete(allchild(ax));
             hold(ax, 'on');
 
-            % --- 1. THEME & GEOMETRY PREP ---
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
-            % Tweak Wire Colors for visibility against grid
             if isDark
-                cageCol = [0.6 0.6 0.6]; tickCol = [1 1 1];
-                % Brighter grey for dark mode
-                wireBaseCol  = [0.50 0.50 0.50];
+                cageCol =[ 0.6 0.6 0.6 ];
+                tickCol = [ 1 1 1 ];
+                wireBaseCol  =[ 0.50 0.50 0.50 ];
                 modelAlpha = 0.35;
-                offWhite = [0.9 0.9 0.9];
             else
-                cageCol = [0.3 0.3 0.3]; tickCol = [0 0 0];
-                % Darker grey for light mode
-                wireBaseCol  = [0.40 0.40 0.40];
+                cageCol = [ 0.3 0.3 0.3 ];
+                tickCol = [ 0 0 0 ];
+                wireBaseCol  =[ 0.40 0.40 0.40 ];
                 modelAlpha = 0.30;
-                offWhite = [0.2 0.2 0.2];
             end
 
-            % Constants
-            offX = app.MachineBedPos(1); mX = app.MachineSpanX;
-            mLimY = app.MachineLimitY; mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize; bp = app.MachineBedPos;
+            % Matches Billet Tab exactly!
+            wireRed   =[ t.planeRed, 0.6 ];
+            wireGreen = [ t.planeGreen, 0.6 ];
 
-            % --- 2. PHYSICAL BED ---
-            [xb, yb, zb] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            hBed = patch(ax, 'Vertices',[xb, yb, zb], 'Faces', app.boxFaces, ...
-                'FaceColor',[0.4 0.4 0.4], 'FaceAlpha', 0.5, 'EdgeColor',[0.2 0.2 0.2]);
+            offX = app.MachineBedPos(1);
+            mX = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize;
+            bp = app.MachineBedPos;
 
-            % --- 3. WORKSPACE CAGE ---
-            [xl, yl, zl] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
-            hLim = patch(ax, 'Vertices',[xl, yl, zl], 'Faces', app.boxFaces, ...
-                'FaceColor','none', 'EdgeColor', t.labelCol, 'LineStyle',':', 'EdgeAlpha',0.3);
+            d1 = 0; % Anti-markdown bug
+            [ xb, yb, zb ] = app.makeBoxVertices(d1, bp(2), -bs(3), bs(1), bs(2), bs(3));
 
-            % --- 4. TOWER HEAD PLANES & LABELS ---
-            pY = [0; mLimY; mLimY; 0]; pZ = [0; 0; mLimZ; mLimZ];
-            hTowerL = patch(ax, 'XData',ones(4,1)*(-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeRed, ...
+            hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
+                'FaceColor',[ 0.4 0.4 0.4 ], 'FaceAlpha', 0.5, 'EdgeColor',[ 0.2 0.2 0.2 ]);
+
+            d2 = 0; % Anti-markdown bug
+            [ xl, yl, zl ] = app.makeBoxVertices(-offX, d2, d2, mX, mLimY, mLimZ);
+
+            hLim = patch(ax, 'Vertices',[ xl, yl, zl ], 'Faces', app.boxFaces, ...
+                'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
+
+            pY =[ 0; mLimY; mLimY; 0 ];
+            pZ =[ 0; 0; mLimZ; mLimZ ];
+
+            hTowerL = patch(ax, 'XData', ones(4,1)*(-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeRed, ...
                 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle', '-');
-            hTowerR = patch(ax, 'XData',ones(4,1)*(mX-offX), 'YData',pY, 'ZData',pZ, 'FaceColor', t.planeGreen, ...
+
+            hTowerR = patch(ax, 'XData', ones(4,1)*(mX-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeGreen, ...
                 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle', '-');
 
-            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight','bold', 'FontSize',9);
-            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight','bold', 'HorizontalAlignment','right', 'FontSize',9);
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
+            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
 
-            % --- 5. BILLET & MODEL ---
-            hBillet = gobjects(0); hModel = gobjects(0);
-            hGhostL = gobjects(0); hWireL = gobjects(0);
+            hBillet = gobjects(0);
+            hModel = gobjects(0);
+            hGhostL = gobjects(0);
+            hWireL = gobjects(0);
 
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                bPlotPos = [app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3)];
+                bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
                 totalShift = bPlotPos + app.BilletShift;
 
-                % A. Billet Outline (Blue Style)
-                [xm, ym, zm] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-                hBillet = patch(ax, 'Vertices',[xm, ym, zm], 'Faces', app.boxFaces, ...
-                    'FaceColor', [0.3 0.5 0.8], 'FaceAlpha', 0.2, ...
-                    'EdgeColor', t.labelCol, 'LineStyle','--', 'LineWidth', 1.0);
+                d3 = 0; % Anti-markdown bug
+                [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
 
-                % B. Ghost Model
+                hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
+                    'FaceColor', [ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
+                    'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
+
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [0.6 0.6 0.7], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+                    'FaceColor', [ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
 
-                % C. Profiles & Wire Paths
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % 1. GHOST PROFILES (Raw Foam Boundary) - SOLID & BOLDER
-                    [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...\
-                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...\
+                    d4 = 0; % Anti-markdown bug
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
                     hGhostL = plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
-                        'Color', t.rawMeshCol, 'LineWidth', 1.0, 'LineStyle','-');
+                        'Color', wireRed, 'LineWidth', 0.75, 'LineStyle', '-');
+
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
-                        'Color', t.rawMeshCol, 'LineWidth', 1.0, 'LineStyle','-');
+                        'Color', wireGreen, 'LineWidth', 0.75, 'LineStyle', '-');
 
-                    % 2. KERF PATH (Actual Wire - Solid)
-                    yL_k = app.LeftProfilePoints(:,2); zL_k = app.LeftProfilePoints(:,3);
-                    yR_k = app.RightProfilePoints(:,2); zR_k = app.RightProfilePoints(:,3);
+                    d5 = 0; % Anti-markdown bug
+                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
-                    if app.KerfEnabled && app.KerfValue > 0
-                        [yL_k, zL_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfValue);
-                        [yR_k, zR_k] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfValue);
-                    end
-                    [ySyncL, zSyncL, ySyncR, zSyncR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
+                    if ~isempty(ySyncL)
+                        hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
+                            'Color', t.wireKerf, 'LineWidth', 1.0);
+                        plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
+                            'Color', t.wireKerf, 'LineWidth', 1.0);
 
-                    hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
-                        'Color', t.wireKerf, 'LineWidth', 1.0);
-                    plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
-                        'Color', t.wireKerf, 'LineWidth', 1.0);
+                        d6 = 0; % Anti-markdown bug
+                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                        ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
+                            ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
-                    % 3. TOWER HEAD PROJECTIONS
-                    [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(...\
-                        ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...\
-                        ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
+                        plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.0);
+                        plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.0);
 
-                    plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.0);
-                    plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.0);
+                        stepInt = max(1, floor(numel(tL.y)/20));
+                        idx = 1:stepInt:numel(tL.y);
+                        if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
+                        dotCMap = hsv(numel(idx));
 
-                    % 4. SPECTRUM SYNC DOTS & WIRES (Smart Distribution)
-                    N_pts = numel(tL.y);
-                    idx = 1;
-                    last_idx = 1;
+                        bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
+                        if any(bad), isViolated = true; end
 
-                    % Target ~40 lines, but at least 10mm apart to prevent crowding
-                    total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
-                    target_spacing = max(10.0, total_len / 40.0);
+                        for k = 1:numel(idx)
+                            currIdx = idx(k);
 
-                    for i = 2:N_pts-1
-                        % Physical distance from the last drawn wire
-                        d = hypot(ySyncL(i) - ySyncL(last_idx), zSyncL(i) - zSyncL(last_idx));
+                            wCol =[ wireBaseCol, 0.60 ];
+                            if bad(currIdx)
+                                wCol =[ 1 0.8 0 0.8 ];
+                            end
 
-                        % Segment vectors and lengths
-                        v1 =[ ySyncL(i) - ySyncL(i-1), zSyncL(i) - zSyncL(i-1) ];
-                        v2 =[ ySyncL(i+1) - ySyncL(i), zSyncL(i+1) - zSyncL(i) ];
-                        n1 = norm(v1);
-                        n2 = norm(v2);
+                            plot3(ax,[ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ], [ tL.z(currIdx), tR.z(currIdx) ], ...
+                                'Color', wCol, 'LineWidth', 0.8);
 
-                        % Turning angle at this specific point
-                        angle_deg = 0;
-                        if n1 > 1e-4 && n2 > 1e-4
-                            dp = dot(v1, v2) / (n1 * n2);
-                            angle_deg = acosd(max(-1, min(1, dp)));
+                            plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
+                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
+
+                            plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
+                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
                         end
-
-                        % --- RULES FOR DRAWING A WIRE ---
-                        % 1. Spacing: Traveled far enough along a gentle curve or straight
-                        isSpaced = (d >= target_spacing);
-
-                        % 2. Sharpness: Sharp internal corner (> 15 deg)
-                        isSharp = (angle_deg > 15.0);
-
-                        % 3. Transition: Start/End of an external curve or straight.
-                        % Triggers if one segment is >1mm and at least 3x longer than the other.
-                        isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2));
-
-                        if isSpaced || isSharp || isTransition
-                            idx(end+1) = i;
-                            last_idx = i;
-                        end
-                    end
-
-                    % Always include the very last point
-                    idx(end+1) = N_pts;
-                    idx = unique(idx);
-
-                    dotCMap = hsv(numel(idx));
-
-                    bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
-                    if any(bad), isViolated = true; end
-
-                    for k = 1:numel(idx)
-                        currIdx = idx(k);
-                        % WIRE COLOR FIX: Higher alpha (0.6) and adjusted base color
-                        wCol = [ wireBaseCol, 0.60 ];
-                        if bad(currIdx), wCol = [ 1 0.8 0 0.8 ]; end % Yellow alert
-
-                        % Wire
-                        plot3(ax, [ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ],[ tL.z(currIdx), tR.z(currIdx) ], ...
-                            'Color', wCol, 'LineWidth', 0.8);
-
-                        % Dots
-                        plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
-                        plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
-                            '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
                     end
                 end
             end
 
-            % --- 6. LEGEND ---
-            handles = [hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL];
-            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Ghost Profile (Raw)', 'Wire Path (Kerf)'};
+            handles =[ hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL ];
+            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Extracted Profile', 'Wire Path (Kerf)'};
 
             valid = isgraphics(handles);
             if any(valid)
-                lgd = legend(ax, handles(valid), labels(valid), 'Location','northeast');
-                lgd.Box = 'off'; lgd.TextColor = t.labelCol;
+                lgd = legend(ax, handles(valid), labels(valid), 'Location', 'northeast');
+                lgd.Box = 'off';
+                lgd.TextColor = t.labelCol;
             end
 
-            % --- 7. VIEW SETTINGS ---
             view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
             ax.BackgroundColor = t.editBg;
             set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
 
-            xlim(ax, [-offX - 100, mX - offX + 100]);
-            ylim(ax, [-50, mLimY + 50]);
-            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+            xlim(ax,[ -offX - 100, mX - offX + 100 ]);
+            ylim(ax, [ -50, mLimY + 50 ]);
+            zlim(ax,[ -bs(3)-20, mLimZ + 80 ]);
 
-            % --- 8. STATUS UPDATE ---
-            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+            d7 = 0; % Anti-markdown bug
+            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             if isViolated
                 isValid = false;
-                pCol =[0.4 0.16 0.16];
-                tCol =[1 0.4 0.4];
-                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
+                pCol =[ 0.4 0.16 0.16 ];
+                tCol =[ 1 0.4 0.4 ];
+                txtLines = ["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
             end
 
             app.MachineLeftPanel.BackgroundColor = pCol;
@@ -3725,6 +3555,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             else
                 app.BtnMachineContinue.Enable = 'off';
             end
+
             drawnow limitrate;
         end
 
