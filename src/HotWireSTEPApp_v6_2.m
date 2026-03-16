@@ -2005,157 +2005,89 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            disp('================================================');
-            disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
-
-            % --- 1. Evaluate Current Global State ---
+            % --- GUARD 1: Model Required ---
             hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
-            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
-            hasKerf = app.KerfEnabled; % <--- FIX: Added Kerf Check
-
-            isValidBillet = false;
-            if hasModel
-                isValidBillet = app.syncBilletUI();
-            end
-
-            isValidMach = false; pColM = []; tColM = []; msgM =[];
-            if isValidBillet
-                chkM = cell(1,4);[chkM{1}, chkM{2}, chkM{3}, chkM{4}] = app.checkMachineState();
-                isValidMach = chkM{1}; pColM = chkM{2}; tColM = chkM{3}; msgM = chkM{4};
-            end
-
-            isValidCut = false; pColC = []; tColC = []; msgC =[];
-            if isValidMach && app.IsCuttingInit
-                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
-                isValidCut = chkC{1}; pColC = chkC{2}; tColC = chkC{3}; msgC = chkC{4};
-            end
-
-            % --- 2. Determine Requirements for Target Tab ---
-            reqProfiles = targetTab == app.TabProfiles || targetTab == app.TabBillet || targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
-            reqBillet   = targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
-            reqMachine  = targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
-            reqCutting  = targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
-
-            % --- 3. Build List of Missing Steps ---
-            pendingTasks = {};
-            targetFixTabs = {};
-
-            if reqProfiles && ~hasModel
-                disp('>> BLOCKED: No Model loaded.');
-                app.TabGroup.SelectedTab = app.TabModel;
+            if targetTab ~= app.TabModel && ~hasModel
                 uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
+                app.TabGroup.SelectedTab = app.TabModel;
                 return;
             end
 
-            if reqProfiles
-                if ~hasProfiles
-                    pendingTasks{end+1} = '- Extract Profiles on Model Tab';
-                    if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabModel; end
-                elseif ~hasKerf
-                    pendingTasks{end+1} = '- Apply Kerf Compensation on Profiles Tab';
-                    if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabProfiles; end
+            % --- GUARD 2: Profiles Required ---
+            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
+            if targetTab ~= app.TabModel && targetTab ~= app.TabProfiles && ~hasProfiles
+                uialert(app.UIFigure, 'Please generate Cutting Profiles first.', 'Step 2 Missing', 'Icon','warning');
+                app.TabGroup.SelectedTab = app.TabProfiles;
+                return;
+            end
+
+            % --- GUARD 3: Billet Validity ---
+            if (oldTab == app.TabBillet) || (targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation)
+                isValidBillet = app.syncBilletUI();
+                if ~isValidBillet
+                    uialert(app.UIFigure, 'Billet configuration is invalid (Model outside stock).', 'Billet Error', 'Icon','error');
+                    app.TabGroup.SelectedTab = app.TabBillet;
+                    return;
                 end
             end
 
-            if reqBillet && (~isValidBillet || sum(app.BilletSize)==0)
-                pendingTasks{end+1} = '- Auto-fit and position the Billet Stock';
-                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabBillet; end
-            end
+            % --- GUARD 4: Machine Validity ---
+            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)[isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
 
-            if reqMachine && (~isValidMach || ~app.IsMachineInit)
-                pendingTasks{end+1} = '- Safely position Billet on Machine Bed';
-                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabMachine; end
-            end
-
-            if reqCutting && (~isValidCut || ~app.IsCuttingInit)
-                pendingTasks{end+1} = '- Auto-route safe Entry and Exit paths';
-                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabCutting; end
-            end
-
-            % --- 4. The Hybrid Gatekeeper Prompt ---
-            if ~isempty(pendingTasks)
-                disp('>> INTERCEPTED: Steps Skipped.');
-                taskStr = strjoin(pendingTasks, newline);
-                msg = sprintf('You are jumping ahead!\nThe following steps have not been configured yet:\n\n%s\n\nDo you want the app to automatically compute these steps using safe defaults, or jump to the required tab to do it manually?', taskStr);
-
-                sel = uiconfirm(app.UIFigure, msg, 'Steps Skipped', ...
-                    'Options', {'Auto-Configure All', 'Go to Manual Step', 'Cancel'}, ...
-                    'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
-
-                if strcmp(sel, 'Go to Manual Step')
-                    app.TabGroup.SelectedTab = targetFixTabs{1};
+                if ~isValidMach
+                    uialert(app.UIFigure, join(msgLines, newline), 'Machine Error', 'Icon','error');
+                    app.TabGroup.SelectedTab = app.TabMachine;
                     return;
-                elseif strcmp(sel, 'Cancel')
-                    app.TabGroup.SelectedTab = oldTab;
-                    return;
-                else
-                    % --- 5. Execute Auto-Cascade ---
-                    disp('>> EXECUTING AUTO-CASCADE');
-                    if reqProfiles
-                        if ~hasProfiles
-                            disp('   -> Auto Generating Profiles');
-                            app.onGenerateProfiles();
-                            drawnow; pause(0.1);
-                        end
-                        if ~hasKerf
-                            disp('   -> Auto Applying Kerf');
-                            app.onApplyKerf();
-                            drawnow; pause(0.1);
-                        end
-                    end
-                    if reqBillet && (~isValidBillet || sum(app.BilletSize)==0)
-                        disp('   -> Auto Fitting Billet');
-                        app.onAutoFitBillet();
-                        drawnow; pause(0.1);
-                    end
-                    if reqMachine && (~isValidMach || ~app.IsMachineInit)
-                        disp('   -> Auto Positioning Machine');
-                        app.onResetMachineBilletPosition();
-                        drawnow; pause(0.1);
-                    end
-                    if reqCutting && (~isValidCut || ~app.IsCuttingInit)
-                        disp('   -> Auto Generating Cutting Strategy');
-                        app.onAutoStart(false);
-                        app.onAutoEntry(false);
-                        drawnow; pause(0.1);
-                    end
                 end
             end
 
-            % --- 6. Execute Safe Tab Transition Render ---
-            disp(['>> RENDERING: ' targetTab.Title]);
+            % --- EXECUTE TRANSITION ---
             app.resetInteractionState();
-            drawnow; pause(0.05);
 
             if targetTab == app.TabBillet
                 app.syncBilletUI();
+                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.refreshBilletPlots();
 
             elseif targetTab == app.TabMachine
-                app.syncMachineUI();
-                app.MachineLeftPanel.BackgroundColor = pColM;
-                app.TxtMachineStatus.Value = msgM;
-                app.TxtMachineStatus.FontColor = tColM;
-                if isValidMach, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
+                app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
+                app.MachineLeftPanel.BackgroundColor = pCol;
+                app.TxtMachineStatus.Value = txtLines;
+                app.TxtMachineStatus.FontColor = tCol;
+
+                if isValid
+                    app.BtnMachineContinue.Enable = 'on';
+                else
+                    app.BtnMachineContinue.Enable = 'off';
+                end
+
+                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.refreshMachinePlot();
 
-            elseif targetTab == app.TabCutting
-                app.CuttingLeftPanel.BackgroundColor = pColC;
-                app.TxtCuttingStatus.Value = msgC;
-                app.TxtCuttingStatus.FontColor = tColC;
-                if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+            elseif targetTab == app.TabCutting[isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
+
+                app.CuttingLeftPanel.BackgroundColor = pCol;
+                app.TxtCuttingStatus.Value = msgLines;
+                app.TxtCuttingStatus.FontColor = tCol;
+
+                if isValidCut
+                    app.BtnCuttingContinue.Enable = 'on';
+                else
+                    app.BtnCuttingContinue.Enable = 'off';
+                end
+
+                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
             elseif targetTab == app.TabSimulation
                 app.applyTheme();
+                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.generateSimulationData();
 
             elseif targetTab == app.TabPostProcess
                 app.updatePostProcessUI();
             end
-
-            disp('>> RENDER COMPLETE.');
         end
 
         function onProfileToleranceChanged(app, src)
@@ -2794,25 +2726,42 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onContinue(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+
             currTab = app.TabGroup.SelectedTab;
 
-            % Strictly route to the next tab. The Gatekeeper (onTabChanged) handles logic!
             if currTab == app.TabModel
                 app.TabGroup.SelectedTab = app.TabProfiles;
+
             elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
+
             elseif currTab == app.TabBillet
+                % Calc defaults if not set, but DO NOT PLOT HERE.
+                if app.MachineBilletPos(1) == 100 && app.MachineBilletPos(2) == 50 && app.MachineBilletPos(3) == 0
+                    app.onResetMachineBilletPosition();
+                end
+
                 app.TabGroup.SelectedTab = app.TabMachine;
+
             elseif currTab == app.TabMachine
+                % Calc defaults if not set, but DO NOT PLOT HERE.
+                if isempty(app.EntryPointL)
+                    app.onAutoStart();
+                    app.onAutoEntry();
+                end
+
                 app.TabGroup.SelectedTab = app.TabCutting;
+
             elseif currTab == app.TabCutting
                 app.TabGroup.SelectedTab = app.TabSimulation;
+
             elseif currTab == app.TabSimulation
                 app.TabGroup.SelectedTab = app.TabPostProcess;
             end
         end
-
         % ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================

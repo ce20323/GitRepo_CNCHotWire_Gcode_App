@@ -99,44 +99,91 @@ classdef HotWireSTEPApp_v6_helpers
         % PROFILE LOOP RECONSTRUCTION
         % ===============================================================
         function [yLoop, zLoop] = buildMainProfileLoop(xs, ys, zs)
-            yLoop = []; zLoop = []; if isempty(xs) || all(isnan(xs)), return; end
-            valid = ~(isnan(xs) | isnan(ys) | isnan(zs)); idx = find(valid);
-            if numel(idx) < 4, return; end
-            if mod(numel(idx),2) ~= 0, idx = idx(1:end-1); end
+            yLoop = [];
+            zLoop =[];
+            if isempty(xs) || all(isnan(xs))
+                return;
+            end
+
+            valid = ~(isnan(xs) | isnan(ys) | isnan(zs));
+            idx = find(valid);
+
+            if numel(idx) < 4
+                return;
+            end
+
+            if mod(numel(idx),2) ~= 0
+                idx = idx(1:end-1);
+            end
+
             nSeg = numel(idx)/2;
-            p1 = [ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
-            p2 = [ys(idx(2:2:end)).', zs(idx(2:2:end)).'];
+            p1 =[ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
+            p2 =[ys(idx(2:2:end)).', zs(idx(2:2:end)).'];
             allPts = [p1; p2];
-            span = max(max(allPts)-min(allPts));
-            tol = 1e-3 * max(span, 1);
-            nodePos = zeros(0,2); nodeCount = 0; mapIdx = zeros(size(allPts,1),1);
+
+            % FIX: Use a strict absolute tolerance so sharp trailing edges aren't welded!
+            tol = 1e-5;
+
+            nodePos = zeros(0,2);
+            nodeCount = 0;
+            mapIdx = zeros(size(allPts,1),1);
+
             for k = 1:size(allPts,1)
-                p = allPts(k,:); found = false;
+                p = allPts(k,:);
+                found = false;
                 for n = 1:nodeCount
-                    if norm(p - nodePos(n,:)) <= tol, mapIdx(k) = n; found = true; break; end
+                    if norm(p - nodePos(n,:)) <= tol
+                        mapIdx(k) = n;
+                        found = true;
+                        break;
+                    end
                 end
                 if ~found
-                    nodeCount = nodeCount + 1; nodePos(nodeCount,:) = p; mapIdx(k) = nodeCount;
+                    nodeCount = nodeCount + 1;
+                    nodePos(nodeCount,:) = p;
+                    mapIdx(k) = nodeCount;
                 end
             end
-            edges = [mapIdx(1:nSeg), mapIdx(nSeg+1:end)];
-            used = false(nSeg,1); loops = {};
+
+            edges =[mapIdx(1:nSeg), mapIdx(nSeg+1:end)];
+            used = false(nSeg,1);
+            loops = {};
+
             for s = 1:nSeg
                 if used(s), continue; end
-                used(s) = true; cur = edges(s,2); path = [edges(s,1) cur]; startNode = path(1);
+                used(s) = true;
+                cur = edges(s,2);
+                path =[edges(s,1) cur];
+                startNode = path(1);
+
                 while true
                     cand = find(~used & (edges(:,1) == cur | edges(:,2) == cur),1);
                     if isempty(cand), break; end
-                    used(cand) = true; e = edges(cand,:);
-                    if e(1) == cur, nxt = e(2); else, nxt = e(1); end
-                    path(end+1) = nxt; cur = nxt;
+                    used(cand) = true;
+                    e = edges(cand,:);
+                    if e(1) == cur
+                        nxt = e(2);
+                    else
+                        nxt = e(1);
+                    end
+                    path(end+1) = nxt;
+                    cur = nxt;
                     if cur == startNode, break; end
                 end
-                if numel(path) >= 4 && path(1) == path(end), loops{end+1} = path; end
+
+                if numel(path) >= 4 && path(1) == path(end)
+                    loops{end+1} = path;
+                end
             end
-            if isempty(loops), return; end
+
+            if isempty(loops)
+                return;
+            end
+
             [~, bestIdx] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
-            pts = nodePos(loops{bestIdx},:); yLoop = pts(:,1); zLoop = pts(:,2);
+            pts = nodePos(loops{bestIdx},:);
+            yLoop = pts(:,1);
+            zLoop = pts(:,2);
         end
 
         % ===============================================================
@@ -162,16 +209,20 @@ classdef HotWireSTEPApp_v6_helpers
                 if numel(x) < 2
                     return;
                 end
-
                 d2 =[1; (diff(x).^2 + diff(y).^2)];
                 keep = d2 > 1e-8;
                 x = x(keep);
                 y = y(keep);
                 if (x(1)~=x(end) || y(1)~=y(end))
-                    x(end+1)=x(1);
-                    y(end+1)=y(1);
+                    x(end+1) = x(1);
+                    y(end+1) = y(1);
                 end
-            end[yL, zL] = clean_path(yL, zL);
+            end
+
+            d1 = 0; % Anti-markdown bug
+            [yL, zL] = clean_path(yL, zL);
+
+            d2 = 0; % Anti-markdown bug
             [yR, zR] = clean_path(yR, zR);
 
             if numel(yL) < 3 || numel(yR) < 3
@@ -182,15 +233,18 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+            d3 = 0; % Anti-markdown bug[yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
 
-            [yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+            d4 = 0; % Anti-markdown bug[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
             areaR = sum((yR(1:end-1).*zR(2:end)) - (yR(2:end).*zR(1:end-1)));
+
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
-                zR = flipud(zR);[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+                zR = flipud(zR);
+
+                d5 = 0; % Anti-markdown bug[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
             distL =[0; cumsum(hypot(diff(yL), diff(zL)))];
@@ -215,23 +269,33 @@ classdef HotWireSTEPApp_v6_helpers
             s_rawL(isnan(s_rawL)) = 0;
             s_rawR(isnan(s_rawR)) = 0;
 
+            % Guard bounds to ensure perfect 0-1 mapping
+            s_rawL(1) = 0; s_rawL(end) = 1;
+            s_rawR(1) = 0; s_rawR(end) = 1;
+
             s_fine = linspace(0, 1, N)';
 
-            s_eval = unique(round([s_fine; s_rawL; s_rawR], 6));
+            % Exact grid merging (No rounding!) preserves exact corner vertices
+            s_eval = unique([s_fine; s_rawL; s_rawR]);
 
-            [suL, iuL] = unique(round(s_rawL, 6), 'stable');[suR, iuR] = unique(round(s_rawR, 6), 'stable');
+            d6 = 0; % Anti-markdown bug
+            [suL, iuL] = unique(s_rawL, 'stable');
+
+            d7 = 0; % Anti-markdown bug
+            [suR, iuR] = unique(s_rawR, 'stable');
 
             yLf = interp1(suL, yL(iuL), s_eval, 'linear');
             zLf = interp1(suL, zL(iuL), s_eval, 'linear');
             yRf = interp1(suR, yR(iuR), s_eval, 'linear');
             zRf = interp1(suR, zR(iuR), s_eval, 'linear');
 
-            pts4D =[yLf, zLf, yRf, zRf];
+            % Independent 2D RDP checks prevent 4D twisting/smoothing
+            pts4D = [yLf, zLf, yRf, zRf];
             keepMask = false(size(pts4D, 1), 1);
             keepMask(1) = true;
             keepMask(end) = true;
 
-            stack = [1, size(pts4D, 1)];
+            stack =[1, size(pts4D, 1)];
 
             while ~isempty(stack)
                 idxEnd = stack(end);
@@ -242,32 +306,53 @@ classdef HotWireSTEPApp_v6_helpers
                     continue;
                 end
 
-                P1 = pts4D(idxStart, :);
-                P2 = pts4D(idxEnd, :);
+                P1_L = pts4D(idxStart, 1:2);
+                P2_L = pts4D(idxEnd, 1:2);
+                Pts_L = pts4D((idxStart+1):(idxEnd-1), 1:2);
 
-                rng = (idxStart+1):(idxEnd-1);
-                Pts = pts4D(rng, :);
+                P1_R = pts4D(idxStart, 3:4);
+                P2_R = pts4D(idxEnd, 3:4);
+                Pts_R = pts4D((idxStart+1):(idxEnd-1), 3:4);
 
-                V = P2 - P1;
-                lenSq = sum(V.^2);
-                W = bsxfun(@minus, Pts, P1);
+                % Left deviation
+                V_L = P2_L - P1_L;
+                lenSq_L = sum(V_L.^2);
+                W_L = bsxfun(@minus, Pts_L, P1_L);
 
-                if lenSq < 1e-12
-                    distsSq = sum(W.^2, 2);
+                if lenSq_L < 1e-12
+                    distsSq_L = sum(W_L.^2, 2);
                 else
-                    t = (W * V') / lenSq;
-                    t = max(0, min(1, t));
-                    Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
-                    distsSq = sum((Pts - Closest).^2, 2);
+                    t_L = (W_L * V_L') / lenSq_L;
+                    t_L = max(0, min(1, t_L));
+                    Closest_L = bsxfun(@plus, P1_L, bsxfun(@times, t_L, V_L));
+                    distsSq_L = sum((Pts_L - Closest_L).^2, 2);
                 end
 
-                [maxSq, localIdx] = max(distsSq);
+                % Right deviation
+                V_R = P2_R - P1_R;
+                lenSq_R = sum(V_R.^2);
+                W_R = bsxfun(@minus, Pts_R, P1_R);
+
+                if lenSq_R < 1e-12
+                    distsSq_R = sum(W_R.^2, 2);
+                else
+                    t_R = (W_R * V_R') / lenSq_R;
+                    t_R = max(0, min(1, t_R));
+                    Closest_R = bsxfun(@plus, P1_R, bsxfun(@times, t_R, V_R));
+                    distsSq_R = sum((Pts_R - Closest_R).^2, 2);
+                end
+
+                % We split if EITHER side exceeds tolerance
+                max_distsSq = max(distsSq_L, distsSq_R);
+
+                d8 = 0; % Anti-markdown bug
+                [maxSq, localIdx] = max(max_distsSq);
 
                 if maxSq > (tol^2)
-                    splitIdx = rng(localIdx);
+                    splitIdx = idxStart + localIdx;
                     keepMask(splitIdx) = true;
-                    stack = [stack, splitIdx, idxEnd];
-                    stack =[stack, idxStart, splitIdx];
+                    stack =[stack, splitIdx, idxEnd];
+                    stack = [stack, idxStart, splitIdx];
                 end
             end
 
@@ -282,8 +367,8 @@ classdef HotWireSTEPApp_v6_helpers
             zRS(end) = zRS(1);
         end
 
-        function[yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
-            function[x, y] = clean(x, y)
+        function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
+            function [x, y] = clean(x, y)
                 if numel(x) < 2
                     return;
                 end
@@ -295,9 +380,7 @@ classdef HotWireSTEPApp_v6_helpers
                     x(end+1) = x(1);
                     y(end+1) = y(1);
                 end
-            end
-
-            [yL, zL] = clean(yL, zL);
+            end[yL, zL] = clean(yL, zL);
             [yR, zR] = clean(yR, zR);
 
             function s = getArcParam(y, z)
@@ -332,7 +415,14 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            s_target = unique(round([sL; sR], 5));[sL_u, idxL] = unique(round(sL, 6), 'stable');[sR_u, idxR] = unique(round(sR, 6), 'stable');
+            sL(1) = 0; sL(end) = 1;
+            sR(1) = 0; sR(end) = 1;
+
+            % Exact grid merging (No rounding!)
+            s_target = unique([sL; sR]);
+
+            [sL_u, idxL] = unique(sL, 'stable');
+            [sR_u, idxR] = unique(sR, 'stable');
 
             yLS = interp1(sL_u, yL(idxL), s_target, 'linear');
             zLS = interp1(sL_u, zL(idxL), s_target, 'linear');
