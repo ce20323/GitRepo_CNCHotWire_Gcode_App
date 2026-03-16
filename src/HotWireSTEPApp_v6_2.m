@@ -171,6 +171,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         IsDragging logical = false      % Flag for mouse drag state
         LastMousePos (1,2) double = [NaN NaN]  % Last mouse position
         AppState (1,1) double = 0       % 0=Model Only, 1=Active Cutting
+        IsMachineInit (1,1) logical = false % Tracks if user/auto has set Machine Pos
+        IsCuttingInit (1,1) logical = false % Tracks if user/auto has set Entry Pts
 
         % ---------- Orientation Controls ----------
         RotGrid                         % Layout for rotation controls
@@ -454,8 +456,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 3. Tab Group Container ---
             app.TabGroup = uitabgroup(app.UIFigure, ...
                 'Units','normalized', ...
-                'Position',[0 0 1 1]);
-
+                'Position',[0 0 1 1], ...
+                'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt)); % <--- ADDED THIS LINE
+            
             % ===========================================================
             % TAB 1: MODEL IMPORT & ORIENTATION
             % ===========================================================
@@ -764,7 +767,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % -- Continue (bottom, like Model tab buttons section)
             app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
                 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
-                'ButtonPushedFcn',@(~,~)app.onContinueFromProfiles());
+                'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnProfilesContinue.Layout.Row = 9;
 
             % --- Right Panel: 2D Plots ---
@@ -1686,63 +1689,81 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Compute and plot intersection profiles for left/right planes.
             if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
+            disp('>> COMPUTE PROFILES: Started');
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value,'Tapered');
 
-            % Clear old data
             app.clearProfiles(); app.clearProfiles2D();
             app.SelectedStartIdxL = 1; app.SelectedStartIdxR = 1;
 
-            % Setup Geometry
-            V = app.ModelPatch.Vertices; F = app.ModelPatch.Faces;
-            spanX = max(V(:,1)) - min(V(:,1)); epsX = 1e-6 * max(spanX, 1);
+            V = app.ModelPatch.Vertices;
+            F = app.ModelPatch.Faces;
+            spanX = max(V(:,1)) - min(V(:,1));
+            epsX = 1e-6 * max(spanX, 1);
 
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
 
-            % --- 1. EXTRACT RAW LOOPS ---
-            % Left is always extracted
-            [xsL, ysL, zsL] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
-            if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
-            [yLoopL, zLoopL] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
+            disp(['   Slicing Left at X = ' num2str(xLeft)]);
 
-            % Right: Extract if Taper, otherwise Copy Left
-            yLoopR = []; zLoopR = [];
+            % Left Extraction
+            meshL = cell(1,3);[meshL{1}, meshL{2}, meshL{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
+
+            if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
+
+            loopL = cell(1,2);
+            [loopL{1}, loopL{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
+            yLoopL = loopL{1}; zLoopL = loopL{2};
+
+            disp(['   Left Raw Loop Points: ' num2str(numel(yLoopL))]);
+
+            % Right Extraction
+            yLoopR =[]; zLoopR = [];
             if isTaper
-                [xsR, ysR, zsR] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
-                if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ = [ysR(:), zsR(:)]; end
-                [yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                disp(['   Slicing Right at X = ' num2str(xRight)]);
+                meshR = cell(1,3);[meshR{1}, meshR{2}, meshR{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+                xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
+
+                if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ =[ysR(:), zsR(:)]; end
+
+                loopR = cell(1,2);[loopR{1}, loopR{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                yLoopR = loopR{1}; zLoopR = loopR{2};
             else
-                % Straight Mode: Right = Left
+                disp('   Straight Mode: Copying Left to Right');
                 yLoopR = yLoopL; zLoopR = zLoopL;
                 app.RightProfileRawYZ = app.LeftProfileRawYZ;
             end
 
-            % --- 2. RESAMPLING (The Fix) ---
-            % Use the Smart RDP Sync for BOTH Straight and Tapered modes.
-            % This ensures squares get reduced to corners (~5 pts) instead of 1000 pts.
+            disp(['   Right Raw Loop Points: ' num2str(numel(yLoopR))]);
+
+            % Resampling
             if ~isempty(yLoopL) && ~isempty(yLoopR)
-                [yLoopL, zLoopL, yLoopR, zLoopR] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                resmp = cell(1,4);[resmp{1}, resmp{2}, resmp{3}, resmp{4}] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
                     yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
+                yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
             end
 
-            % --- 3. DATA STORAGE & PLOTTING ---
+            % Storage
             if ~isempty(yLoopL)
                 xVecL = xLeft * ones(numel(yLoopL),1);
                 app.LeftProfileLine3D = plot3(app.AxModel, xVecL, yLoopL, zLoopL, 'Color', t.planeRed, 'LineWidth', 1.4);
-                app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
-            else, app.LeftProfilePoints = []; end
+                app.LeftProfilePoints =[xVecL, yLoopL, zLoopL];
+            else
+                app.LeftProfilePoints =[];
+            end
 
             if ~isempty(yLoopR)
                 xVecR = xRight * ones(numel(yLoopR),1);
                 app.RightProfileLine3D = plot3(app.AxModel, xVecR, yLoopR, zLoopR, 'Color', t.planeGreen, 'LineWidth', 1.4);
                 app.RightProfilePoints = [xVecR, yLoopR, zLoopR];
-            else, app.RightProfilePoints = []; end
+            else
+                app.RightProfilePoints =[];
+            end
 
-            % Update UI Readouts
-            nL = 0; nR = 0;
-            if ~isempty(app.LeftProfilePoints), nL = size(app.LeftProfilePoints,1); end
-            if ~isempty(app.RightProfilePoints), nR = size(app.RightProfilePoints,1); end
+            nL = size(app.LeftProfilePoints,1);
+            nR = size(app.RightProfilePoints,1);
+            disp(['   Extraction Complete. Final Synced Points -> L: ' num2str(nL) ', R: ' num2str(nR)]);
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
                 app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL, nR);
@@ -1750,7 +1771,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
 
-            % Update Status
             if ~isempty(yLoopL)
                 app.TxtProfileStatus.Value = {
                     sprintf('Profiles extracted.');
@@ -1761,7 +1781,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.TxtProfileStatus.FontColor = [1 1 1]; % White
             else
                 app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
-                app.TxtProfileStatus.FontColor = [1 0.4 0.4]; % Red
+                app.TxtProfileStatus.FontColor =[1 0.4 0.4]; % Red
             end
 
             drawnow limitrate nocallbacks;
@@ -1985,84 +2005,157 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            % --- GUARD 1: Model Required ---
+            disp('================================================');
+            disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
+
+            % --- 1. Evaluate Current Global State ---
             hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
-            if targetTab ~= app.TabModel && ~hasModel
-                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabModel;
-                return;
-            end
-
-            % --- GUARD 2: Profiles Required ---
             hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
-            if targetTab ~= app.TabModel && targetTab ~= app.TabProfiles && ~hasProfiles
-                uialert(app.UIFigure, 'Please generate Cutting Profiles first.', 'Step 2 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabProfiles;
+            hasKerf = app.KerfEnabled; % <--- FIX: Added Kerf Check
+
+            isValidBillet = false;
+            if hasModel
+                isValidBillet = app.syncBilletUI();
+            end
+
+            isValidMach = false; pColM = []; tColM = []; msgM =[];
+            if isValidBillet
+                chkM = cell(1,4);[chkM{1}, chkM{2}, chkM{3}, chkM{4}] = app.checkMachineState();
+                isValidMach = chkM{1}; pColM = chkM{2}; tColM = chkM{3}; msgM = chkM{4};
+            end
+
+            isValidCut = false; pColC = []; tColC = []; msgC =[];
+            if isValidMach && app.IsCuttingInit
+                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
+                isValidCut = chkC{1}; pColC = chkC{2}; tColC = chkC{3}; msgC = chkC{4};
+            end
+
+            % --- 2. Determine Requirements for Target Tab ---
+            reqProfiles = targetTab == app.TabProfiles || targetTab == app.TabBillet || targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
+            reqBillet   = targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
+            reqMachine  = targetTab == app.TabCutting || targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
+            reqCutting  = targetTab == app.TabSimulation || targetTab == app.TabPostProcess;
+
+            % --- 3. Build List of Missing Steps ---
+            pendingTasks = {};
+            targetFixTabs = {};
+
+            if reqProfiles && ~hasModel
+                disp('>> BLOCKED: No Model loaded.');
+                app.TabGroup.SelectedTab = app.TabModel;
+                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
                 return;
             end
 
-            % --- GUARD 3: Billet Validity ---
-            if (oldTab == app.TabBillet) || (targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation)
-                isValidBillet = app.syncBilletUI();
-                if ~isValidBillet
-                    uialert(app.UIFigure, 'Billet configuration is invalid (Model outside stock).', 'Billet Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabBillet;
-                    return;
+            if reqProfiles
+                if ~hasProfiles
+                    pendingTasks{end+1} = '- Extract Profiles on Model Tab';
+                    if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabModel; end
+                elseif ~hasKerf
+                    pendingTasks{end+1} = '- Apply Kerf Compensation on Profiles Tab';
+                    if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabProfiles; end
                 end
             end
 
-            % --- GUARD 4: Machine Validity ---
-            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)[isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
-                if ~isValidMach
-                    uialert(app.UIFigure, join(msgLines, newline), 'Machine Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabMachine;
+            if reqBillet && (~isValidBillet || sum(app.BilletSize)==0)
+                pendingTasks{end+1} = '- Auto-fit and position the Billet Stock';
+                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabBillet; end
+            end
+
+            if reqMachine && (~isValidMach || ~app.IsMachineInit)
+                pendingTasks{end+1} = '- Safely position Billet on Machine Bed';
+                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabMachine; end
+            end
+
+            if reqCutting && (~isValidCut || ~app.IsCuttingInit)
+                pendingTasks{end+1} = '- Auto-route safe Entry and Exit paths';
+                if isempty(targetFixTabs), targetFixTabs{end+1} = app.TabCutting; end
+            end
+
+            % --- 4. The Hybrid Gatekeeper Prompt ---
+            if ~isempty(pendingTasks)
+                disp('>> INTERCEPTED: Steps Skipped.');
+                taskStr = strjoin(pendingTasks, newline);
+                msg = sprintf('You are jumping ahead!\nThe following steps have not been configured yet:\n\n%s\n\nDo you want the app to automatically compute these steps using safe defaults, or jump to the required tab to do it manually?', taskStr);
+
+                sel = uiconfirm(app.UIFigure, msg, 'Steps Skipped', ...
+                    'Options', {'Auto-Configure All', 'Go to Manual Step', 'Cancel'}, ...
+                    'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                if strcmp(sel, 'Go to Manual Step')
+                    app.TabGroup.SelectedTab = targetFixTabs{1};
                     return;
+                elseif strcmp(sel, 'Cancel')
+                    app.TabGroup.SelectedTab = oldTab;
+                    return;
+                else
+                    % --- 5. Execute Auto-Cascade ---
+                    disp('>> EXECUTING AUTO-CASCADE');
+                    if reqProfiles
+                        if ~hasProfiles
+                            disp('   -> Auto Generating Profiles');
+                            app.onGenerateProfiles();
+                            drawnow; pause(0.1);
+                        end
+                        if ~hasKerf
+                            disp('   -> Auto Applying Kerf');
+                            app.onApplyKerf();
+                            drawnow; pause(0.1);
+                        end
+                    end
+                    if reqBillet && (~isValidBillet || sum(app.BilletSize)==0)
+                        disp('   -> Auto Fitting Billet');
+                        app.onAutoFitBillet();
+                        drawnow; pause(0.1);
+                    end
+                    if reqMachine && (~isValidMach || ~app.IsMachineInit)
+                        disp('   -> Auto Positioning Machine');
+                        app.onResetMachineBilletPosition();
+                        drawnow; pause(0.1);
+                    end
+                    if reqCutting && (~isValidCut || ~app.IsCuttingInit)
+                        disp('   -> Auto Generating Cutting Strategy');
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
+                        drawnow; pause(0.1);
+                    end
                 end
             end
 
-            % --- EXECUTE TRANSITION ---
+            % --- 6. Execute Safe Tab Transition Render ---
+            disp(['>> RENDERING: ' targetTab.Title]);
             app.resetInteractionState();
+            drawnow; pause(0.05);
 
             if targetTab == app.TabBillet
                 app.syncBilletUI();
-                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.refreshBilletPlots();
 
             elseif targetTab == app.TabMachine
                 app.syncMachineUI();
-
-                [isValid, pCol, tCol, txtLines] = app.checkMachineState();
-                app.MachineLeftPanel.BackgroundColor = pCol;
-                app.TxtMachineStatus.Value = txtLines;
-                app.TxtMachineStatus.FontColor = tCol;
-
-                if isValid
-                    app.BtnMachineContinue.Enable = 'on';
-                else
-                    app.BtnMachineContinue.Enable = 'off';
-                end
-
-                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
+                app.MachineLeftPanel.BackgroundColor = pColM;
+                app.TxtMachineStatus.Value = msgM;
+                app.TxtMachineStatus.FontColor = tColM;
+                if isValidMach, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
                 app.refreshMachinePlot();
 
             elseif targetTab == app.TabCutting
-                if isempty(app.EntryPointL)
-                    app.onAutoStart();
-                    app.onAutoEntry();
-                end
-
-                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
+                app.CuttingLeftPanel.BackgroundColor = pColC;
+                app.TxtCuttingStatus.Value = msgC;
+                app.TxtCuttingStatus.FontColor = tColC;
+                if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
             elseif targetTab == app.TabSimulation
                 app.applyTheme();
-                drawnow; pause(0.05); % <--- THE FIX FOR DISAPPEARING LINES
                 app.generateSimulationData();
 
             elseif targetTab == app.TabPostProcess
                 app.updatePostProcessUI();
             end
+
+            disp('>> RENDER COMPLETE.');
         end
 
         function onProfileToleranceChanged(app, src)
@@ -2701,42 +2794,22 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onContinue(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
             currTab = app.TabGroup.SelectedTab;
 
+            % Strictly route to the next tab. The Gatekeeper (onTabChanged) handles logic!
             if currTab == app.TabModel
                 app.TabGroup.SelectedTab = app.TabProfiles;
-
             elseif currTab == app.TabProfiles
                 app.TabGroup.SelectedTab = app.TabBillet;
-
             elseif currTab == app.TabBillet
-                % Modify state BEFORE switching.
-                % The tab switch will automatically trigger onTabChanged -> refreshMachinePlot
-                app.onResetMachineBilletPosition();
                 app.TabGroup.SelectedTab = app.TabMachine;
-
             elseif currTab == app.TabMachine
                 app.TabGroup.SelectedTab = app.TabCutting;
-
             elseif currTab == app.TabCutting
                 app.TabGroup.SelectedTab = app.TabSimulation;
-
             elseif currTab == app.TabSimulation
                 app.TabGroup.SelectedTab = app.TabPostProcess;
-            end
-        end
-        
-        function onContinueFromProfiles(app)
-            % If a Billet tab exists, go there; otherwise just stay on Profiles.
-            if isprop(app,'TabBillet') && ~isempty(app.TabBillet) && isgraphics(app.TabBillet)
-                app.TabGroup.SelectedTab = app.TabBillet;
-            else
-                % Placeholder – we can wire this once the Billet tab is in.
-                disp('Profiles Continue pressed (Billet tab not wired yet).');
             end
         end
 
@@ -2765,8 +2838,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletShift = [0 0 0];
             % Re-run auto-position to apply the exact 4mm buffers to the shift
             app.onAutoPositionModel();
-
             % (onAutoPositionModel calls syncBilletUI and refreshBilletPlots, so we don't need to here)
+
+            % --- ARCHITECTURE: Reset Downstream Flags ---
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+
         end
 
         function isValid = syncBilletUI(app)
@@ -3128,6 +3205,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineBilletPos(axisIdx) = val;
             end
 
+            % --- ARCHITECTURE: Flag Init, Reset Downstream ---
+            app.IsMachineInit = true;
+            app.IsCuttingInit = false; 
+
             app.syncMachineUI();
 
             [isValid, pCol, tCol, txtLines] = app.checkMachineState();
@@ -3275,6 +3356,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % 3. Synchronize, Check Status, and Redraw
+            
+            % --- ARCHITECTURE: Flag Init, Reset Downstream ---
+            app.IsMachineInit = true;
+            app.IsCuttingInit = false; 
+
             app.syncMachineUI();
 
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
@@ -4265,7 +4351,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        function onAutoStart(app)
+        function onAutoStart(app, doPlot)
+            if nargin < 2, doPlot = true; end
+            app.IsCuttingInit = true;
             if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
                 return;
             end
@@ -4309,10 +4397,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.SelectedStartIdxR = idxR;
             end
 
-            app.updateCuttingPlots();
+            if doPlot
+                app.updateCuttingPlots();
+            end
         end
 
-        function onAutoEntry(app)
+        function onAutoEntry(app, doPlot)
+            if nargin < 2, doPlot = true; end
+            app.IsCuttingInit = true;
             % Calculates Auto Entry points with robust Ray-Casting and Routing.
 
             % 1. Get Geometry
@@ -4441,7 +4533,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
             end
 
-            app.updateCuttingPlots();
+            if doPlot
+                app.updateCuttingPlots();
+            end
         end
 
         function [hRapid, hLead, hDot, hLoad] = drawTravelPath(app, ax, startPt, endPt, lead, link1, link2)
