@@ -1358,15 +1358,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             app.TabPostProcess = uitab(app.TabGroup, 'Title', 'Post-Process');
 
-            app.GLPostProcess = uigridlayout(app.TabPostProcess, [ 1 2 ]);
+            app.GLPostProcess = uigridlayout(app.TabPostProcess,[ 1 2 ]);
             app.GLPostProcess.ColumnWidth   = {320, '1x'};
             app.GLPostProcess.Padding       =[ 10 10 10 10 ];
 
             % --- Left Control Panel ---
-            % 9 Rows: View, Settings, Export, GCode (1x), Guide Lbl, Guide Txt (1x), Stat Lbl, Stat Txt, Save
-            % FIX: GCode and Guide Txt both set to '1x' so they share vertical space equally!
+            % 9 Rows: View, Settings, Export, GCode (1x), Guide Lbl, Guide Txt (110px), Stat Lbl, Stat Txt, Save
+            % FIX: GCode set to '1x' (stretch), Guide text locked to 110 pixels (~5-6 lines)
             app.PostLeftPanel = uigridlayout(app.GLPostProcess, [ 9 1 ]);
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', '1x', 'fit', 45, 'fit'};
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 110, 'fit', 45, 'fit'};
             app.PostLeftPanel.Padding =[ 10 10 10 10 ];
             app.PostLeftPanel.BackgroundColor = sideBg;
 
@@ -1386,10 +1386,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridPSet.ColumnWidth={'1x', 80};
             gridPSet.Padding=[ 5 5 5 5 ]; gridPSet.BackgroundColor=panelBg;
 
-            lblFeed = uilabel(gridPSet, 'Text','Feed Rate[mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblFeed = uilabel(gridPSet, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
             lblFeed.Layout.Row=1; lblFeed.Layout.Column=1;
 
-            % FIX: Pulls default from properties block
             app.SpinFeedRate = uispinner(gridPSet, 'Limits',[ 10 500 ], 'Value', HotWireSTEPApp_v6_2.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f');
             app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=2;
             app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
@@ -1398,7 +1397,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblPower = uilabel(gridPSet, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
             lblPower.Layout.Row=2; lblPower.Layout.Column=1;
 
-            % FIX: Pulls default from properties block
             app.SpinPower = uispinner(gridPSet, 'Limits',[ 10 100 ], 'Value', HotWireSTEPApp_v6_2.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f');
             app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=2;
             app.SpinPower.Tooltip = 'Programmed wire power, kerf is proportional to wire power';
@@ -1418,12 +1416,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
             app.BtnPostProcess.Tooltip = 'Press to generate g-code';
 
-            % 4. G-CODE VIEWER (Now sits above Guidance and stretches to fill space)
+            % 4. G-CODE VIEWER
             app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','G-Code', 'FontWeight','bold', 'BorderType','line');
             app.PanelGCode.Layout.Row = 4;
 
             app.GridGCode = uigridlayout(app.PanelGCode, [ 2 2 ]);
-            app.GridGCode.RowHeight = {'1x', 28};
+            % FIX: Changed 28 to 'fit' to make Prev/Next buttons match standard height
+            app.GridGCode.RowHeight = {'1x', 'fit'};
             app.GridGCode.ColumnWidth = {'1x','1x'};
             app.GridGCode.Padding =[ 5 5 5 5 ];
 
@@ -1439,7 +1438,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', 'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
             app.BtnGCodeNext.Layout.Row = 2;
             app.BtnGCodeNext.Layout.Column = 2;
-
             % -- 5. GUIDANCE --
             lbl_Post_Guide = uilabel(app.PostLeftPanel, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
             lbl_Post_Guide.Layout.Row = 5;
