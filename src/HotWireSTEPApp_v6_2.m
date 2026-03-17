@@ -1707,7 +1707,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             disp(['   Slicing Left at X = ' num2str(xLeft)]);
 
             % Left Extraction
-            meshL = cell(1,3);[meshL{1}, meshL{2}, meshL{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            meshL = cell(1,3);
+            [meshL{1}, meshL{2}, meshL{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
             xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
 
             if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
@@ -1722,12 +1723,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             yLoopR =[]; zLoopR = [];
             if isTaper
                 disp(['   Slicing Right at X = ' num2str(xRight)]);
-                meshR = cell(1,3);[meshR{1}, meshR{2}, meshR{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+                meshR = cell(1,3);
+                [meshR{1}, meshR{2}, meshR{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
                 xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
 
                 if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ =[ysR(:), zsR(:)]; end
 
-                loopR = cell(1,2);[loopR{1}, loopR{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                loopR = cell(1,2);
+                [loopR{1}, loopR{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
                 yLoopR = loopR{1}; zLoopR = loopR{2};
             else
                 disp('   Straight Mode: Copying Left to Right');
@@ -1739,7 +1742,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Resampling
             if ~isempty(yLoopL) && ~isempty(yLoopR)
-                resmp = cell(1,4);[resmp{1}, resmp{2}, resmp{3}, resmp{4}] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                resmp = cell(1,4);
+                [resmp{1}, resmp{2}, resmp{3}, resmp{4}] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
                     yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
                 yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
             end
@@ -2005,89 +2009,218 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            % --- GUARD 1: Model Required ---
-            hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
-            if targetTab ~= app.TabModel && ~hasModel
-                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabModel;
-                return;
-            end
-
-            % --- GUARD 2: Profiles Required ---
-            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
-            if targetTab ~= app.TabModel && targetTab ~= app.TabProfiles && ~hasProfiles
-                uialert(app.UIFigure, 'Please generate Cutting Profiles first.', 'Step 2 Missing', 'Icon','warning');
-                app.TabGroup.SelectedTab = app.TabProfiles;
-                return;
-            end
-
-            % --- GUARD 3: Billet Validity ---
-            if (oldTab == app.TabBillet) || (targetTab == app.TabMachine || targetTab == app.TabCutting || targetTab == app.TabSimulation)
-                isValidBillet = app.syncBilletUI();
-                if ~isValidBillet
-                    uialert(app.UIFigure, 'Billet configuration is invalid (Model outside stock).', 'Billet Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabBillet;
-                    return;
-                end
-            end
-
-            % --- GUARD 4: Machine Validity ---
-            if (oldTab == app.TabMachine) || (targetTab == app.TabCutting || targetTab == app.TabSimulation)[isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
-
-                if ~isValidMach
-                    uialert(app.UIFigure, join(msgLines, newline), 'Machine Error', 'Icon','error');
-                    app.TabGroup.SelectedTab = app.TabMachine;
-                    return;
-                end
-            end
-
-            % --- EXECUTE TRANSITION ---
+            % --- FIX: ALWAYS Reset interaction state immediately on any click ---
             app.resetInteractionState();
 
-            if targetTab == app.TabBillet
-                app.syncBilletUI();
-                drawnow; pause(0.05); % Stabilize UI before drawing
-                app.refreshBilletPlots();
+            disp('================================================');
+            disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
 
-            elseif targetTab == app.TabMachine
-                app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
-                app.MachineLeftPanel.BackgroundColor = pCol;
-                app.TxtMachineStatus.Value = txtLines;
-                app.TxtMachineStatus.FontColor = tCol;
+            isModel    = (targetTab == app.TabModel);
+            isProfiles = (targetTab == app.TabProfiles);
+            isBillet   = (targetTab == app.TabBillet);
+            isMachine  = (targetTab == app.TabMachine);
+            isCutting  = (targetTab == app.TabCutting);
+            isSim      = (targetTab == app.TabSimulation);
+            isPost     = (targetTab == app.TabPostProcess);
 
-                if isValid
-                    app.BtnMachineContinue.Enable = 'on';
-                else
-                    app.BtnMachineContinue.Enable = 'off';
+            needsProfiles = ~isModel;
+            needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
+            needsBillet   = isMachine || isCutting || isSim || isPost;
+            needsMachine  = isCutting || isSim || isPost;
+            needsCutting  = isSim || isPost;
+
+            forceAuto = false;
+
+            % --- LEVEL 1: MODEL ---
+            hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
+            if needsProfiles && ~hasModel
+                disp('>> BLOCKED: No Model loaded.');
+                app.TabGroup.SelectedTab = app.TabModel;
+                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
+                return;
+            end
+
+            % --- LEVEL 2: PROFILES & KERF ---
+            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
+            hasKerf = app.KerfEnabled;
+            missingProfiles = needsProfiles && ~hasProfiles;
+            missingKerf     = needsKerf && ~hasKerf;
+
+            if missingProfiles || missingKerf
+                if ~forceAuto
+                    if missingProfiles
+                        manTab = app.TabModel;
+                        msg = 'The cutting profiles have not been generated yet.';
+                    else
+                        manTab = app.TabProfiles;
+                        msg = 'Kerf compensation has not been applied.';
+                    end
+
+                    sel = uiconfirm(app.UIFigure, ...
+                        sprintf('You skipped a step! %s\n\nIt is highly recommended to do this manually.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', msg, targetTab.Title), ...
+                        'Step Skipped', ...
+                        'Options', {'Go to Manual Step', 'Auto-Configure All', 'Cancel'}, ...
+                        'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                    if strcmp(sel, 'Go to Manual Step')
+                        app.TabGroup.SelectedTab = manTab;
+                        return;
+                    elseif strcmp(sel, 'Cancel')
+                        app.TabGroup.SelectedTab = oldTab;
+                        return;
+                    else
+                        forceAuto = true;
+                    end
                 end
 
-                drawnow; pause(0.05); % Stabilize UI before drawing
+                if forceAuto
+                    if missingProfiles
+                        app.onGenerateProfiles();
+                        drawnow; pause(0.1);
+                    end
+                    if missingKerf
+                        app.onApplyKerf();
+                        drawnow; pause(0.1);
+                    end
+                end
+            end
+
+            % --- LEVEL 3: BILLET ---
+            if needsBillet
+                isValidBillet = app.syncBilletUI();
+                if sum(app.BilletSize) == 0 || ~isValidBillet
+                    if ~forceAuto
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('You skipped a step! The billet stock has not been configured correctly.\n\nIt is highly recommended to set this manually on the Billet tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
+                            'Step Skipped', ...
+                            'Options', {'Go to Billet Tab', 'Auto-Configure All', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                        if strcmp(sel, 'Go to Billet Tab')
+                            app.TabGroup.SelectedTab = app.TabBillet;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        else
+                            forceAuto = true;
+                        end
+                    end
+                    if forceAuto
+                        app.onAutoFitBillet();
+                        app.onAutoPositionModel();
+                        drawnow; pause(0.1);
+                    end
+                end
+            end
+
+            % --- LEVEL 4: MACHINE ---
+            if needsMachine
+                d1 = 0; % Anti-markdown bug
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+
+                if ~app.IsMachineInit || ~isValidMach
+                    if ~forceAuto
+                        % FIX: Updated prompt text to encourage Auto-Position usage
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('You skipped a step! The billet has not been safely positioned on the machine bed.\n\nIt is highly recommended to click the "Auto-Position Billet" button on the Machine tab, and manually adjust if needed.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
+                            'Step Skipped', ...
+                            'Options', {'Go to Machine Tab', 'Auto-Configure All', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                        if strcmp(sel, 'Go to Machine Tab')
+                            app.TabGroup.SelectedTab = app.TabMachine;
+                            app.MachineLeftPanel.BackgroundColor = pCol;
+                            app.TxtMachineStatus.Value = msgLines;
+                            app.TxtMachineStatus.FontColor = tCol;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        else
+                            forceAuto = true;
+                        end
+                    end
+                    if forceAuto
+                        app.onResetMachineBilletPosition();
+                        drawnow; pause(0.1);
+                    end
+                end
+            end
+
+            % --- LEVEL 5: CUTTING STRATEGY ---
+            if needsCutting
+                d2 = 0; % Anti-markdown bug
+                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+
+                if ~app.IsCuttingInit || ~isValidCut
+                    if ~forceAuto
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
+                            'Step Skipped', ...
+                            'Options', {'Go to Cutting Tab', 'Auto-Configure All', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                        if strcmp(sel, 'Go to Cutting Tab')
+                            app.TabGroup.SelectedTab = app.TabCutting;
+                            app.CuttingLeftPanel.BackgroundColor = pCol;
+                            app.TxtCuttingStatus.Value = msgLines;
+                            app.TxtCuttingStatus.FontColor = tCol;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        else
+                            forceAuto = true;
+                        end
+                    end
+                    if forceAuto
+                        app.onAutoStart();
+                        app.onAutoEntry();
+                        drawnow; pause(0.1);
+                    end
+                end
+            end
+
+            % --- EXECUTE SAFE TAB TRANSITION ---
+            disp(['>> ALL GATES PASSED. Rendering ' targetTab.Title ' tab.']);
+            drawnow; pause(0.05);
+
+            if isBillet
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+
+            elseif isMachine
+                app.syncMachineUI();
+                d3 = 0; % Anti-markdown bug
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+
+                app.MachineLeftPanel.BackgroundColor = pCol;
+                app.TxtMachineStatus.Value = msgLines;
+                app.TxtMachineStatus.FontColor = tCol;
+                if isValidMach, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
                 app.refreshMachinePlot();
 
-            elseif targetTab == app.TabCutting[isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
+            elseif isCutting
+                d4 = 0; % Anti-markdown bug
+                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
 
                 app.CuttingLeftPanel.BackgroundColor = pCol;
                 app.TxtCuttingStatus.Value = msgLines;
                 app.TxtCuttingStatus.FontColor = tCol;
+                if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
 
-                if isValidCut
-                    app.BtnCuttingContinue.Enable = 'on';
-                else
-                    app.BtnCuttingContinue.Enable = 'off';
-                end
-
-                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
-            elseif targetTab == app.TabSimulation
+            elseif isSim
                 app.applyTheme();
-                drawnow; pause(0.05); % Stabilize UI before drawing
                 app.generateSimulationData();
 
-            elseif targetTab == app.TabPostProcess
+            elseif isPost
                 app.updatePostProcessUI();
             end
+            disp('>> Render complete.');
         end
 
         function onProfileToleranceChanged(app, src)
@@ -2732,35 +2865,30 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             currTab = app.TabGroup.SelectedTab;
 
+            % 1. Determine the next tab
             if currTab == app.TabModel
-                app.TabGroup.SelectedTab = app.TabProfiles;
-
+                nextTab = app.TabProfiles;
             elseif currTab == app.TabProfiles
-                app.TabGroup.SelectedTab = app.TabBillet;
-
+                nextTab = app.TabBillet;
             elseif currTab == app.TabBillet
-                % Calc defaults if not set, but DO NOT PLOT HERE.
-                if app.MachineBilletPos(1) == 100 && app.MachineBilletPos(2) == 50 && app.MachineBilletPos(3) == 0
-                    app.onResetMachineBilletPosition();
-                end
-
-                app.TabGroup.SelectedTab = app.TabMachine;
-
+                nextTab = app.TabMachine;
             elseif currTab == app.TabMachine
-                % Calc defaults if not set, but DO NOT PLOT HERE.
-                if isempty(app.EntryPointL)
-                    app.onAutoStart();
-                    app.onAutoEntry();
-                end
-
-                app.TabGroup.SelectedTab = app.TabCutting;
-
+                nextTab = app.TabCutting;
             elseif currTab == app.TabCutting
-                app.TabGroup.SelectedTab = app.TabSimulation;
-
+                nextTab = app.TabSimulation;
             elseif currTab == app.TabSimulation
-                app.TabGroup.SelectedTab = app.TabPostProcess;
+                nextTab = app.TabPostProcess;
+            else
+                return;
             end
+
+            % 2. Visually switch the tab
+            app.TabGroup.SelectedTab = nextTab;
+
+            % 3. CRITICAL FIX: Programmatic tab changes do NOT trigger the callback!
+            % We must construct a synthetic event and trigger the Gatekeeper manually.
+            evt = struct('OldValue', currTab, 'NewValue', nextTab);
+            app.onTabChanged(app.TabGroup, evt);
         end
         % ===========================================================
         % BILLET TAB CALLBACKS
@@ -3029,7 +3157,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
-            if isempty(app.ModelPatch), return; end
+            disp('--- [DEBUG] refreshBilletPlots START ---');
+            if isempty(app.ModelPatch)
+                disp('   -> Aborted: No ModelPatch.');
+                return;
+            end
 
             V     = app.ModelPatch.Vertices;
             F     = app.ModelPatch.Faces;
@@ -3043,103 +3175,76 @@ classdef HotWireSTEPApp_v6_2 < handle
             outlineColor = 'k';
             if isDark, outlineColor = 'w'; end
 
-            modelColor =[ 0.5 0.5 0.6 ];
+            modelColor =[0.5 0.5 0.6];
             modelAlpha = 0.4;
-
-            % Pale Profile Colors for "Wireframe" look using Theme!
-            % We add an alpha value (0.6) to make them semi-transparent
-            wireRed   =[ t.planeRed, 0.6 ];
-            wireGreen = [ t.planeGreen, 0.6 ];
+            wireRed   =[t.planeRed, 0.6];
+            wireGreen = [t.planeGreen, 0.6];
 
             V_shifted = V + shift;
-
-            allMin = min([ 0 0 0; min(V_shifted,[],1) ]);
-            allMax = max([ bSize; max(V_shifted,[],1) ]);
-
+            allMin = min([0 0 0; min(V_shifted,[],1)]);
+            allMax = max([bSize; max(V_shifted,[],1)]);
             span = max(allMax - allMin);
             if span < 1, span = 100; end
             center = (allMin + allMax) / 2;
-
             limitRange = span * 0.6;
 
-            commonX =[ center(1)-limitRange, center(1)+limitRange ];
-            commonY =[ center(2)-limitRange, center(2)+limitRange ];
-            commonZ = [ center(3)-limitRange, center(3)+limitRange ];
+            commonX =[center(1)-limitRange, center(1)+limitRange];
+            commonY =[center(2)-limitRange, center(2)+limitRange];
+            commonZ =[center(3)-limitRange, center(3)+limitRange];
 
             hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
+            disp(['   -> hasProfiles: ' num2str(hasProfiles)]);
 
             if hasProfiles
                 pL_shifted = app.LeftProfilePoints + shift;
                 pR_shifted = app.RightProfilePoints + shift;
+                disp(['   -> LeftProfile Size: ' num2str(size(pL_shifted,1)) 'x' num2str(size(pL_shifted,2))]);
             end
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[ 1 2 ], [ 1 3 ],[ 2 3 ], [ 1 2 3 ]};
-            labs = {
-                {'X (mm)','Y (mm)'};
-                {'X (mm)','Z (mm)'};
-                {'Y (mm)','Z (mm)'};
-                {'X','Y','Z'}
-                };
+            dims = {[1 2], [1 3], [2 3],[1 2 3]};
+            labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
 
             for i = 1:4
-                ax = axs{i};
-                d = dims{i};
-
+                ax = axs{i}; d = dims{i};
                 if isempty(ax) || ~isgraphics(ax), continue; end
-
-                cla(ax);
-                hold(ax,'on');
+                cla(ax); hold(ax,'on');
 
                 if i < 4
-                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
-                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
-
+                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, 'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
                     if hasProfiles
-                        plot(ax, pL_shifted(:,d(1)), pL_shifted(:,d(2)), 'Color', wireRed, 'LineWidth', 0.75);
-                        plot(ax, pR_shifted(:,d(1)), pR_shifted(:,d(2)), 'Color', wireGreen, 'LineWidth', 0.75);
+                        % Use patch for hardware-accelerated transparent lines
+                        patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
+                            'EdgeColor', wireRed(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                        patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
+                            'EdgeColor', wireGreen(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
-
-                    bx =[ 0 bSize(d(1)) bSize(d(1)) 0 0 ];
-                    by =[ 0 0 bSize(d(2)) bSize(d(2)) 0 ];
+                    bx =[0 bSize(d(1)) bSize(d(1)) 0 0];
+                    by =[0 0 bSize(d(2)) bSize(d(2)) 0];
                     plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                 else
-                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
-                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
-
+                    patch(ax, 'Vertices', V_shifted, 'Faces', F, 'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
                     if hasProfiles
-                        plot3(ax, pL_shifted(:, 1), pL_shifted(:, 2), pL_shifted(:, 3), 'Color', wireRed, 'LineWidth', 0.75);
-                        plot3(ax, pR_shifted(:, 1), pR_shifted(:, 2), pR_shifted(:, 3), 'Color', wireGreen, 'LineWidth', 0.75);
+                        patch(ax, 'XData', pL_shifted(:,1), 'YData', pL_shifted(:,2), 'ZData', pL_shifted(:,3), ...
+                            'EdgeColor', wireRed(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                        patch(ax, 'XData', pR_shifted(:,1), 'YData', pR_shifted(:,2), 'ZData', pR_shifted(:,3), ...
+                            'EdgeColor', wireGreen(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
-
                     d1 = 0; % Anti-markdown bug
-                    [ bx, by, bz ] = app.makeBoxVertices(d1, d1, d1, bSize(1), bSize(2), bSize(3));
-
-                    patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
-                        'FaceColor', 'none', ...
-                        'EdgeColor', outlineColor, ...
-                        'LineStyle', outlineStyle, ...
-                        'LineWidth', 1.5);
-
+                    [bx, by, bz] = app.makeBoxVertices(d1, d1, d1, bSize(1), bSize(2), bSize(3));
+                    patch(ax, 'Vertices',[bx, by, bz], 'Faces', app.boxFaces, 'FaceColor', 'none', 'EdgeColor', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                     view(ax, 3);
                 end
 
-                axis(ax, 'equal');
-                grid(ax, 'on');
+                axis(ax, 'equal'); grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
-
                 if i==1, xlim(ax, commonX); ylim(ax, commonY); end
                 if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
                 if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
                 if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
-
-                xlabel(ax, labs{i}{1});
-                ylabel(ax, labs{i}{2});
-                if i==4, zlabel(ax, labs{i}{3}); end
-
-                set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
             end
             drawnow limitrate;
+            disp('--- [DEBUG] refreshBilletPlots END ---');
         end
 
         % ===========================================================
@@ -3712,17 +3817,17 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- Helper: Check One Side ---
             function checkSide(sideName, lead, link1, link2, profY, profZ)
+                % FIX: Catch empty lead points (e.g. from Clear Pts button)
                 if isempty(lead)
+                    crit(end+1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
                     return;
                 end
 
                 % A. Check Proximity (<5mm from Bed or Billet)
-                % Check Bed Z
                 if lead(2) < 5.0
                     warn(end+1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
                 end
 
-                % Check Billet Proximity
                 distY = max(0, max(bMinY - lead(1), lead(1) - bMaxY));
                 distZ = max(0, max(bMinZ - lead(2), lead(2) - bMaxZ));
                 if (distY < 5.0 && distZ < 5.0) && (distY > 0 || distZ > 0)
@@ -3730,17 +3835,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 % B. CRITICAL: Link Line Collision with Billet
-                % Front Retract Point (approximate load pos offset)
                 pRet = [bMinY - 10, bMaxZ/2];
-
                 pathPts = [pRet; link1; link2; lead];
-                pathPts = pathPts(~all(pathPts==0, 2), :); % Clean empty rows
+                pathPts = pathPts(~all(pathPts==0, 2), :);
 
                 for k = 1:size(pathPts, 1)-1
                     p1 = pathPts(k,:);
                     p2 = pathPts(k+1,:);
-
-                    [xi, zi] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
+                    d5 = 0; % Anti-markdown bug
+                    [ xi, zi ] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
 
                     if ~isempty(xi)
                         crit(end+1) = sprintf("%s: Rapid move passes THROUGH the billet!", sideName);
@@ -3751,14 +3854,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % C. CRITICAL: Lead-In Gouging (Bisecting) Model
                 if ~isempty(profY)
                     startPt = [profY(1), profZ(1)];
-
-                    [xi, zi] = intersectSegPoly([lead(1), lead(2)],[startPt(1), startPt(2)], profY, profZ);
+                    d6 = 0; % Anti-markdown bug
+                    [ xi, zi ] = intersectSegPoly([lead(1), lead(2)], [startPt(1), startPt(2)], profY, profZ);
 
                     validHit = false;
                     for k = 1:numel(xi)
                         distS = hypot(xi(k)-startPt(1), zi(k)-startPt(2));
                         if distS > 1e-3
-                            validHit = true; % Hit somewhere else besides the Start Point!
+                            validHit = true;
                         end
                     end
 
@@ -3766,8 +3869,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                         crit(end+1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
                     end
 
-                    % C2. Check if Lead-In is INSIDE the profile (trapped)
-                    % Base MATLAB inpolygon is safe to use
                     midPt = (lead + startPt) / 2;
                     if inpolygon(midPt(1), midPt(2), profY, profZ)
                         crit(end+1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
@@ -3886,7 +3987,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if isInitialized
                 limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
-                limsR = [xlim(app.AxCutRight); ylim(app.AxCutRight)];
+                limsR =[xlim(app.AxCutRight); ylim(app.AxCutRight)];
             end
 
             cla(app.AxCutLeft);
@@ -3898,15 +3999,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            bedY = [50, 750, 750, 50];
-            bedZ = [-20, -20, 0, 0];
+            bedY =[50, 750, 750, 50];
+            bedZ =[-20, -20, 0, 0];
             patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
             patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
 
             mBoxY =[0, app.MachineLimitY, app.MachineLimitY, 0, 0];
             mBoxZ =[0, 0, app.MachineLimitZ, app.MachineLimitZ, 0];
 
-            % RESTORED ASSIGNMENTS HERE
             hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
             hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
 
@@ -3915,14 +4015,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
             boxY =[bY, bY+bW, bY+bW, bY, bY];
-            boxZ =[bZ, bZ, bZ+bH, bZ+bH, bZ];
+            boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
 
-            % RESTORED ASSIGNMENTS HERE
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
 
             % 4. Process Data (Kerf -> Sync -> Shift Pipeline)
-            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+
+            x_dummy1 = 0;[syncY_L, syncZ_L, syncY_R, syncZ_R] = app.getSyncedKerfProfiles();
 
             hGhostL = gobjects(0);
             hGhostR = gobjects(0);
@@ -3937,9 +4037,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Apply Start Index Shift and Direction Reversal
 
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
+            x_dummy2 = 0;
+            [yL, zL] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
 
-            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
+            x_dummy3 = 0;
+            [yR, zR] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
             % 5. Draw
             function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
@@ -3953,17 +4055,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(yL)
                 c = (1:numel(yL))';
-                patch(app.AxCutLeft, 'XData', [yL;NaN], 'YData',[zL;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                patch(app.AxCutLeft, 'XData', [yL;NaN], 'YData', [zL;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
                 hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
-                [hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft,[yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
+
+                x_dummy4 = 0;[hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft,[yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
 
                 if numel(yL) > 1
                     idxNext = 2;
                     while idxNext < numel(yL) && norm([yL(idxNext),zL(idxNext)] - [yL(1),zL(1)]) < 1e-4
                         idxNext = idxNext + 1;
                     end
-                    app.drawRotatedMarker(app.AxCutLeft, [yL(1), zL(1)],[yL(idxNext), zL(idxNext)], 'start');
-                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^',[0 1 0], 'none');
+                    app.drawRotatedMarker(app.AxCutLeft,[yL(1), zL(1)], [yL(idxNext), zL(idxNext)], 'start');
+                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
                 end
             end
 
@@ -3971,9 +4074,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(yR)
                 c = (1:numel(yR))';
-                patch(app.AxCutRight, 'XData', [yR;NaN], 'YData',[zR;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[0 0.5 1], 'none', 1.0);
-                [hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight,[yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
+                patch(app.AxCutRight, 'XData', [yR;NaN], 'YData', [zR;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-', [0 0.5 1], 'none', 1.0);
+
+                x_dummy5 = 0;[hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight,[yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
                 if numel(yR) > 1
                     idxNext = 2;
@@ -3985,33 +4089,38 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % 6. Legends
-            labels = {'Start Point', 'Load Point', 'Cut Path', 'Rapid Links (Yellow)', 'Leads (Orange)', 'Entry Point', 'Machine Limits', 'Raw Profile'};
+            % 6. Legends (Dynamic Builder to prevent text mismatch)
+            function buildLegend(axTarget, hs, hl, hp, hr, hld, he, hm, hg, tCol)
+                hList =[];
+                lList = {};
+                if isgraphics(hs),  hList(end+1)=hs;  lList{end+1}='Start Point'; end
+                if isgraphics(hl),  hList(end+1)=hl;  lList{end+1}='Load Point'; end
+                if isgraphics(hp),  hList(end+1)=hp;  lList{end+1}='Cut Path'; end
+                if isgraphics(hr),  hList(end+1)=hr;  lList{end+1}='Rapid Links'; end
+                if isgraphics(hld), hList(end+1)=hld; lList{end+1}='Lead In'; end
+                if isgraphics(he),  hList(end+1)=he;  lList{end+1}='Entry Point'; end
+                if isgraphics(hm),  hList(end+1)=hm;  lList{end+1}='Machine Limits'; end
+                if isgraphics(hg),  hList(end+1)=hg;  lList{end+1}='Raw Profile'; end
+
+                if ~isempty(hList)
+                    lgd = legend(axTarget, hList, lList, 'Location','northeast');
+                    lgd.Box = 'off';
+                    lgd.TextColor = tCol;
+                end
+            end
 
             if ~isgraphics(hEntryDotL)
-                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', [1 0.5 0],[1 0.5 0], 1.0);
+                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.',[1 0.5 0], [1 0.5 0], 1.0);
             end
-
             if ~isgraphics(hEntryDotR)
-                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.',[1 0.5 0], [1 0.5 0], 1.0);
+                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [1 0.5 0], [1 0.5 0], 1.0);
             end
 
-            handlesL =[hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL];
-            if any(isgraphics(handlesL))
-                lgd = legend(app.AxCutLeft, handlesL(isgraphics(handlesL)), labels(isgraphics(handlesL)), 'Location','northeast');
-                lgd.Box = 'off';
-                lgd.TextColor = t.labelCol;
-            end
-
-            handlesR =[hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR];
-            if any(isgraphics(handlesR))
-                lgd = legend(app.AxCutRight, handlesR(isgraphics(handlesR)), labels(isgraphics(handlesR)), 'Location','northeast');
-                lgd.Box = 'off';
-                lgd.TextColor = t.labelCol;
-            end
+            buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
+            buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);
 
             % --- VALIDATE AND UPDATE STATUS UI ---
-
+            x_dummy6 = 0;
             [isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
 
             app.CuttingLeftPanel.BackgroundColor = pCol;
@@ -4031,14 +4140,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             colormap(app.AxCutRight,'turbo');
 
             if isInitialized
-                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
-                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
-                daspect(app.AxCutLeft,[1 1 1]);
-                daspect(app.AxCutRight,[1 1 1]);
+                xlim(app.AxCutLeft, limsL(1,:));
+                ylim(app.AxCutLeft, limsL(2,:));
+                xlim(app.AxCutRight, limsR(1,:));
+                ylim(app.AxCutRight, limsR(2,:));
             else
                 axis(app.AxCutLeft,'equal');
                 axis(app.AxCutRight,'equal');
             end
+
+            daspect(app.AxCutLeft,[1 1 1]);
+            daspect(app.AxCutRight,[1 1 1]);
         end
 
         function [yL, zL, yR, zR] = getSyncedKerfProfiles(app)
@@ -4181,7 +4293,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onResetCuttingViewBillet(app)
             % View 2: Fit to Billet + Buffer
-
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
@@ -4189,10 +4300,17 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             buffer = 50; % mm
 
-            limits = [bY-buffer, bY+bW+buffer, bZ-buffer, bZ+bH+buffer];
+            % Explicitly lock limits and aspect ratio without using 'axis equal'
+            xLims = [bY - buffer, bY + bW + buffer];
+            yLims =[bZ - buffer, bZ + bH + buffer];
 
-            axis(app.AxCutLeft, limits);
-            axis(app.AxCutRight, limits);
+            xlim(app.AxCutLeft, xLims);
+            ylim(app.AxCutLeft, yLims);
+            daspect(app.AxCutLeft, [1 1 1]);
+
+            xlim(app.AxCutRight, xLims);
+            ylim(app.AxCutRight, yLims);
+            daspect(app.AxCutRight, [1 1 1]);
         end
 
         function onCutAxesClick(app, ax, ~, side)
@@ -4614,120 +4732,36 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function generateSimulationData(app)
-            % 1. Setup & Profile Extraction (Sparse / Truth)
+            disp('--- [DEBUG] generateSimulationData START ---');
+
+            if isempty(app.AxSim) || ~isgraphics(app.AxSim)
+                disp('   -> ERROR: AxSim is missing!'); return;
+            end
+
             t = app.getTheme();
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            % --- NEW PIPELINE: Kerf -> Sync -> Shift -> Machine Offset ---
+            disp('   -> Fetching Synced Kerf Profiles...');
+            d1 = 0; % Anti-markdown bug
+            [syncY_L, syncZ_L, syncY_R, syncZ_R] = app.getSyncedKerfProfiles();
 
-            % A. Extract Raw Profiles
-            rawYL = [];
-            rawZL =[];
-            rawYR = [];
-            rawZR =[];
+            disp(['   -> Base Profiles: L=' num2str(numel(syncY_L)) ' pts, R=' num2str(numel(syncY_R)) ' pts']);
 
-            if ~isempty(app.LeftProfilePoints)
-                rawYL = app.LeftProfilePoints(:,2);
-                rawZL = app.LeftProfilePoints(:,3);
-            end
-            if ~isempty(app.RightProfilePoints)
-                rawYR = app.RightProfilePoints(:,2);
-                rawZR = app.RightProfilePoints(:,3);
-            end
+            d2 = 0; % Anti-markdown bug
+            [yL, zL] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
+            [yR, zR] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
-            % B. Apply Kerf
-            yL_k = rawYL;
-            zL_k = rawZL;
-            yR_k = rawYR;
-            zR_k = rawZR;
-
-            if app.KerfEnabled
-                if app.KerfLeftValue ~= 0 && ~isempty(yL_k)
-                    [ yL_k, zL_k ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL_k, zL_k, app.KerfLeftValue, app.ProfileTolerance);
-                end
-                if app.KerfRightValue ~= 0 && ~isempty(yR_k)
-                    [ yR_k, zR_k ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR_k, zR_k, app.KerfRightValue, app.ProfileTolerance);
-                end
-            end
-
-            % C. Sync Topologies IMMEDIATELY
-            syncY_L = [];
-            syncZ_L = [];
-            syncY_R =[];
-            syncZ_R =[];
-
-            if ~isempty(yL_k) && ~isempty(yR_k)
-                [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL_k, zL_k, yR_k, zR_k);
-            end
-
-            % D. Apply Shifts and Machine Offsets
-            function[ yo, zo ] = localApplyMods(yi, zi, startIdx, offY, offZ, ccw)
-                if numel(yi) > 2
-                    if abs(yi(1)-yi(end)) < 1e-6 && abs(zi(1)-zi(end)) < 1e-6
-                        yi(end) = [];
-                        zi(end) =[];
-                    end
-                    N = numel(yi);
-                    idx = max(1, min(startIdx, N));
-
-                    yo = circshift(yi, -(idx - 1));
-                    zo = circshift(zi, -(idx - 1));
-
-                    if ccw
-                        yo(2:end) = flipud(yo(2:end));
-                        zo(2:end) = flipud(zo(2:end));
-                    end
-
-                    yo(end+1) = yo(1);
-                    zo(end+1) = zo(1);
-                else
-                    yo = yi;
-                    zo = zi;
-                end
-
-                % Convert to Absolute Machine Space
-                yo = yo + offY;
-                zo = zo + offZ;
-            end
-
-            [ yL, zL ] = localApplyMods(syncY_L, syncZ_L, app.SelectedStartIdxL, offsetY, offsetZ, isCCW);
-            [ yR, zR ] = localApplyMods(syncY_R, syncZ_R, app.SelectedStartIdxR, offsetY, offsetZ, isCCW);
-
-            % --- CRITICAL FIX: Guard against empty/degenerate profiles ---
             if isempty(yL) || isempty(yR)
+                disp('   -> ERROR: applyMods returned empty arrays!');
                 uialert(app.UIFigure, 'Could not generate toolpath. Profiles may be empty or invalid.', 'Simulation Error');
                 return;
             end
 
-            % Assign Truth Geometry for G-Code (Already Perfectly Synced!)
-            app.ProfileSyncL = [ yL(:), zL(:) ];
-            app.ProfileSyncR = [ yR(:), zR(:) ];
-
-            % --- Helper: Densify for Visual Smoothness (Visual Only) ---
-            function [yD, zD] = densify(y, z, step)
-                if nargin < 3
-                    step = 2.0;
-                end
-                d = [0; cumsum(hypot(diff(y), diff(z)))];
-                if d(end) < 1e-3
-                    yD=y;
-                    zD=z;
-                    return;
-                end
-
-                % Create dense grid
-                d_fine = (0:step:d(end))';
-                if d_fine(end) ~= d(end)
-                    d_fine = [d_fine; d(end)];
-                end
-
-                % Interpolate (Linear preserves corners, just adds dots between them)
-                [du, iu] = unique(d,'stable');
-                yD = interp1(du, y(iu), d_fine, 'linear');
-                zD = interp1(du, z(iu), d_fine, 'linear');
-            end
+            disp('   -> Applying Truth Geometry for G-Code...');
+            app.ProfileSyncL = [yL(:), zL(:)];
+            app.ProfileSyncR = [yR(:), zR(:)];
 
             % Helper for Segments
             function pts = mkRapid(lead, link1, link2)
@@ -4760,27 +4794,21 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             function pts = mkReturn(lead, link1, link2)
                 if isempty(lead)
-                    pts = [0, 0];
-                    return;
+                    pts = [0, 0]; return;
                 end
-
                 pts = lead;
-
-                % Reverse order for return
-                if ~isempty(link2)
-                    pts = [pts; link2];
+                if ~isempty(link2), pts = [pts; link2];
                 end
-                if ~isempty(link1)
-                    pts = [pts; link1];
+                if ~isempty(link1), pts = [pts; link1];
                 end
 
-                % Explicitly capture the retract Z so it doesn't drift diagonally
                 pRetract =[app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2];
-
-                pts = [pts; pRetract; [0, pRetract(2)]; [0, 0]];
+                pts = [pts; pRetract;
+                    [0, pRetract(2)];
+                    [0, 0]];
             end
 
-            % 2. Generate Raw Segments
+            disp('   -> Generating Raw Routing Segments...');
             rawRapL = mkRapid(app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
             rawRapR = mkRapid(app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
@@ -4794,89 +4822,82 @@ classdef HotWireSTEPApp_v6_2 < handle
             rawRetR = mkReturn(app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
             % 3. Densify Segments
-            % Distributes points based on PHYSICAL DISTANCE, not Index.
-            function [yLD, zLD, yRD, zRD] = densifySynced(yL, zL, yR, zR, step)
-                if nargin < 5
-                    step = 2.0;
-                end
-
-                N = numel(yL);
+            function [yLD, zLD, yRD, zRD] = densifySynced(yiL, ziL, yiR, ziR, step)
+                if nargin < 5, step = 2.0; end
+                N = numel(yiL);
                 if N < 2
-                    yLD=yL; zLD=zL; yRD=yR; zRD=zR; return;
+                    yLD=yiL; zLD=ziL; yRD=yiR; zRD=ziR; return;
                 end
+                distL = [0; cumsum(hypot(diff(yiL), diff(ziL)))];
+                distR = [0; cumsum(hypot(diff(yiR), diff(ziR)))];
 
-                % 1. Calculate cumulative physical distance for both paths
-                distL = [0; cumsum(hypot(diff(yL), diff(zL)))];
-                distR = [0; cumsum(hypot(diff(yR), diff(zR)))];
-
-                % 2. Normalize both to 0..1 based on their own total length
                 maxL = distL(end); if maxL < 1e-6, maxL = 1; end
                 maxR = distR(end); if maxR < 1e-6, maxR = 1; end
 
-                sL = distL / maxL;
-                sR = distR / maxR;
-
-                % 3. Create a Master Parameter based on the "Longest" path behavior
+                sL = distL / maxL; sR = distR / maxR;
                 s_orig = (sL + sR) / 2;
-
-                % 4. Determine step count based on the longest path
                 totalLen = max(distL(end), distR(end));
-                nSteps = ceil(totalLen / step);
-                nSteps = max(nSteps, N);
 
-                % 5. Create uniform grid for smooth animation (0..1)
+                nSteps = max(N, ceil(totalLen / step));
                 s_smooth = linspace(0, 1, nSteps)';
-
-                % 6. Union: Include EXACT corner times + Smooth times
                 s_combined = unique([s_orig; s_smooth]);
 
-                % 7. Interpolate geometry onto this new time grid
                 [su, iu] = unique(s_orig, 'stable');
-                yLD = interp1(su, yL(iu), s_combined, 'linear');
-                zLD = interp1(su, zL(iu), s_combined, 'linear');
-                yRD = interp1(su, yR(iu), s_combined, 'linear');
-                zRD = interp1(su, zR(iu), s_combined, 'linear');
+                yLD = interp1(su, yiL(iu), s_combined, 'linear');
+                zLD = interp1(su, ziL(iu), s_combined, 'linear');
+                yRD = interp1(su, yiR(iu), s_combined, 'linear');
+                zRD = interp1(su, ziR(iu), s_combined, 'linear');
             end
 
-            function out = densifyWaypoints(yL, zL, yR, zR, step)
-                % Synchronizes non-cutting moves strictly by waypoint pairs to prevent diagonal drift
+            function out = densifyWaypoints(yiL, ziL, yiR, ziR, step)
                 if nargin < 5, step = 2.0; end
+                N_max = max(numel(yiL), numel(yiR));
+
+                if numel(yiL) < N_max
+                    padCount = N_max - numel(yiL);
+                    yiL =[yiL; repmat(yiL(end), padCount, 1)];
+                    ziL =[ziL; repmat(ziL(end), padCount, 1)];
+                end
+                if numel(yiR) < N_max
+                    padCount = N_max - numel(yiR);
+                    yiR = [yiR; repmat(yiR(end), padCount, 1)];
+                    ziR = [ziR; repmat(ziR(end), padCount, 1)];
+                end
+
                 yLD=[]; zLD=[]; yRD=[]; zRD=[];
-                for i = 1:(numel(yL)-1)
-                    d1 = hypot(yL(i+1)-yL(i), zL(i+1)-zL(i));
-                    d2 = hypot(yR(i+1)-yR(i), zR(i+1)-zR(i));
+                for i = 1:(N_max-1)
+                    d1 = hypot(yiL(i+1)-yiL(i), ziL(i+1)-ziL(i));
+                    d2 = hypot(yiR(i+1)-yiR(i), ziR(i+1)-ziR(i));
                     N_pts = max(2, ceil(max(d1, d2) / step));
 
-                    yLD =[yLD; linspace(yL(i), yL(i+1), N_pts)'];
-                    zLD =[zLD; linspace(zL(i), zL(i+1), N_pts)'];
-                    yRD =[yRD; linspace(yR(i), yR(i+1), N_pts)'];
-                    zRD =[zRD; linspace(zR(i), zR(i+1), N_pts)'];
+                    yLD =[yLD; linspace(yiL(i), yiL(i+1), N_pts)'];
+                    zLD =[zLD; linspace(ziL(i), ziL(i+1), N_pts)'];
+                    yRD =[yRD; linspace(yiR(i), yiR(i+1), N_pts)'];
+                    zRD =[zRD; linspace(ziR(i), ziR(i+1), N_pts)'];
 
-                    if i < numel(yL)-1
+                    if i < N_max-1
                         yLD(end)=[]; zLD(end)=[]; yRD(end)=[]; zRD(end)=[];
                     end
                 end
                 out.yL = yLD; out.zL = zLD; out.yR = yRD; out.zR = zRD;
             end
 
-            % Process Rapids using Waypoint logic (Prevents angled drifting!)
+            disp('   -> Densifying Waypoints...');
             tmp = densifyWaypoints(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
             dRapL_y = tmp.yL; dRapL_z = tmp.zL; dRapR_y = tmp.yR; dRapR_z = tmp.zR;
 
             tmp = densifyWaypoints(rawLiL(:,1), rawLiL(:,2), rawLiR(:,1), rawLiR(:,2));
             dLiL_y = tmp.yL; dLiL_z = tmp.zL; dLiR_y = tmp.yR; dLiR_z = tmp.zR;
 
-            % Process Profile Cut using the length-based sync
+            d3 = 0; % Anti-markdown bug
             [dProfL_y, dProfL_z, dProfR_y, dProfR_z] = densifySynced(yL, zL, yR, zR);
 
-            % Process LeadOut and Return using Waypoint logic
             tmp = densifyWaypoints(rawLoL(:,1), rawLoL(:,2), rawLoR(:,1), rawLoR(:,2));
             dLoL_y = tmp.yL; dLoL_z = tmp.zL; dLoR_y = tmp.yR; dLoR_z = tmp.zR;
 
             tmp = densifyWaypoints(rawRetL(:,1), rawRetL(:,2), rawRetR(:,1), rawRetR(:,2));
             dRetL_y = tmp.yL; dRetL_z = tmp.zL; dRetR_y = tmp.yR; dRetR_z = tmp.zR;
 
-            % 4. Combine into Simulation Path
             app.SimRapidCutoffIndex  = numel(dRapL_y);
             app.SimProfileStartIndex = app.SimRapidCutoffIndex + numel(dLiL_y);
             app.SimFeedEndIndex      = app.SimProfileStartIndex + numel(dProfL_y);
@@ -4887,7 +4908,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             fullY_R =[dRapR_y; dLiR_y; dProfR_y; dLoR_y; dRetR_y];
             fullZ_R =[dRapR_z; dLiR_z; dProfR_z; dLoR_z; dRetR_z];
 
-            % 5. Map to 3D Machine Space
             if ~isempty(app.LeftProfilePoints)
                 xL = app.LeftProfilePoints(1,1);
             else
@@ -4906,24 +4926,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimPathL =[repmat(xL, numel(fullY_L), 1), fullY_L, fullZ_L];
             app.SimPathR =[repmat(xR, numel(fullY_R), 1), fullY_R, fullZ_R];
 
-            % 6. Physics
             dL = sqrt(sum(diff(app.SimPathL).^2, 2)); dL(isnan(dL)) = 0;
             dR = sqrt(sum(diff(app.SimPathR).^2, 2)); dR(isnan(dR)) = 0;
-            app.SimArcLenL = [0; cumsum(dL)];
+            app.SimArcLenL =[0; cumsum(dL)];
             app.SimArcLenR =[0; cumsum(dR)];
             app.SimTotalLength = max(app.SimArcLenL(end), app.SimArcLenR(end));
             app.SimPlayDist = 0;
 
-            % 7. Tower Projections
             V = app.SimPathR - app.SimPathL;
             tL = -app.SimPathL(:,1) ./ V(:,1);
             tR = (app.MachineSpanX - app.SimPathL(:,1)) ./ V(:,1);
             app.SimTowerPathL = app.SimPathL + tL .* V;
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % 8. UI Init
             nPoints = size(app.SimPathL, 1);
-            app.SimSlider.Limits = [1, max(1, nPoints)];
+            app.SimSlider.Limits =[1, max(1, nPoints)];
             app.SimSlider.Value = 1;
 
             if isprop(app, 'SimIndexSpinner') && ~isempty(app.SimIndexSpinner)
@@ -4931,25 +4948,28 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.SimIndexSpinner.Value = 1;
             end
 
+            disp('   -> Data generated. Initializing Plot...');
             app.initSimulationPlot();
+            disp('--- [DEBUG] generateSimulationData END ---');
         end
 
         % --- View Management ---
         function initSimulationPlot(app)
-            % Draws static elements and inits dynamic tags
+            disp('--- [DEBUG] initSimulationPlot START ---');
             ax = app.AxSim; cla(ax); hold(ax,'on'); t=app.getTheme();
 
-            % Setup Geometry
             offX=app.MachineBedPos(1); mSpan=app.MachineSpanX; bp=app.MachineBilletPos;
+
+            d1 = 0; % Anti-markdown bug
             [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -20, 1000, 700, 20); % Bed
             patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
-            % Towers
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
 
-            % Billet & Model
             bX=bp(1)-offX; bY=bp(2); bZ=bp(3); bS=app.BilletSize;
+
+            d2 = 0; % Anti-markdown bug
             [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bS(1),bS(2),bS(3));
             patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--');
 
@@ -4958,21 +4978,16 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'FaceColor',[0.6 0.6 0.7], 'FaceAlpha',0.3, 'EdgeColor','none', 'Tag','SimModel');
             end
 
-            % --- Dynamic Elements (Original Styles) ---
-            % Wire
             plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.2, 'Tag','SimWire');
 
-            % Tower Dots
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimDotR');
 
-            % Model Dots
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimModelDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimModelDotR');
 
-            % Trails (Yellow/Orange/Red-Green/Orange/Yellow)
             tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
-            cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed, [1 0.5 0], [0.9 0.8 0]};
+            cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed,[1 0.5 0], [0.9 0.8 0]};
             styles = {'-','-','-','--','--'};
 
             for i=1:5
@@ -4983,8 +4998,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
             end
 
+            disp('   -> Updating Visuals and Resetting Machine View...');
             app.updateSimVisuals(1);
             app.onResetSimViewMachine();
+            disp('--- [DEBUG] initSimulationPlot END ---');
         end
 
         % --- Core Visualization Loop ---
