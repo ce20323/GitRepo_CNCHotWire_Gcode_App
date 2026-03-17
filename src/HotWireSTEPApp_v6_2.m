@@ -3529,17 +3529,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if isDark
                 cageCol =[ 0.6 0.6 0.6 ];
-                tickCol = [ 1 1 1 ];
+                tickCol =[ 1 1 1 ];
                 wireBaseCol  =[ 0.50 0.50 0.50 ];
                 modelAlpha = 0.35;
             else
-                cageCol = [ 0.3 0.3 0.3 ];
-                tickCol = [ 0 0 0 ];
+                cageCol =[ 0.3 0.3 0.3 ];
+                tickCol =[ 0 0 0 ];
                 wireBaseCol  =[ 0.40 0.40 0.40 ];
                 modelAlpha = 0.30;
             end
 
-            % Matches Billet Tab exactly!
             wireRed   =[ t.planeRed, 0.6 ];
             wireGreen = [ t.planeGreen, 0.6 ];
 
@@ -3589,18 +3588,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
 
                 hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
-                    'FaceColor', [ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
+                    'FaceColor',[ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
                     'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
 
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+                    'FaceColor',[ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
 
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
                     d4 = 0; % Anti-markdown bug
                     [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
@@ -3616,18 +3615,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                     [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
+                        % FIX: LineWidth reduced to 0.75 for consistency
                         hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
-                            'Color', t.wireKerf, 'LineWidth', 1.0);
+                            'Color', t.wireKerf, 'LineWidth', 0.75);
                         plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
-                            'Color', t.wireKerf, 'LineWidth', 1.0);
+                            'Color', t.wireKerf, 'LineWidth', 0.75);
 
                         d6 = 0; % Anti-markdown bug
                         [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                        ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
+                            ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
-                        plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 1.0);
-                        plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 1.0);
+                        % FIX: LineWidth reduced to 0.75 for consistency
+                        plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
+                        plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
 
                         stepInt = max(1, floor(numel(tL.y)/20));
                         idx = 1:stepInt:numel(tL.y);
@@ -3645,8 +3646,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                                 wCol =[ 1 0.8 0 0.8 ];
                             end
 
-                            plot3(ax,[ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ], [ tL.z(currIdx), tR.z(currIdx) ], ...
-                                'Color', wCol, 'LineWidth', 0.8);
+                            plot3(ax,[ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ],[ tL.z(currIdx), tR.z(currIdx) ], ...
+                                'Color', wCol, 'LineWidth', 0.5);
 
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
                                 '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
@@ -3683,7 +3684,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isValid = false;
                 pCol =[ 0.4 0.16 0.16 ];
                 tCol =[ 1 0.4 0.4 ];
-                txtLines = ["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
+                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
             end
 
             app.MachineLeftPanel.BackgroundColor = pCol;
@@ -4955,22 +4956,34 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % --- View Management ---
         function initSimulationPlot(app)
-            disp('--- [DEBUG] initSimulationPlot START ---');
-            ax = app.AxSim; cla(ax); hold(ax,'on'); t=app.getTheme();
+            % Draws static elements and inits dynamic tags
+            ax = app.AxSim;
+            cla(ax);
+            hold(ax,'on');
+            t = app.getTheme();
 
-            offX=app.MachineBedPos(1); mSpan=app.MachineSpanX; bp=app.MachineBilletPos;
+            % Setup Geometry
+            offX = app.MachineBedPos(1);
+            mSpan = app.MachineSpanX;
+            bp = app.MachineBilletPos;
+            bSize = app.BilletSize;
 
             d1 = 0; % Anti-markdown bug
             [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -20, 1000, 700, 20); % Bed
+
             patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
 
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
 
-            bX=bp(1)-offX; bY=bp(2); bZ=bp(3); bS=app.BilletSize;
+            % Billet & Model
+            bX = bp(1)-offX;
+            bY = bp(2);
+            bZ = bp(3);
 
             d2 = 0; % Anti-markdown bug
-            [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bS(1),bS(2),bS(3));
+            [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
+
             patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--');
 
             if ~isempty(app.ModelPatch)
@@ -4978,14 +4991,38 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'FaceColor',[0.6 0.6 0.7], 'FaceAlpha',0.3, 'EdgeColor','none', 'Tag','SimModel');
             end
 
+            % --- NEW: Ghost Profiles in neutral Grey ---
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                d3 = 0; % Anti-markdown bug
+                [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                    app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+
+                totalShift = bp + app.BilletShift;
+                xL_world = app.LeftProfilePoints(1,1) + totalShift(1) - offX;
+                xR_world = app.RightProfilePoints(1,1) + totalShift(1) - offX;
+
+                % Use the theme's rawMesh color (grey) with transparency
+                ghostColor =[0.9 0.9 0.9, 0.6];
+
+                plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
+                    'Color', ghostColor, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostL');
+                plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
+                    'Color', ghostColor, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostR');
+            end
+
+            % --- Dynamic Elements ---
+            % Wire
             plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.2, 'Tag','SimWire');
 
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimDotL');
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimDotR');
+            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimDotL');
+            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimDotR');
 
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeRed, 'Tag','SimModelDotL');
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerSize',4, 'MarkerFaceColor',t.planeGreen, 'Tag','SimModelDotR');
+            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimModelDotL');
+            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimModelDotR');
 
+            % Trails
             tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
             cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed,[1 0.5 0], [0.9 0.8 0]};
             styles = {'-','-','-','--','--'};
@@ -4994,14 +5031,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
-                colR = cols{i}; if i==3, colR=t.planeGreen; end
+
+                colR = cols{i};
+                if i==3
+                    colR=t.planeGreen;
+                end
+
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
             end
 
-            disp('   -> Updating Visuals and Resetting Machine View...');
             app.updateSimVisuals(1);
             app.onResetSimViewMachine();
-            disp('--- [DEBUG] initSimulationPlot END ---');
         end
 
         % --- Core Visualization Loop ---
