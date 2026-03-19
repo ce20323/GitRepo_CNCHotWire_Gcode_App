@@ -2036,12 +2036,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            % --- FIX: ALWAYS Reset interaction state immediately on any click ---
-            app.resetInteractionState();
-
             disp('================================================');
             disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
 
+            % Determine which checks are needed based on destination
             isModel    = (targetTab == app.TabModel);
             isProfiles = (targetTab == app.TabProfiles);
             isBillet   = (targetTab == app.TabBillet);
@@ -2050,11 +2048,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             isSim      = (targetTab == app.TabSimulation);
             isPost     = (targetTab == app.TabPostProcess);
 
-            needsProfiles = ~isModel;
+            % FIX: The "needs" flags MUST include the tab itself so the Quiet Auto-Triggers fire!
+            needsProfiles = isProfiles || isBillet || isMachine || isCutting || isSim || isPost;
             needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
-            needsBillet   = isMachine || isCutting || isSim || isPost;
-            needsMachine  = isCutting || isSim || isPost;
-            needsCutting  = isSim || isPost;
+            needsBillet   = isBillet || isMachine || isCutting || isSim || isPost;
+            needsMachine  = isMachine || isCutting || isSim || isPost;
+            needsCutting  = isCutting || isSim || isPost;
 
             forceAuto = false;
 
@@ -2070,10 +2069,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- LEVEL 2: PROFILES & KERF ---
             hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
             hasKerf = app.KerfEnabled;
+
             missingProfiles = needsProfiles && ~hasProfiles;
             missingKerf     = needsKerf && ~hasKerf;
 
             if missingProfiles || missingKerf
+                disp('>> [DEBUG] Level 2: Missing Profiles or Kerf');
                 if ~forceAuto
                     if missingProfiles
                         manTab = app.TabModel;
@@ -2102,10 +2103,12 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 if forceAuto
                     if missingProfiles
+                        disp('>> AUTO: Generating Profiles');
                         app.onGenerateProfiles();
                         drawnow; pause(0.1);
                     end
                     if missingKerf
+                        disp('>> AUTO: Applying Kerf');
                         app.onApplyKerf();
                         drawnow; pause(0.1);
                     end
@@ -2114,41 +2117,71 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 3: BILLET ---
             if needsBillet
+                disp('>> [DEBUG] Level 3: Checking Billet');
                 isValidBillet = app.syncBilletUI();
-                if sum(app.BilletSize) == 0 || ~isValidBillet
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('You skipped a step! The billet stock has not been configured correctly.\n\nIt is highly recommended to set this manually on the Billet tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
-                            'Step Skipped', ...
-                            'Options', {'Go to Billet Tab', 'Auto-Configure All', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                disp(['   -> BilletSize: ', mat2str(app.BilletSize), ', isValid: ', num2str(isValidBillet)]);
 
-                        if strcmp(sel, 'Go to Billet Tab')
-                            app.TabGroup.SelectedTab = app.TabBillet;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        else
-                            forceAuto = true;
-                        end
-                    end
-                    if forceAuto
+                if sum(app.BilletSize) == 0 || ~isValidBillet
+
+                    % Quiet Auto-Trigger (Normal Progression)
+                    if targetTab == app.TabBillet
+                        disp('>> QUIET AUTO: Fitting Billet');
                         app.onAutoFitBillet();
                         app.onAutoPositionModel();
                         drawnow; pause(0.1);
+                    else
+                        disp('>> MISSING/INVALID: Billet');
+                        if ~forceAuto
+                            sel = uiconfirm(app.UIFigure, ...
+                                sprintf('You skipped a step! The billet stock has not been configured correctly.\n\nIt is highly recommended to set this manually on the Billet tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
+                                'Step Skipped', ...
+                                'Options', {'Go to Billet Tab', 'Auto-Configure All', 'Cancel'}, ...
+                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                            if strcmp(sel, 'Go to Billet Tab')
+                                app.TabGroup.SelectedTab = app.TabBillet;
+                                return;
+                            elseif strcmp(sel, 'Cancel')
+                                app.TabGroup.SelectedTab = oldTab;
+                                return;
+                            else
+                                forceAuto = true;
+                            end
+                        end
+                        if forceAuto
+                            disp('>> AUTO: Fitting and Positioning Billet');
+                            app.onAutoFitBillet();
+                            app.onAutoPositionModel();
+                            drawnow; pause(0.1);
+                        end
                     end
                 end
             end
 
             % --- LEVEL 4: MACHINE ---
             if needsMachine
-                d1 = 0; % Anti-markdown bug
-                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+                disp('>> [DEBUG] Level 4: Checking Machine');
+                disp(['   -> app.IsMachineInit currently = ', num2str(app.IsMachineInit)]);
+
+                % Quiet Auto-Trigger (Normal Progression)
+                if targetTab == app.TabMachine && ~app.IsMachineInit
+                    disp('>> QUIET AUTO: Initializing Machine Position');
+                    disp(['   -> Pos BEFORE: ', mat2str(app.MachineBilletPos)]);
+                    app.onResetMachineBilletPosition();
+                    disp(['   -> Pos AFTER: ', mat2str(app.MachineBilletPos)]);
+                    disp(['   -> app.IsMachineInit is now = ', num2str(app.IsMachineInit)]);
+                    drawnow; pause(0.1);
+                end
+
+                % Use cell array to definitively prevent markdown brackets bug!
+                chkM = cell(1,4);[chkM{1}, chkM{2}, chkM{3}, chkM{4}] = app.checkMachineState();
+                isValidMach = chkM{1}; pCol = chkM{2}; tCol = chkM{3}; msgLines = chkM{4};
+
+                disp(['   -> isValidMach = ', num2str(isValidMach)]);
 
                 if ~app.IsMachineInit || ~isValidMach
+                    disp('>> MISSING/INVALID: Machine Pos');
                     if ~forceAuto
-                        % FIX: Updated prompt text to encourage Auto-Position usage
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('You skipped a step! The billet has not been safely positioned on the machine bed.\n\nIt is highly recommended to click the "Auto-Position Billet" button on the Machine tab, and manually adjust if needed.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
                             'Step Skipped', ...
@@ -2169,6 +2202,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
+                        disp('>> AUTO: Positioning Billet on Machine Bed');
                         app.onResetMachineBilletPosition();
                         drawnow; pause(0.1);
                     end
@@ -2177,10 +2211,22 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY ---
             if needsCutting
-                d2 = 0; % Anti-markdown bug
-                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+                disp('>> [DEBUG] Level 5: Checking Cutting Strategy');
+                disp(['   -> app.IsCuttingInit currently = ', num2str(app.IsCuttingInit)]);
+
+                % Quiet Auto-Trigger (Normal Progression)
+                if targetTab == app.TabCutting && ~app.IsCuttingInit
+                    disp('>> QUIET AUTO: Initializing Cutting Strategy');
+                    app.onAutoStart(false);
+                    app.onAutoEntry(false);
+                    drawnow; pause(0.1);
+                end
+
+                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
+                isValidCut = chkC{1}; pColC = chkC{2}; tColC = chkC{3}; msgLinesC = chkC{4};
 
                 if ~app.IsCuttingInit || ~isValidCut
+                    disp('>> MISSING/INVALID: Cutting Strategy');
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
@@ -2190,9 +2236,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                         if strcmp(sel, 'Go to Cutting Tab')
                             app.TabGroup.SelectedTab = app.TabCutting;
-                            app.CuttingLeftPanel.BackgroundColor = pCol;
-                            app.TxtCuttingStatus.Value = msgLines;
-                            app.TxtCuttingStatus.FontColor = tCol;
+                            app.CuttingLeftPanel.BackgroundColor = pColC;
+                            app.TxtCuttingStatus.Value = msgLinesC;
+                            app.TxtCuttingStatus.FontColor = tColC;
                             return;
                         elseif strcmp(sel, 'Cancel')
                             app.TabGroup.SelectedTab = oldTab;
@@ -2202,8 +2248,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
-                        app.onAutoStart();
-                        app.onAutoEntry();
+                        disp('>> AUTO: Generating Cutting Strategy');
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
                         drawnow; pause(0.1);
                     end
                 end
@@ -2211,7 +2258,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- EXECUTE SAFE TAB TRANSITION ---
             disp(['>> ALL GATES PASSED. Rendering ' targetTab.Title ' tab.']);
-            drawnow; pause(0.05);
+            app.resetInteractionState();
+            drawnow; pause(0.05); % Stabilize UI to prevent plot discarding
 
             if isBillet
                 app.syncBilletUI();
@@ -2219,23 +2267,23 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             elseif isMachine
                 app.syncMachineUI();
-                d3 = 0; % Anti-markdown bug
-                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+                chkM2 = cell(1,4);[chkM2{1}, chkM2{2}, chkM2{3}, chkM2{4}] = app.checkMachineState();
+                isValidMachFinal = chkM2{1}; pColFinal = chkM2{2}; tColFinal = chkM2{3}; msgLinesFinal = chkM2{4};
 
-                app.MachineLeftPanel.BackgroundColor = pCol;
-                app.TxtMachineStatus.Value = msgLines;
-                app.TxtMachineStatus.FontColor = tCol;
-                if isValidMach, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
+                app.MachineLeftPanel.BackgroundColor = pColFinal;
+                app.TxtMachineStatus.Value = msgLinesFinal;
+                app.TxtMachineStatus.FontColor = tColFinal;
+                if isValidMachFinal, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
                 app.refreshMachinePlot();
 
             elseif isCutting
-                d4 = 0; % Anti-markdown bug
-                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+                chkC2 = cell(1,4);[chkC2{1}, chkC2{2}, chkC2{3}, chkC2{4}] = app.validateCuttingStrategy();
+                isValidCutFinal = chkC2{1}; pColCFinal = chkC2{2}; tColCFinal = chkC2{3}; msgLinesCFinal = chkC2{4};
 
-                app.CuttingLeftPanel.BackgroundColor = pCol;
-                app.TxtCuttingStatus.Value = msgLines;
-                app.TxtCuttingStatus.FontColor = tCol;
-                if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+                app.CuttingLeftPanel.BackgroundColor = pColCFinal;
+                app.TxtCuttingStatus.Value = msgLinesCFinal;
+                app.TxtCuttingStatus.FontColor = tColCFinal;
+                if isValidCutFinal, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
 
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
@@ -2247,6 +2295,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             elseif isPost
                 app.updatePostProcessUI();
             end
+
             disp('>> Render complete.');
         end
 
@@ -2523,6 +2572,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletRefXMin = app.ModelXMin;
             app.BilletRefYMin = app.ModelYMin;
             app.BilletRefZMin = app.ModelZMin;
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
         end
 
@@ -3059,7 +3111,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSize =[b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
             app.BilletShift = [0 0 0];
 
-            app.IsMachineInit = false;
+            % FIX: Removed IsMachineInit = false to preserve user's machine placement!
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3080,7 +3132,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
             app.BilletShift(3) = app.ModelEdgeWarningBuffer - localMins(3);
 
-            app.IsMachineInit = false;
+            % FIX: Removed IsMachineInit = false
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3096,7 +3148,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.BilletShift = [0 0 0];
 
-            app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3107,7 +3158,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             delta = direction * app.BilletSizeStep;
             app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
 
-            app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3137,7 +3187,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             src.Value = val;
             app.BilletSize(axisIdx) = val;
 
-            app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3161,7 +3210,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletShift(axisIdx) = val;
             end
 
-            app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3171,7 +3219,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         function moveModelInSpace(app, axisIdx, delta)
             app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
 
-            app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3292,9 +3339,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Mark Machine as manually initialized, invalidate downstream
             app.IsMachineInit = true;
             app.IsCuttingInit = false;
-
-            app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
-
+            app.IsMachineInit = true;
+            app.syncMachineUI();
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
@@ -3409,11 +3456,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % FIX: Mark Machine as fully initialized
             app.IsMachineInit = true;
-
+            app.IsMachineInit = true;
             app.syncMachineUI();
-
             [isValid, pCol, tCol, txtLines] = app.checkMachineState();
-
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
@@ -4394,7 +4439,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
             end
-
+            
+            app.IsCuttingInit = true;
             app.updateCuttingPlots();
         end
 
@@ -4461,6 +4507,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsCuttingInit = true;
 
             if doPlot
+                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
@@ -4560,6 +4607,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsCuttingInit = true;
 
             if doPlot
+                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
