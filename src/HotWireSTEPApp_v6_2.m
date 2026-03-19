@@ -3175,7 +3175,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 case 2 % Y Axis
                     maxVal = app.MachineBedSize(2);
                 case 3 % Z Axis
-                    maxVal = app.MachineAxisZ(2);
+                    % FIX: Use the correct constant scalar property
+                    maxVal = app.MachineLimitZ;
             end
 
             if val < minVal
