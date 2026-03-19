@@ -3345,105 +3345,112 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                % Sync profiles to ensure 1:1 path comparison
-                [ yL, zL, yR, zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                    app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+                % Get the true kerfed and synced profiles
+                d1 = 0; % Anti-markdown bug
+                [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
 
-                % Base profile coordinates (including Billet Shift)
-                yL_base = yL + app.BilletShift(2);
-                zL_base = zL + app.BilletShift(3);
-                yR_base = yR + app.BilletShift(2);
-                zR_base = zR + app.BilletShift(3);
+                if ~isempty(yL)
+                    % Base profile coordinates (including Billet Shift)
+                    yL_base = yL + app.BilletShift(2);
+                    zL_base = zL + app.BilletShift(3);
+                    yR_base = yR + app.BilletShift(2);
+                    zR_base = zR + app.BilletShift(3);
 
-                planeDist = abs(app.NumRightOffset.Value - app.NumLeftOffset.Value);
+                    % FIX: Use the actual absolute Model X coordinates!
+                    pXL = app.LeftProfilePoints(1,1);
+                    pXR = app.RightProfilePoints(1,1);
+                    planeDist = abs(pXR - pXL);
 
-                % Only optimize if there is a distinct distance between planes
-                if planeDist > 1e-3
-                    bestDiff = inf;
+                    % --- X Sweep Optimization ---
+                    % Only optimize if there is a distinct distance between planes
+                    if planeDist > 1e-3
+                        bestDiff = inf;
 
-                    % Sweep ONLY the valid 50mm increments
-                    for x = testXs
-                        xL_m = x + app.BilletShift(1) + app.NumLeftOffset.Value;
-                        xR_m = x + app.BilletShift(1) + app.NumRightOffset.Value;
-                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                            yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                        % Sweep ONLY the valid 50mm increments
+                        for x = testXs
+                            xL_m = x + app.BilletShift(1) + pXL;
+                            xR_m = x + app.BilletShift(1) + pXR;
 
-                        % Calculate total path length on the towers
-                        lenL = sum(hypot(diff(tL.y), diff(tL.z)));
-                        lenR = sum(hypot(diff(tR.y), diff(tR.z)));
+                            d2 = 0; % Anti-markdown bug
+                            [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                                yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
-                        % Small penalty to favor center if lengths are equal
-                        penalty = 1e-6 * abs(x - centerX);
-                        diffLen = abs(lenL - lenR) + penalty;
+                            % Calculate total path length on the towers
+                            lenL = sum(hypot(diff(tL.y), diff(tL.z)));
+                            lenR = sum(hypot(diff(tR.y), diff(tR.z)));
 
-                        if diffLen < bestDiff
-                            bestDiff = diffLen;
-                            bestX = x;
+                            % Small penalty to favor center if lengths are equal
+                            penalty = 1e-6 * abs(x - centerX);
+                            diffLen = abs(lenL - lenR) + penalty;
+
+                            if diffLen < bestDiff
+                                bestDiff = diffLen;
+                                bestX = x;
+                            end
                         end
                     end
-                end
-            end
 
-            % Apply best found X position
-            app.MachineBilletPos(1) = bestX;
+                    % Apply best found X position
+                    app.MachineBilletPos(1) = bestX;
 
-            % 2. Evaluate Base Tower Heights at new X to solve Y and Z
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                    % --- Evaluate Base Tower Heights at new X to solve Y and Z ---
+                    xL_m = bestX + app.BilletShift(1) + pXL;
+                    xR_m = bestX + app.BilletShift(1) + pXR;
 
-                xL_m = bestX + app.BilletShift(1) + app.NumLeftOffset.Value;
-                xR_m = bestX + app.BilletShift(1) + app.NumRightOffset.Value;
+                    d3 = 0; % Anti-markdown bug
+                    [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                        yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
-                [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                    yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                    % --- Z Logic (Standardized Stock Heights) ---
+                    minProjZ = min([tL.z; tR.z]);
 
-                % --- Z Logic (Standardized Stock Heights) ---
-                minProjZ = min([tL.z; tR.z]);
+                    if minProjZ >= 0
+                        app.MachineBilletPos(3) = 0; % No lift needed
+                    else
+                        reqZ = -minProjZ; % Absolute lift needed to prevent crashing
+                        % Snap to increments of 25mm (e.g., 25, 50, 75, 100...)
+                        targetZ = ceil(reqZ / 25.0) * 25.0;
 
-                if minProjZ >= 0
-                    app.MachineBilletPos(3) = 0; % No lift needed
-                else
-                    reqZ = -minProjZ; % Absolute lift needed to prevent crashing
-                    % Snap to increments of 25mm (e.g., 25, 50, 75, 100...)
-                    targetZ = ceil(reqZ / 25.0) * 25;
-
-                    % User constraint: must be 50, 75, 100...
-                    if targetZ > 0 && targetZ < 50
-                        targetZ = 50;
+                        % User constraint: must be 50, 75, 100...
+                        if targetZ > 0 && targetZ < 50
+                            targetZ = 50.0;
+                        end
+                        app.MachineBilletPos(3) = targetZ;
                     end
-                    app.MachineBilletPos(3) = targetZ;
+
+                    % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
+                    minProjY = min([tL.y; tR.y]);
+
+                    % We need the absolute Y of the wire to be > 50mm
+                    % Absolute Y = minProjY + Billet_Y. Therefore: Billet_Y >= 50 - minProjY
+                    reqBilletY = max(50.0, 50.0 - minProjY);
+
+                    % Snap to the nearest 50mm multiple
+                    targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
+
+                    % Cap at machine max depth
+                    bedD = app.MachineBedSize(2);
+                    bY = app.BilletSize(2);
+                    maxY = app.MachineBedPos(2) + bedD - bY;
+
+                    app.MachineBilletPos(2) = min(targetBilletY, maxY);
+                else
+                    % Safe defaults if profiles failed to sync
+                    app.MachineBilletPos(1) = bestX;
+                    app.MachineBilletPos(2) = app.MachineBedPos(2);
+                    app.MachineBilletPos(3) = 0;
                 end
-
-                % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
-                minProjY = min([tL.y; tR.y]);
-
-                % We need the absolute Y of the wire to be > 50mm
-                % Absolute Y = minProjY + Billet_Y. Therefore: Billet_Y >= 50 - minProjY
-                reqBilletY = max(50.0, 50.0 - minProjY);
-
-                % Snap to the nearest 50mm multiple
-                targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
-
-                % Cap at machine max depth
-                bedD = app.MachineBedSize(2);
-                bY = app.BilletSize(2);
-                maxY = app.MachineBedPos(2) + bedD - bY;
-
-                app.MachineBilletPos(2) = min(targetBilletY, maxY);
             else
                 % Safe defaults if no profile is loaded
+                app.MachineBilletPos(1) = bestX;
                 app.MachineBilletPos(2) = app.MachineBedPos(2);
                 app.MachineBilletPos(3) = 0;
             end
 
             % 3. Synchronize, Check Status, and Redraw
-            
-            % --- ARCHITECTURE: Flag Init, Reset Downstream ---
-            app.IsMachineInit = true;
-            app.IsCuttingInit = false; 
-
             app.syncMachineUI();
 
+            d4 = 0; % Anti-markdown bug
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
@@ -3458,7 +3465,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.refreshMachinePlot();
         end
-
         function isValid = validateMachineConfig(app)
             % Checks if Billet fits within Machine Limits and updates UI colors
 
