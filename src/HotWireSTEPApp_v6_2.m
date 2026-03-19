@@ -3053,12 +3053,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
-            % Pass buffer constant
             buf = app.ModelEdgeWarningBuffer;
             b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR, buf, buf);
 
-            app.BilletSize = [b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
+            app.BilletSize =[b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
             app.BilletShift = [0 0 0];
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3068,16 +3070,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isempty(app.ModelPatch), return; end
 
             V = app.ModelPatch.Vertices;
-            localMins = min(V, [], 1);
+            localMins = min(V,[], 1);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
             planeMinX = min(xL, xR);
 
-            % Auto-place with safety buffers
             app.BilletShift(1) = app.ModelXPlacementBuffer - planeMinX;
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
             app.BilletShift(3) = app.ModelEdgeWarningBuffer - localMins(3);
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3090,55 +3094,52 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onResetPosition(app)
             if isempty(app.ModelPatch), return; end
 
-            % Zero out the virtual Machining Shift
             app.BilletShift = [0 0 0];
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
         end
 
         function onBilletSizeStep(app, axisIdx, direction)
-            % Increments billet size by BilletSizeStep (1mm)
             delta = direction * app.BilletSizeStep;
-
-            % Update the driving property
             app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
         end
 
         function onBilletSizeEdited(app, axisIdx, src)
-            % Handles edits to Billet Size fields with validation against Machine Limits.
-
             val = src.Value;
-
-            % 1. Determine Limits based on Axis
-            % Min is always 1mm to prevent zero/negative geometry
             minVal = 1.0;
-            maxVal = 10000.0; % Default
+            maxVal = 10000.0;
 
             switch axisIdx
                 case 1 % X Axis
-                    maxVal = app.MachineBedSize(1); % 1000mm
+                    maxVal = app.MachineBedSize(1);
                 case 2 % Y Axis
-                    maxVal = app.MachineBedSize(2); % 700mm
+                    maxVal = app.MachineBedSize(2);
                 case 3 % Z Axis
-                    maxVal = app.MachineAxisZ(2);   % 500mm
+                    maxVal = app.MachineAxisZ(2);
             end
 
-            % 2. Clamp Value
             if val < minVal
                 val = minVal;
             elseif val > maxVal
                 val = maxVal;
             end
 
-            % 3. Update UI (Visual Feedback) and Data
             src.Value = val;
             app.BilletSize(axisIdx) = val;
 
-            % 4. Refresh
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+
             app.syncBilletUI();
             app.refreshBilletPlots();
         end
@@ -3147,29 +3148,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             val = src.Value;
             V = app.ModelPatch.Vertices;
 
-            % Base CAD limits
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
-            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
-            mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+            mMin =[min(xL,xR), min(V(:,2)), min(V(:,3))];
+            mMax =[max(xL,xR), max(V(:,2)), max(V(:,3))];
 
             if strcmp(whichField, 'neg')
-                % Logic: Shift + CAD_Min = Input_Gap -> Shift = Input_Gap - CAD_Min
                 app.BilletShift(axisIdx) = val - mMin(axisIdx);
             elseif strcmp(whichField, 'pos')
-                % Logic: BilletSize - (Shift + CAD_Max) = Input_Gap -> Shift = BilletSize - CAD_Max - Input_Gap
                 app.BilletShift(axisIdx) = app.BilletSize(axisIdx) - mMax(axisIdx) - val;
             elseif strcmp(whichField, 'center')
                 app.BilletShift(axisIdx) = val;
             end
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
         end
 
         function moveModelInSpace(app, axisIdx, delta)
-            % STABLE: Only update virtual shift
             app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3286,13 +3289,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineBilletPos(axisIdx) = val;
             end
 
-            % --- ARCHITECTURE: Flag Init, Reset Downstream ---
+            % Mark Machine as manually initialized, invalidate downstream
             app.IsMachineInit = true;
-            app.IsCuttingInit = false; 
+            app.IsCuttingInit = false;
 
-            app.syncMachineUI();
-
-            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+            app.syncMachineUI();[isValid, pCol, tCol, txtLines] = app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
@@ -3312,17 +3313,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % Physical Bed Constraints
             bedX = app.MachineBedPos(1);
             maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
             centerX = bedX + maxXLimit / 2;
 
-            % 1. X-Center Logic & Tower Path Length Optimization
-            % Enforce 50mm buffer from left and right bed edges
             minSafeX = bedX + 50.0;
             maxSafeX = bedX + maxXLimit - 50.0;
 
-            % Generate 50mm snapping grid
             if maxSafeX >= minSafeX
                 startTick = ceil(minSafeX / 50.0) * 50.0;
                 endTick = floor(maxSafeX / 50.0) * 50.0;
@@ -3332,54 +3329,36 @@ classdef HotWireSTEPApp_v6_2 < handle
                     testXs = round(centerX / 50.0) * 50.0;
                 end
             else
-                % Fallback if the billet is too large to respect the 50mm buffer
                 testXs = round(centerX / 50.0) * 50.0;
             end
 
-            % Clamp to absolute bed limits just in case
             testXs = max(bedX, min(bedX + maxXLimit, testXs));
             testXs = unique(testXs);
-
-            % Default to the middle of the available grid
             bestX = testXs(max(1, ceil(numel(testXs)/2)));
 
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                % Get the true kerfed and synced profiles
-                d1 = 0; % Anti-markdown bug
-                [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)[yL, zL, yR, zR] = app.getSyncedKerfProfiles();
 
                 if ~isempty(yL)
-                    % Base profile coordinates (including Billet Shift)
                     yL_base = yL + app.BilletShift(2);
                     zL_base = zL + app.BilletShift(3);
                     yR_base = yR + app.BilletShift(2);
                     zR_base = zR + app.BilletShift(3);
 
-                    % FIX: Use the actual absolute Model X coordinates!
                     pXL = app.LeftProfilePoints(1,1);
                     pXR = app.RightProfilePoints(1,1);
                     planeDist = abs(pXR - pXL);
 
-                    % --- X Sweep Optimization ---
-                    % Only optimize if there is a distinct distance between planes
                     if planeDist > 1e-3
                         bestDiff = inf;
-
-                        % Sweep ONLY the valid 50mm increments
                         for x = testXs
                             xL_m = x + app.BilletShift(1) + pXL;
                             xR_m = x + app.BilletShift(1) + pXR;
 
-                            d2 = 0; % Anti-markdown bug
-                            [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                                yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                            [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
-                            % Calculate total path length on the towers
                             lenL = sum(hypot(diff(tL.y), diff(tL.z)));
                             lenR = sum(hypot(diff(tR.y), diff(tR.z)));
 
-                            % Small penalty to favor center if lengths are equal
                             penalty = 1e-6 * abs(x - centerX);
                             diffLen = abs(lenL - lenR) + penalty;
 
@@ -3390,68 +3369,50 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
 
-                    % Apply best found X position
                     app.MachineBilletPos(1) = bestX;
 
-                    % --- Evaluate Base Tower Heights at new X to solve Y and Z ---
                     xL_m = bestX + app.BilletShift(1) + pXL;
-                    xR_m = bestX + app.BilletShift(1) + pXR;
+                    xR_m = bestX + app.BilletShift(1) + pXR;[tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
-                    d3 = 0; % Anti-markdown bug
-                    [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                        yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
-
-                    % --- Z Logic (Standardized Stock Heights) ---
                     minProjZ = min([tL.z; tR.z]);
 
                     if minProjZ >= 0
-                        app.MachineBilletPos(3) = 0; % No lift needed
+                        app.MachineBilletPos(3) = 0;
                     else
-                        reqZ = -minProjZ; % Absolute lift needed to prevent crashing
-                        % Snap to increments of 25mm (e.g., 25, 50, 75, 100...)
+                        reqZ = -minProjZ;
                         targetZ = ceil(reqZ / 25.0) * 25.0;
-
-                        % User constraint: must be 50, 75, 100...
                         if targetZ > 0 && targetZ < 50
                             targetZ = 50.0;
                         end
                         app.MachineBilletPos(3) = targetZ;
                     end
 
-                    % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
                     minProjY = min([tL.y; tR.y]);
-
-                    % We need the absolute Y of the wire to be > 50mm
-                    % Absolute Y = minProjY + Billet_Y. Therefore: Billet_Y >= 50 - minProjY
                     reqBilletY = max(50.0, 50.0 - minProjY);
-
-                    % Snap to the nearest 50mm multiple
                     targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
 
-                    % Cap at machine max depth
                     bedD = app.MachineBedSize(2);
                     bY = app.BilletSize(2);
                     maxY = app.MachineBedPos(2) + bedD - bY;
 
                     app.MachineBilletPos(2) = min(targetBilletY, maxY);
                 else
-                    % Safe defaults if profiles failed to sync
                     app.MachineBilletPos(1) = bestX;
                     app.MachineBilletPos(2) = app.MachineBedPos(2);
                     app.MachineBilletPos(3) = 0;
                 end
             else
-                % Safe defaults if no profile is loaded
                 app.MachineBilletPos(1) = bestX;
                 app.MachineBilletPos(2) = app.MachineBedPos(2);
                 app.MachineBilletPos(3) = 0;
             end
 
-            % 3. Synchronize, Check Status, and Redraw
+            % FIX: Mark Machine as fully initialized
+            app.IsMachineInit = true;
+
             app.syncMachineUI();
 
-            d4 = 0; % Anti-markdown bug
-            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
@@ -3465,6 +3426,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.refreshMachinePlot();
         end
+
         function isValid = validateMachineConfig(app)
             % Checks if Billet fits within Machine Limits and updates UI colors
 
@@ -4453,8 +4415,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoStart(app, doPlot)
-            if nargin < 2, doPlot = true; end
-            app.IsCuttingInit = true;
+            if nargin < 2
+                doPlot = true;
+            end
+
             if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
                 return;
             end
@@ -4467,36 +4431,34 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if app.KerfEnabled
                 if app.KerfLeftValue ~= 0
-                    [ yLk, zLk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
+                    [yLk, zLk] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
                 end
                 if app.KerfRightValue ~= 0
-                    [ yRk, zRk ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
+                    [yRk, zRk] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
                 end
             end
-
-            [ yL_b, ~, yR_b, ~ ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
+            [yL_b, ~, yR_b, ~] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
 
             idxL = 1;
             idxR = 1;
 
             if ~isempty(yL_b)
-                [ ~, idxL ] = min(yL_b);
+                [~, idxL] = min(yL_b);
             end
 
-            if ~isempty(yR_b)
-                [ ~, idxR ] = min(yR_b);
+            if ~isempty(yR_b)[~, idxR] = min(yR_b);
             end
 
-            % --- CRITICAL SYNC FIX ---
             if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                % Force Left and Right to shift by the exact same index!
                 app.SelectedStartIdxL = idxL;
                 app.SelectedStartIdxR = idxL;
             else
-                % Independent mode (Allows twisting if the user specifically requests it)
                 app.SelectedStartIdxL = idxL;
                 app.SelectedStartIdxR = idxR;
             end
+
+            % FIX: Mark Strategy as initialized
+            app.IsCuttingInit = true;
 
             if doPlot
                 app.updateCuttingPlots();
@@ -4504,77 +4466,53 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoEntry(app, doPlot)
-            if nargin < 2, doPlot = true; end
-            app.IsCuttingInit = true;
-            % Calculates Auto Entry points with robust Ray-Casting and Routing.
+            if nargin < 2
+                doPlot = true;
+            end
 
-            % 1. Get Geometry
             [yL, zL, yR, zR] = app.getSyncedKerfProfiles();
             if isempty(yL), return; end
 
-            % 2. Define Boundaries (Machine Absolute)
             bMinY = app.MachineBilletPos(2);
             bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
             bMinZ = app.MachineBilletPos(3);
             bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
 
-            % Coordinate Offsets
             offY = app.BilletShift(2) + bMinY;
             offZ = app.BilletShift(3) + bMinZ;
+            useDualMode = ~isempty(app.EntryPoint2L);
 
-            % Retract Y Position (Safe point in front of block)
-            retractY = bMinY - 10.0;
-
-            % Safe Z Height (Clearance above block)
-            safeZ = bMaxZ + app.MachineSafeHeight;
-
-            % --- Calculation Helper ---
             function [lead, link1, link2] = calcEntryLogic(y, z, startIdx)
                 lead=[]; link1=[]; link2=[];
                 N = numel(y);
+                if startIdx > N || startIdx < 1, startIdx = 1; end
 
-                % A. Determine Direction Vector (Neutral Bisector)
-                % We look at adjacent points on the optimized path
                 idxS = startIdx;
-                idxP = mod(startIdx-2, N) + 1; % Prev
-                idxN = mod(startIdx, N) + 1;   % Next
+                idxP = mod(startIdx-2, N) + 1;
+                idxN = mod(startIdx, N) + 1;
 
                 S = [y(idxS), z(idxS)];
                 P = [y(idxP), z(idxP)];
-                N_pt = [y(idxN), z(idxN)];
+                N_pt =[y(idxN), z(idxN)];
 
-                % Vectors pointing TOWARDS Start
                 vIn  = (S - P) / (norm(S - P) + 1e-9);
-                % Vector pointing AWAY from Start
                 vOut = (N_pt - S) / (norm(N_pt - S) + 1e-9);
 
-                % Bisector of the external angle (Normal-ish)
-                % Rotate vIn 90 deg and vOut 90 deg?
-                % Easier: Average the "Incoming" and "Reverse Outgoing"?
-                % Standard bisector of corner:
-                vBisect = [-vIn(2), vIn(1)] + [-vOut(2), vOut(1)]; % Sum of normals
-
+                vBisect =[-vIn(2), vIn(1)] + [-vOut(2), vOut(1)];
                 if norm(vBisect) < 1e-3
-                    % Collinear or cusp
-                    vBisect = [-vIn(2), vIn(1)]; % Normal to segment
+                    vBisect =[-vIn(2), vIn(1)];
                 end
                 vBisect = vBisect / norm(vBisect);
 
-                % Ensure Outward pointing (check small step)
                 testPt = S + vBisect * 0.1;
                 if inpolygon(testPt(1), testPt(2), y, z)
-                    vBisect = -vBisect; % Flip if pointing inside
+                    vBisect = -vBisect;
                 end
 
-                % B. Ray-Box Intersection (Billet + 5mm)
-                % Target Box
                 boxMinY = bMinY - 5.0; boxMaxY = bMaxY + 5.0;
                 boxMinZ = bMinZ - 5.0; boxMaxZ = bMaxZ + 5.0;
 
-                % Ray: S + t * vBisect. Find smallest t > 0 hitting box.
-                t_hits = [];
-
-                % Intersect Vertical Planes (Y)
+                t_hits =[];
                 if abs(vBisect(1)) > 1e-6
                     t1 = (boxMinY - S(1)) / vBisect(1);
                     t2 = (boxMaxY - S(1)) / vBisect(1);
@@ -4582,7 +4520,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if t2 > 1e-3, t_hits(end+1) = t2; end
                 end
 
-                % Intersect Horizontal Planes (Z)
                 if abs(vBisect(2)) > 1e-6
                     t3 = (boxMinZ - S(2)) / vBisect(2);
                     t4 = (boxMaxZ - S(2)) / vBisect(2);
@@ -4591,41 +4528,26 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 if isempty(t_hits)
-                    t_final = 20.0; % Fail-safe
+                    t_final = 20.0;
                 else
                     t_final = min(t_hits);
                 end
 
                 lead = S + vBisect * t_final;
-
-                % Hard Floor Safety (Absolute Machine Z >= 5)
                 if lead(2) < 5.0, lead(2) = 5.0; end
 
-                % C. Routing / Link Logic
-                % If Lead is Above (Z > BoxMax) OR Behind (Y > BoxMax), we need Links.
-                % Or even if it's on the Top Face.
-
                 needsRouting = (lead(2) >= bMaxZ) || (lead(1) >= bMaxY);
-
                 if needsRouting
-                    % Link 2: Above the Lead-In
-                    link2 = [lead(1), safeZ];
-
-                    % Link 1: Above the Front Retract point
-                    link1 = [retractY, safeZ];
-                else
-                    % Direct Entry (Front/Bottom) - No links needed
-                    link1 = [];
-                    link2 = [];
+                    safeZ = bMaxZ + app.MachineSafeHeight;
+                    link2 =[lead(1), max(safeZ, lead(2))];
+                    link1 =[bMinY - 10.0, safeZ];
                 end
             end
 
-            % 3. Execute Left
             yL_s = yL + offY; zL_s = zL + offZ;
             [eL, l1L, l2L] = calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
             app.EntryPointL=eL; app.EntryPoint2L=l1L; app.EntryPoint3L=l2L;
 
-            % 4. Execute Right
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                 app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
             else
@@ -4633,6 +4555,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 [eR, l1R, l2R] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
                 app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
             end
+
+            % FIX: Mark Strategy as initialized
+            app.IsCuttingInit = true;
 
             if doPlot
                 app.updateCuttingPlots();
