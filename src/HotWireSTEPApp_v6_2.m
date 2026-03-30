@@ -55,8 +55,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % Physical Bed Definition
         % Z=-20 implies the bed top surface is at Z=0 (Home).
-        MachineBedPos    = [50, 50, -20];   % [mm] Bed origin [X, Y, Z]
-        MachineBedSize   = [1000, 700, 20]; % [mm] Physical dimensions [L, W, H]
+        MachineBedPos    = [48, 50, -20];   % [mm] Bed origin [X, Y, Z]
+        MachineBedSize   = [1088, 700, 20]; % [mm] Physical dimensions [L, W, H]
 
 
         % ===========================================================
@@ -2184,27 +2184,40 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY ---
             if needsCutting
-                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
-                isValidCut = chkC{1}; pColC = chkC{2}; tColC = chkC{3}; msgLinesC = chkC{4};
 
-                if isCutting && ~app.IsCuttingInit
+                % [DEBUG TELEMETRY]
+                disp('>> [DEBUG] Level 5: Cutting Strategy Check');
+                disp(['   -> IsCuttingInit flag: ', num2str(app.IsCuttingInit)]);
+                disp(['   -> EntryPointL is empty? ', num2str(isempty(app.EntryPointL))]);
+
+                % FIX: ONLY auto-trigger if the points literally do not exist!
+                % Previously this checked ~app.IsCuttingInit, which ruthlessly overwrote
+                % your custom points anytime a downstream setting changed.
+                if isempty(app.EntryPointL)
+                    disp('>> QUIET AUTO: Initializing Cutting Strategy (First Run)');
                     app.onAutoStart(false);
                     app.onAutoEntry(false);
                     drawnow; pause(0.1);
+                end
 
-                elseif (~app.IsCuttingInit || ~isValidCut) && ~isCutting
+                d2 = 0; % Anti-markdown bug
+                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+
+                % If points exist but are now DANGEROUS (e.g. billet grew over them)
+                if ~isValidCut
+                    disp('>> MISSING/INVALID: Cutting Strategy');
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
-                            sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
-                            'Step Skipped', ...
-                            'Options', {'Go to Cutting Tab', 'Auto-Configure All', 'Cancel'}, ...
+                            sprintf('Your Cutting Strategy is now invalid (Collision or gouging detected).\nThis usually happens if you changed the Billet Size or Kerf and it engulfed your entry points.\n\nDo you want to fix this manually, or Auto-Generate new safe paths?'), ...
+                            'Cutting Strategy Error', ...
+                            'Options', {'Go to Cutting Tab', 'Auto-Generate All', 'Cancel'}, ...
                             'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
 
                         if strcmp(sel, 'Go to Cutting Tab')
                             app.TabGroup.SelectedTab = app.TabCutting;
-                            app.CuttingLeftPanel.BackgroundColor = pColC;
-                            app.TxtCuttingStatus.Value = msgLinesC;
-                            app.TxtCuttingStatus.FontColor = tColC;
+                            app.CuttingLeftPanel.BackgroundColor = pCol;
+                            app.TxtCuttingStatus.Value = msgLines;
+                            app.TxtCuttingStatus.FontColor = tCol;
                             return;
                         elseif strcmp(sel, 'Cancel')
                             app.TabGroup.SelectedTab = oldTab;
@@ -2214,6 +2227,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
+                        disp('>> AUTO: Generating Safe Cutting Strategy');
                         app.onAutoStart(false);
                         app.onAutoEntry(false);
                         drawnow; pause(0.1);
@@ -2273,6 +2287,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.ProfileTolerance = val;
+            app.IsCuttingInit = false;
 
             if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 app.IsCuttingInit = false; % <--- ADD THIS
@@ -3167,13 +3182,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletShift(axisIdx) = val;
             end
 
-            % Shift Entry points to match model movement within billet
+            % FIX: Shift Entry points to match model movement within billet
             dY = app.BilletShift(2) - oldShift(2);
             dZ = app.BilletShift(3) - oldShift(3);
             app.shiftEntryPoints(dY, dZ);
-
-            % Invalidate downstream cutting strategy (forces check for collisions)
-            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3182,7 +3194,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function moveModelInSpace(app, axisIdx, delta)
             app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
 
-            % Shift Entry points to match model movement
+            % FIX: Shift Entry points to match model movement
             dY = 0;
             dZ = 0;
             if axisIdx == 2
@@ -3191,11 +3203,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if axisIdx == 3
                 dZ = delta(1);
             end
-
             app.shiftEntryPoints(dY, dZ);
-
-            % Invalidate downstream cutting strategy
-            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3316,19 +3324,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineBilletPos(axisIdx) = val;
             end
 
-            % Shift Entry points to match Billet movement on the machine bed
+            % FIX: Shift Entry points to match Billet movement on the machine bed
             dY = app.MachineBilletPos(2) - oldY;
             dZ = app.MachineBilletPos(3) - oldZ;
             app.shiftEntryPoints(dY, dZ);
 
-            % Mark Machine as manually initialized, invalidate cutting strategy
-            app.IsMachineInit = true;
-            app.IsCuttingInit = false;
-
             app.syncMachineUI();
 
             d1 = 0; % Anti-markdown bug
-            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
@@ -4724,7 +4728,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function shiftEntryPoints(app, dY, dZ)
             % Shifts all manual entry points by a given delta so they
-            % "stick" to the billet when it is moved on the machine bed.
+            % "stick" to the billet when it is moved.
             if dY == 0 && dZ == 0
                 return;
             end
@@ -4737,14 +4741,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.EntryPointR)
                 app.EntryPointR = app.EntryPointR + shift2D;
             end
-
             if ~isempty(app.EntryPoint2L)
                 app.EntryPoint2L = app.EntryPoint2L + shift2D;
             end
             if ~isempty(app.EntryPoint2R)
                 app.EntryPoint2R = app.EntryPoint2R + shift2D;
             end
-
             if ~isempty(app.EntryPoint3L)
                 app.EntryPoint3L = app.EntryPoint3L + shift2D;
             end
@@ -4752,7 +4754,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.EntryPoint3R = app.EntryPoint3R + shift2D;
             end
         end
-        % ===========================================================
+
+      % ===========================================================
         % SIMULATION LOGIC (Final Clean Version)
         % ===========================================================
 
@@ -5052,15 +5055,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             styles = {'-','-','-','--','--'};
 
             for i=1:5
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',cols{i}, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
-
+                colL = cols{i};
                 colR = cols{i};
+
+                % FIX: Separate Feed Colors so Right Tower isn't Red!
                 if i==3
-                    colR=t.planeGreen;
+                    colL = t.planeRed;
+                    colR = t.planeGreen;
                 end
 
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colL, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
+
+                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colL, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
                 plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
             end
 
@@ -5719,7 +5726,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isempty(e1L)
                 dummy3 = 0; [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Lead In Point', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Lead In Point', tx, ty, tz, ta);
             end
 
             app.PP_RapidEndIndex = pathIdx;

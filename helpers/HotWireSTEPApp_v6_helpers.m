@@ -563,15 +563,16 @@ classdef HotWireSTEPApp_v6_helpers
 
             % 2. Remove tailing point duplicate
             if numel(y) > 1 && abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                y(end) = []; z(end) = [];
+                y(end) = []; z(end) =[];
             end
 
             if numel(y) < 3
                 yOut = y; zOut = z; return;
             end
 
-            % 3. Find Geometric Centroid in Z and Front Face (min Y)
-            cz = mean(z);
+            % 3. Find Bounding Box Center in Z and Front Face (min Y)
+            % FIX: Use true bounding box center, NOT point average!
+            cz = (min(z) + max(z)) / 2.0;
             minY = min(y);
 
             % 4. Check for intersections with Z = cz along the front face
@@ -602,12 +603,12 @@ classdef HotWireSTEPApp_v6_helpers
             % 5. Reorder or Inject
             if insert_idx > 0
                 % INJECT: Split the front face and insert a point exactly at the Z-centroid!
-                y_new = [y(1:insert_idx); best_yi; y(insert_idx+1:end)];
-                z_new = [z(1:insert_idx); cz;      z(insert_idx+1:end)];
+                y_new =[y(1:insert_idx); best_yi; y(insert_idx+1:end)];
+                z_new =[z(1:insert_idx); cz;      z(insert_idx+1:end)];
 
                 startIdx = insert_idx + 1;
-                yOut = [y_new(startIdx:end); y_new(1:startIdx-1)];
-                zOut = [z_new(startIdx:end); z_new(1:startIdx-1)];
+                yOut =[y_new(startIdx:end); y_new(1:startIdx-1)];
+                zOut =[z_new(startIdx:end); z_new(1:startIdx-1)];
             else
                 % FALLBACK: Find existing points on the front face
                 front_indices = find(abs(y - minY) < 1e-3);
@@ -620,7 +621,7 @@ classdef HotWireSTEPApp_v6_helpers
                     startIdx = front_indices(local_idx);
                 end
 
-                yOut = [y(startIdx:end); y(1:startIdx-1)];
+                yOut =[y(startIdx:end); y(1:startIdx-1)];
                 zOut = [z(startIdx:end); z(1:startIdx-1)];
             end
 
