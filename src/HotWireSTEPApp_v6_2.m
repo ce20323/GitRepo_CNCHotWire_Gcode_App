@@ -681,17 +681,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 3 Separate Footer Panels (Contact, License, Source) ---
             glFooter = uigridlayout(glRight, [1 3]);
             glFooter.Layout.Row = 4;
-            glFooter.ColumnWidth = {'1x', '1.5x', 180};
-            glFooter.RowHeight = {'fit'};
+            glFooter.ColumnWidth = {'1x', '1x', 305};
+            glFooter.RowHeight = {80};
             glFooter.Padding = [0 0 0 0];
-            glFooter.ColumnSpacing = 15;
+            glFooter.ColumnSpacing = 5;
             glFooter.BackgroundColor = panelBg;
 
             % 1. Contact Panel
             pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             glContact = uigridlayout(pnlContact,[1 1]);
-            glContact.RowHeight = {35}; % Locked inner height for exactly 2 lines
-            glContact.Padding = [5 5 5 5];
+            glContact.RowHeight = {'fit'}; % Locked inner height for exactly 2 lines
+            glContact.Padding = [0 0 0 0];
             glContact.BackgroundColor = sideBg;
             txtAuthor = {'Author: Matthew Richardson'; 'Email:  matthew.richardson@bristol.ac.uk'};
             uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -699,8 +699,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 2. License Panel
             pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             glLicense = uigridlayout(pnlLicense,[1 1]);
-            glLicense.RowHeight = {35}; % Matched to keep boxes physically level
-            glLicense.Padding =[5 5 5 5];
+            glLicense.RowHeight = {'fit'}; % Matched to keep boxes physically level
+            glLicense.Padding =[0 0 0 0];
             glLicense.BackgroundColor = sideBg;
             txtLicense = {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'};
             uitextarea(glLicense, 'Value', txtLicense, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -708,7 +708,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3. Source Panel
             pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             glSource = uigridlayout(pnlSource,[1 1]);
-            glSource.RowHeight = {35}; % Matched
+            glSource.RowHeight = {'fit'}; % Matched
             glSource.Padding =[5 5 5 5];
             glSource.BackgroundColor = sideBg;
             uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
