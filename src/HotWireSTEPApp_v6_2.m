@@ -643,8 +643,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             txtFC.Layout.Row = 1; txtFC.Layout.Column = 1;
 
             % 4 Rows. Download button pinned top, Path field pinned bottom.
-            glFCRight = uigridlayout(glFC,[ 4 1 ]);
-            glFCRight.RowHeight = {'fit', '1x', 'fit', 'fit'};
+            glFCRight = uigridlayout(glFC,[ 3 1 ]);
+            glFCRight.RowHeight = {'fit', 'fit', 'fit'};
             glFCRight.Padding =[ 0 0 0 0 ];
             glFCRight.BackgroundColor = sideBg;
             glFCRight.Layout.Row = 1; glFCRight.Layout.Column = 2;
@@ -653,7 +653,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             btnDownloadFC.Layout.Row = 1; btnDownloadFC.Layout.Column = 1;
 
             lblFC = uilabel(glFCRight, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
-            lblFC.Layout.Row = 3; lblFC.Layout.Column = 1;
+            lblFC.Layout.Row = 2; lblFC.Layout.Column = 1;
 
             if ispref('HotWireSTEPApp', 'FreeCADPath')
                 app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
@@ -662,21 +662,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Combine Field and Browse into a sub-grid
-            glFCBrowse = uigridlayout(glFCRight,[ 1 2 ]);
-            glFCBrowse.ColumnWidth = {'1x', 80};
-            glFCBrowse.RowHeight = {'fit'};
+            glFCBrowse = uigridlayout(glFCRight,[ 2 1 ]);
+            glFCBrowse.ColumnWidth = {'1x'};
+            glFCBrowse.RowHeight = {'fit','fit'};
             glFCBrowse.Padding =[ 0 0 0 0 ];
             glFCBrowse.BackgroundColor = sideBg;
-            glFCBrowse.Layout.Row = 4; glFCBrowse.Layout.Column = 1;
+            glFCBrowse.Layout.Row = 3; glFCBrowse.Layout.Column = 1;
 
             app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe);
             app.FieldFreeCADPath.BackgroundColor = inputBg;
             app.FieldFreeCADPath.FontColor = inputTxt;
             app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
-            app.FieldFreeCADPath.Layout.Row = 1; app.FieldFreeCADPath.Layout.Column = 1;
+            app.FieldFreeCADPath.Layout.Row = 1;
 
             btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
-            btnBrowseFC.Layout.Row = 1; btnBrowseFC.Layout.Column = 2;
+            btnBrowseFC.Layout.Row = 2; btnBrowseFC.Layout.Column = 1;
 
             % --- 3 Separate Footer Panels (Contact, License, Source) ---
             glFooter = uigridlayout(glRight, [1 3]);
