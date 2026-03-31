@@ -102,6 +102,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ---------- UI Containers (Tabs) ----------
         UIFigure                        % Main application window
         TabGroup                        % Tabbed container
+        TabWelcome                      % Welcome tab
         TabModel                        % Model import & orient tab
         TabProfiles                     % Profiles tab
         TabBillet                       % Billet tab
@@ -111,6 +112,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         TabPostProcess                  % Post-Process tab
 
         % ---------- Layout Containers (Grids/Panels) ----------
+        GLWelcome                       % Welcome tab layout
+        FieldFreeCADPath
+        TxtWelcomeIntro                 % Welcome Intro Text
+        TxtWelcomeInstruct              % Welcome Instructions Text
+        BtnBrowseFreeCAD                % Browse Button
         GLModel                         % Model tab layout
         GLLeft                          % Model tab left panel
         GLProfiles                      % Profiles tab layout
@@ -166,7 +172,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         ModelVerticesOriginal           % Original vertices of the model (for resets)
         ModelF                          % Faces of the current model
         CurrentModelName string = ""    % Name of the current model file
-        FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe" % Path to FreeCAD
+        FreeCADExe = "" %"C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe" % Path to FreeCAD
+        GitHubLink string = "https://github.com/YourUsername/HotWireSTEPApp" % <-- ADD YOUR LINK HERE
 
         % --- Home View State ---
         DefaultXLim; DefaultYLim; DefaultZLim
@@ -396,48 +403,47 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             % DEV AUTO-LOAD TEST MODEL (REMOVE BEFORE RELEASE)
             % ===========================================================
-            try
-                testFile = "C:\Users\ce20323\OneDrive - University of Bristol\Documents\MATLAB\CNCHotWire_GCode_App\examples\RibTemplate_NewCNCTest1.step";
-
-                if isfile(testFile)
-                    disp("DEV AUTOLOAD: Loading test STEP model...");
-
-                    % --- Use the existing helper to import STEP via FreeCAD ---
-                    [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
-                        testFile, app.FreeCADExe);
-
-                    if isempty(V)
-                        warning("DEV AUTOLOAD: STEP import returned empty data.");
-                    else
-                        % Store original vertices for rotation resets
-                        app.ModelVerticesOriginal = V;
-                        app.CurrentModelName      = "AUTOLOADED: RibTemplate_NewCNCTest1.step";
-
-                        % Reset orientation
-                        app.RotAngles = [0 0 0];
-                        for i = 1:3
-                            app.RotEdit(i).Value = 0;
-                        end
-
-                        % Reset plane offsets
-                        app.NumLeftOffset.Value  = 0;
-                        app.NumRightOffset.Value = 0;
-
-                        % --- Plot mesh and planes ---
-                        app.plotMesh(V,F);
-                        app.enterState0();
-
-                        disp("DEV AUTOLOAD: Completed.");
-                    end
-                else
-                    warning("DEV AUTOLOAD: File not found:\n%s", testFile);
-                end
-
-            catch ME
-                warning('DEV_AUTOLOAD:Error','%s', ME.message);
-            end
+            % try
+            %     testFile = "C:\Users\ce20323\OneDrive - University of Bristol\Documents\MATLAB\CNCHotWire_GCode_App\examples\RibTemplate_NewCNCTest1.step";
+            % 
+            %     if isfile(testFile)
+            %         disp("DEV AUTOLOAD: Loading test STEP model...");
+            % 
+            %         % --- Use the existing helper to import STEP via FreeCAD ---
+            %         [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
+            %             testFile, app.FreeCADExe);
+            % 
+            %         if isempty(V)
+            %             warning("DEV AUTOLOAD: STEP import returned empty data.");
+            %         else
+            %             % Store original vertices for rotation resets
+            %             app.ModelVerticesOriginal = V;
+            %             app.CurrentModelName      = "AUTOLOADED: RibTemplate_NewCNCTest1.step";
+            % 
+            %             % Reset orientation
+            %             app.RotAngles = [0 0 0];
+            %             for i = 1:3
+            %                 app.RotEdit(i).Value = 0;
+            %             end
+            % 
+            %             % Reset plane offsets
+            %             app.NumLeftOffset.Value  = 0;
+            %             app.NumRightOffset.Value = 0;
+            % 
+            %             % --- Plot mesh and planes ---
+            %             app.plotMesh(V,F);
+            %             app.enterState0();
+            % 
+            %             disp("DEV AUTOLOAD: Completed.");
+            %         end
+            %     else
+            %         warning("DEV AUTOLOAD: File not found:\n%s", testFile);
+            %     end
+            % 
+            % catch ME
+            %     warning('DEV_AUTOLOAD:Error','%s', ME.message);
+            % end
         end
-
 
         % ===========================================================
         % BUILD UI (Fixed Spacing & Alignments)
@@ -464,8 +470,189 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabGroup = uitabgroup(app.UIFigure, ...
                 'Units','normalized', ...
                 'Position',[0 0 1 1], ...
-                'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt)); % <--- ADDED THIS LINE
-            
+                'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt));
+
+            % ===========================================================
+            % TAB 0: WELCOME & DASHBOARD
+            % ===========================================================
+            app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome');
+
+            app.GLWelcome = uigridlayout(app.TabWelcome,[1 2]);
+            app.GLWelcome.ColumnWidth = {320, '1x'};
+            app.GLWelcome.Padding =[10 10 10 10];
+            app.GLWelcome.ColumnSpacing = 10;
+
+            % -----------------------------------------------------------
+            % LEFT PANEL: UI Anatomy Guide
+            % -----------------------------------------------------------
+            pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
+            pnlAnatomy.Layout.Column = 1;
+
+            % 4 Rows: Title, Intro Text, Mock UI (stretches), Continue Button
+            glAnat = uigridlayout(pnlAnatomy, [4 1]);
+            glAnat.RowHeight = {'fit', 'fit', '1x', 'fit'};
+            glAnat.Padding =[10 10 10 10];
+            glAnat.BackgroundColor = sideBg;
+
+            uilabel(glAnat, 'Text', 'Understanding the Interface', 'FontWeight', 'bold', 'FontSize', 16, 'FontColor', labelCol);
+
+            uiTxt = {
+                'This application is designed to be read from Top to Bottom, and from Left to Right.';
+                '';
+                'Every tab follows this exact same layout:'
+                };
+            uitextarea(glAnat, 'Value', uiTxt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            % The "Mock UI" Explainer Box
+            pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
+            glMock = uigridlayout(pnlMock,[4 1]);
+            glMock.RowHeight = {'fit','fit','fit','fit'};
+            glMock.BackgroundColor = panelBg;
+
+            lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
+            uitextarea(glMock, 'Value', {'The top left always contains your settings, buttons, and sliders.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+
+            lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
+            uitextarea(glMock, 'Value', {'Read this section for step-by-step help on what to do next.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+
+            lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
+
+            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings where you can still proceed (Amber), or tells you it is safe to proceed (Green).'};
+            uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor',[0.2 0.2 0.2],'FontColor',[0.4 1 0.4]);
+
+            lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
+            uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+
+            % Continue Button
+            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            btnWelcomeCont.Layout.Row = 4;
+
+            % -----------------------------------------------------------
+            % RIGHT PANEL: Main Content & Setup
+            % -----------------------------------------------------------
+            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
+            rightScroll.Layout.Column = 2;
+
+            glRight = uigridlayout(rightScroll,[4 1]);
+            % FIX: Changed to '1x' to make the three info blocks stretch and fill all available vertical space!
+            glRight.RowHeight = {'fit', '1x', '1x', '1x'};
+            glRight.BackgroundColor = panelBg;
+            glRight.Padding =[40 40 40 40];
+            glRight.RowSpacing = 20;
+
+            % --- Header Area ---
+            glHead = uigridlayout(glRight, [1 2]);
+            glHead.ColumnWidth = {100, '1x'};
+            glHead.RowHeight = {80};
+            glHead.Padding = [0 0 0 0];
+            glHead.BackgroundColor = panelBg;
+
+            isDark = app.UIFigure.Color(1) < 0.5;
+
+            if isDark
+                logoName = 'Science_engineering_WHITE.png';
+            else
+                logoName = 'Science_engineering_BLACK.png';
+            end
+
+            % FIX: Dynamically target the 'src' folder next to the app
+            appDir = fileparts(mfilename('fullpath'));
+            logoPath = fullfile(appDir, 'src', logoName);
+
+            if isfile(logoPath)
+                uiimage(glHead, 'ImageSource', logoPath);
+            else
+                uiimage(glHead); % Blank placeholder if file missing
+            end
+
+            uilabel(glHead, 'Text', 'Bristol HotWire CAM', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
+
+            % --- About Section ---
+            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlAbout.Layout.Row = 2;
+
+            glAbout = uigridlayout(pnlAbout,[1 1]);
+            glAbout.Padding =[2 2 2 2];
+            glAbout.RowHeight = {'1x'}; % Allow text to fill block
+            glAbout.BackgroundColor = sideBg;
+
+            txtAbout = {
+                'Welcome to the University of Bristol 4-axis CNC Hot Wire toolpath and G-code generator.';
+                '';
+                'This software provides a complete, end-to-end workflow for foam cutting:';
+                '- Import and orient 3D CAD models (STEP/STL).';
+                '- Extract 2D slicing profiles and perfectly synchronize their topologies.';
+                '- Apply automatic kerf compensation to accurately preserve sharp CAD features.';
+                '- Safely position your physical foam billet stock on the machine bed.';
+                '- Auto-route collision-free lead-in and exit paths.';
+                '- Visually simulate the 4-axis kinematics to verify the cut.';
+                '- Post-process and export precise, Mach4-compatible G-code.'
+                };
+            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
+
+            % --- FreeCAD Setup Section ---
+            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlFC.Layout.Row = 3;
+
+            glFC = uigridlayout(pnlFC,[4 2]);
+            glFC.ColumnWidth = {'1x', 140};
+            glFC.RowHeight = {'1x', 'fit', 'fit', 'fit'}; % Text box stretches
+            glFC.BackgroundColor = sideBg;
+
+            fcInstruct = {
+                'This app securely hooks into FreeCAD (v1.0 or newer) behind the scenes to accurately slice STEP files.';
+                'You only need to set this up once on your computer!';
+                '';
+                '1. Click "Download FreeCAD" to get the standard Windows Installer.';
+                '2. Run the installer and install it to the default directory.';
+                '3. Click "Browse..." below and locate the file "FreeCADCmd.exe".';
+                '   (It is typically found in: C:\Program Files\FreeCAD 1.0\bin\)'
+                };
+            txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            txtFC.Layout.Row = 1; txtFC.Layout.Column =[1 2];
+
+            btnDownloadFC = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[0.2 0.5 0.8], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
+            btnDownloadFC.Layout.Row = 2; btnDownloadFC.Layout.Column = 2;
+
+            lblFC = uilabel(glFC, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold');
+            lblFC.Layout.Row = 3; lblFC.Layout.Column =[1 2];
+
+            if ispref('HotWireSTEPApp', 'FreeCADPath')
+                app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
+            else
+                app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
+            end
+
+            app.FieldFreeCADPath = uieditfield(glFC, 'text', 'Value', app.FreeCADExe);
+            app.FieldFreeCADPath.BackgroundColor = inputBg;
+            app.FieldFreeCADPath.FontColor = inputTxt;
+            app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
+            app.FieldFreeCADPath.Layout.Row = 4; app.FieldFreeCADPath.Layout.Column = 1;
+
+            btnBrowseFC = uibutton(glFC, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
+            btnBrowseFC.Layout.Row = 4; btnBrowseFC.Layout.Column = 2;
+
+            % --- License & Contact Section ---
+            pnlLic = uipanel(glRight, 'Title', 'License, Open Source & Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlLic.Layout.Row = 4;
+
+            glLic = uigridlayout(pnlLic, [1 2]);
+            glLic.ColumnWidth = {'1x', 200};
+            glLic.RowHeight = {'1x'}; % Text stretches
+            glLic.BackgroundColor = sideBg;
+
+            txtLic = {
+                'Author:[Your Name Here]';
+                'Contact: [Your Email Here]';
+                '';
+                'This software is released under the MIT Open Source License.';
+                'You are free to use, modify, and distribute this software for academic, personal, or commercial use, provided the original copyright notice is included.'
+                };
+            uitextarea(glLic, 'Value', txtLic, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            btnGit = uibutton(glLic, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+
             % ===========================================================
             % TAB 1: MODEL IMPORT & ORIENTATION
             % ===========================================================
@@ -2040,6 +2227,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
 
             % Determine which checks are needed based on destination
+            isWelcome  = (targetTab == app.TabWelcome);
             isModel    = (targetTab == app.TabModel);
             isProfiles = (targetTab == app.TabProfiles);
             isBillet   = (targetTab == app.TabBillet);
@@ -2240,7 +2428,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.resetInteractionState();
             drawnow; pause(0.05);
 
-            if isBillet
+            if isWelcome
+                app.applyTheme();
+                
+            elseif isBillet
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
@@ -2422,10 +2613,40 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.onApplyKerf();
             app.ProfileAxesLocked = false;
         end
+
+        % ===========================================================
+        % WELCOME TAB CALLBACKS (FreeCAD Configuration)
+        % ===========================================================
+        function onBrowseFreeCAD(app)
+            [file, path] = uigetfile({'*.exe', 'Executables (*.exe)'}, 'Locate FreeCADCmd.exe', 'C:\Program Files\');
+            if isequal(file, 0), return; end % User cancelled
+
+            fullPath = fullfile(path, file);
+            app.FreeCADExe = string(fullPath);
+            app.FieldFreeCADPath.Value = app.FreeCADExe;
+
+            % Save to user's MATLAB profile permanently
+            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
+
+            uialert(app.UIFigure, 'FreeCAD path saved successfully!', 'Setup Complete', 'Icon', 'success');
+        end
+
+        function onFreeCADPathEdited(app, src)
+            app.FreeCADExe = string(src.Value);
+            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
+        end
+
         % ===========================================================
         % IMPORT STEP / STL
         % ===========================================================
         function onImportSTEP(app)
+            % Check if FreeCAD is configured correctly before opening dialog
+            if ~isfile(app.FreeCADExe)
+                uialert(app.UIFigure, 'FreeCADCmd.exe not found at the configured path! Please locate it on the Welcome Tab first.', 'FreeCAD Missing', 'Icon', 'error');
+                app.TabGroup.SelectedTab = app.TabWelcome;
+                return;
+            end
+
             [file,path] = uigetfile({'*.step;*.stp'},'Select STEP file');
             if isequal(file,0), return; end
 
@@ -2907,14 +3128,23 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onContinue(app)
+            currTab = app.TabGroup.SelectedTab;
+            
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                % FIX: Make sure the Welcome tab button correctly hands off to the Gatekeeper!
+                if currTab == app.TabWelcome
+                    nextTab = app.TabModel;
+                    app.TabGroup.SelectedTab = nextTab;
+                    evt = struct('OldValue', currTab, 'NewValue', nextTab);
+                    app.onTabChanged(app.TabGroup, evt);
+                end
                 return;
             end
 
-            currTab = app.TabGroup.SelectedTab;
-
             % 1. Determine the next tab
-            if currTab == app.TabModel
+            if currTab == app.TabWelcome
+                nextTab = app.TabModel; 
+            elseif currTab == app.TabModel
                 nextTab = app.TabProfiles;
             elseif currTab == app.TabProfiles
                 nextTab = app.TabBillet;
@@ -2933,12 +3163,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 2. Visually switch the tab
             app.TabGroup.SelectedTab = nextTab;
 
-            % 3. CRITICAL FIX: Programmatic tab changes do NOT trigger the callback!
-            % We must construct a synthetic event and trigger the Gatekeeper manually.
+            % 3. Trigger Gatekeeper
             evt = struct('OldValue', currTab, 'NewValue', nextTab);
             app.onTabChanged(app.TabGroup, evt);
-        end
-        % ===========================================================
+end
+% ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================
 

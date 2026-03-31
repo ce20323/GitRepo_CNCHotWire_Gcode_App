@@ -32,39 +32,83 @@ classdef HotWireSTEPApp_v6_helpers
         % ===============================================================
         function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
 
-            V = []; F = [];
-            if ~isfile(cadPath), warning('STEP file not found: %s', cadPath); return; end
+            V = [];
+            F =[];
+
+            % Convert to char vectors to prevent string-array anomalies from the Browse button
+            cadPath = char(cadPath);
+            freeCADExe = char(freeCADExe);
+
+            disp('--- [DEBUG] FreeCAD Import START ---');
+            disp(['   -> CAD Path: ', cadPath]);
+            disp(['   -> FreeCAD Exe: ', freeCADExe]);
+
+            if ~isfile(cadPath)
+                warning('STEP file not found: %s', cadPath);
+                return;
+            end
 
             if nargin < 2 || ~isfile(freeCADExe)
-                warning('FreeCAD executable not found: %s', freeCADExe); return;
+                warning('FreeCAD executable not found: %s', freeCADExe);
+                return;
             end
 
             % Temporary files
             tmpID  = char(java.util.UUID.randomUUID());
-            outSTL = fullfile(tempdir, ['fc_out_' tmpID '.stl']);
+            outSTL = fullfile(tempdir,['fc_out_' tmpID '.stl']);
             pyFile = fullfile(tempdir, ['fc_' tmpID '.py']);
+
+            % Convert backslashes to forward slashes for Python string safety
+            safeCadPath = strrep(cadPath, '\', '/');
+            safeOutSTL  = strrep(outSTL, '\', '/');
+
+            disp(['   -> Python script path: ', pyFile]);
 
             % Write FreeCAD python script
             fid = fopen(pyFile,'w');
+            fprintf(fid,"import sys\n");
             fprintf(fid,"import FreeCAD, Part, Mesh, MeshPart\n");
             fprintf(fid,"doc = FreeCAD.newDocument()\n");
             fprintf(fid,"shape = Part.Shape()\n");
-            fprintf(fid,"shape.read(r'%s')\n", cadPath);
+            fprintf(fid,"shape.read(r'%s')\n", safeCadPath);
             fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
                 HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
-            fprintf(fid,"mesh.write(r'%s')\n", outSTL);
+            fprintf(fid,"mesh.write(r'%s')\n", safeOutSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
 
-            % Run FreeCAD
-            [status,~] = system(sprintf('"%s" "%s"', freeCADExe, pyFile));
-            if status ~= 0, warning('FreeCAD conversion failed.'); return; end
+            % The Bulletproof Windows CMD workaround:
+            % Change directory to the FreeCAD bin folder first, so we don't have to wrap the .exe path in quotes!
+            [fcDir, fcName, fcExt] = fileparts(freeCADExe);
+            fcExeName = [fcName, fcExt];
+
+            cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
+            disp(['   -> Executing Command: ', cmdStr]);
+
+            [status, cmdout] = system(cmdStr);
+
+            disp(['   -> System Status: ', num2str(status)]);
+            if ~isempty(cmdout)
+                disp('   -> System Output:');
+                disp(cmdout);
+            end
+
+            if status ~= 0
+                warning('FreeCAD conversion failed. FreeCAD Output:\n%s', cmdout);
+                return;
+            end
 
             % Read STL
             if isfile(outSTL)
+                disp('   -> STL generated successfully. Reading mesh...');
                 raw = stlread(outSTL);
-                F = double(raw.ConnectivityList); V = double(raw.Points);
-            else, warning('STL output not found: %s', outSTL); end
+                F = double(raw.ConnectivityList);
+                V = double(raw.Points);
+                disp(['   -> Mesh Vertices: ', num2str(size(V,1)), ' Faces: ', num2str(size(F,1))]);
+            else
+                warning('STL output not found: %s', outSTL);
+            end
+            disp('--- [DEBUG] FreeCAD Import END ---');
         end
 
         % ===============================================================
