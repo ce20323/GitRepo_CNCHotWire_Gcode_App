@@ -35,13 +35,11 @@ classdef HotWireSTEPApp_v6_helpers
             V = [];
             F =[];
 
-            % Convert to char vectors to prevent string-array anomalies from the Browse button
             cadPath = char(cadPath);
             freeCADExe = char(freeCADExe);
+            [~, modelName, ext] = fileparts(cadPath);
 
-            disp('--- [DEBUG] FreeCAD Import START ---');
-            disp(['   -> CAD Path: ', cadPath]);
-            disp(['   -> FreeCAD Exe: ', freeCADExe]);
+            disp(['[HotWire CAM] Importing ', modelName, ext, ' via FreeCAD...']);
 
             if ~isfile(cadPath)
                 warning('STEP file not found: %s', cadPath);
@@ -55,14 +53,12 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Temporary files
             tmpID  = char(java.util.UUID.randomUUID());
-            outSTL = fullfile(tempdir,['fc_out_' tmpID '.stl']);
+            outSTL = fullfile(tempdir, ['fc_out_' tmpID '.stl']);
             pyFile = fullfile(tempdir, ['fc_' tmpID '.py']);
 
             % Convert backslashes to forward slashes for Python string safety
             safeCadPath = strrep(cadPath, '\', '/');
             safeOutSTL  = strrep(outSTL, '\', '/');
-
-            disp(['   -> Python script path: ', pyFile]);
 
             % Write FreeCAD python script
             fid = fopen(pyFile,'w');
@@ -77,38 +73,31 @@ classdef HotWireSTEPApp_v6_helpers
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
 
-            % The Bulletproof Windows CMD workaround:
-            % Change directory to the FreeCAD bin folder first, so we don't have to wrap the .exe path in quotes!
-            [fcDir, fcName, fcExt] = fileparts(freeCADExe);
+            % The Bulletproof Windows CMD workaround[fcDir, fcName, fcExt] = fileparts(freeCADExe);
             fcExeName = [fcName, fcExt];
-
             cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
-            disp(['   -> Executing Command: ', cmdStr]);
 
             [status, cmdout] = system(cmdStr);
 
-            disp(['   -> System Status: ', num2str(status)]);
-            if ~isempty(cmdout)
-                disp('   -> System Output:');
-                disp(cmdout);
-            end
-
             if status ~= 0
-                warning('FreeCAD conversion failed. FreeCAD Output:\n%s', cmdout);
+                disp('[HotWire CAM ERROR] FreeCAD Execution Failed.');
+                disp(['Attempted Command: ', cmdStr]);
+                disp('FreeCAD Console Output:');
+                disp(cmdout);
+                warning('FreeCAD conversion failed. See command window for details.');
                 return;
             end
 
             % Read STL
             if isfile(outSTL)
-                disp('   -> STL generated successfully. Reading mesh...');
                 raw = stlread(outSTL);
                 F = double(raw.ConnectivityList);
                 V = double(raw.Points);
-                disp(['   -> Mesh Vertices: ', num2str(size(V,1)), ' Faces: ', num2str(size(F,1))]);
+                disp(['[HotWire CAM] Import successful. Mesh generated with ', num2str(size(V,1)), ' vertices.']);
             else
+                disp('[HotWire CAM ERROR] FreeCAD finished, but STL file was not generated.');
                 warning('STL output not found: %s', outSTL);
             end
-            disp('--- [DEBUG] FreeCAD Import END ---');
         end
 
         % ===============================================================
