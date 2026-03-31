@@ -489,7 +489,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlAnatomy.Layout.Column = 1;
 
             glAnat = uigridlayout(pnlAnatomy,[ 4 1 ]);
-            glAnat.RowHeight = {'fit', 'fit', '1x', 'fit'};
+            glAnat.RowHeight = {'fit', '1x', '2x', 'fit'};
             glAnat.Padding =[ 10 10 10 10 ];
             glAnat.BackgroundColor = sideBg;
 
@@ -498,7 +498,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             uiTxt = {
                 'This application is designed to be read from Top to Bottom, and from Left to Right.';
                 '';
-                'Every tab follows this exact same layout:'
+                'Each tab has a left panel like this one with inputs, guidance, and status blocks,'
+                'and large right pnael with interactive plots for visualisation and user input';
+                '';
+                'Move through the tabs at the top of the window one by one, left to right'
+                '';
+                'You need to read and action the required setup instructions in the right panel of this tab before first use.'
                 };
             uitextarea(glAnat, 'Value', uiTxt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
@@ -513,12 +518,12 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
             lbl1.Layout.Row = 1;
-            txt1 = uitextarea(glMock, 'Value', {'The top left always contains your settings, buttons, and sliders.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt1 = uitextarea(glMock, 'Value', {'For eacht tab, the top of the left panel will containt buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
             txt1.Layout.Row = 2;
 
             lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
             lbl2.Layout.Row = 3;
-            txt2 = uitextarea(glMock, 'Value', {'Read this section for step-by-step help on what to do next.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt2 = uitextarea(glMock, 'Value', {'Below the user inputs, there will be a guidance block, with basic step by step instructions on what to do and check for that tab.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
             txt2.Layout.Row = 4;
 
             lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
@@ -546,11 +551,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             glRight = uigridlayout(rightScroll,[ 4 1 ]);
 
             % 70px Header, 1x About, 1.2x FreeCAD (more room), 'fit' Footer (shrinks to content)
-            glRight.RowHeight = {70, '1x', '1.2x', 'fit'};
+            glRight.RowHeight = {140, '1x', '1.2x', 'fit'};
             glRight.BackgroundColor = panelBg;
 
             % Padding is [Left Bottom Right Top]. 10px Top pushes the header up!
-            glRight.Padding =[ 20 5 20 5 ];
+            glRight.Padding =[ 20 0 20 0 ];
             glRight.RowSpacing = 15;
 
             % --- Header Area ---
@@ -575,7 +580,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pathOption2 = fullfile(appDir, 'src', logoName);
 
             % Title on the Left
-            lblTitle = uilabel(glHead, 'Text', 'Bristol HotWire CAM', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
+            lblTitle = uilabel(glHead, 'Text', 'CNC Hot Wire G-Code Generator', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
             lblTitle.Layout.Row = 1; lblTitle.Layout.Column = 1;
 
             % Logo on the Right
