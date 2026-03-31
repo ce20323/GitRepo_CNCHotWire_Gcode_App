@@ -551,7 +551,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             glRight = uigridlayout(rightScroll,[ 4 1 ]);
 
             % 70px Header, 1x About, 1.2x FreeCAD (more room), 'fit' Footer (shrinks to content)
-            glRight.RowHeight = {140, '1x', '1.2x', 'fit'};
+            glRight.RowHeight = {120, '1.2x', '1x', 'fit'};
             glRight.BackgroundColor = panelBg;
 
             % Padding is [Left Bottom Right Top]. 10px Top pushes the header up!
@@ -603,16 +603,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             glAbout.BackgroundColor = sideBg;
 
             txtAbout = {
-                'Welcome to the University of Bristol 4-axis CNC Hot Wire toolpath and G-code generator.';
+                'Welcome to the Rapid Prototyping Workshops 4-axis CNC Hot Wire Toolpath and G-code Generator.';
+                'This software provides a complete, end-to-end workflow to take you form CAD model to G-code for CNC hot wire foam cutting';
+                'Most steps offer auto or manual configuration';
                 '';
-                'This software provides a complete, end-to-end workflow for foam cutting:';
+                'Workflow:';
                 '- Import and orient 3D CAD models (STEP/STL).';
-                '- Extract 2D slicing profiles and perfectly synchronize their topologies.';
-                '- Apply automatic kerf compensation to accurately preserve sharp CAD features.';
-                '- Safely position your physical foam billet stock on the machine bed.';
-                '- Auto-route collision-free lead-in and exit paths.';
+                '- Slice models, extract and sync 2D profiles.';
+                '- Apply kerf compensation to preserve dimensional accuracy.';
+                '- Size and position your model and billet.';
+                '- Create collision-free lead-in and exit paths.';
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
-                '- Post-process and export precise, Mach4-compatible G-code.'
+                '- Post-process and export Mach4-compatible G-code.'
                 };
             uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
 
@@ -627,12 +629,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             glFC.BackgroundColor = sideBg;
 
             fcInstruct = {
-                'This app securely hooks into FreeCAD (v1.0 or newer) behind the scenes to accurately slice STEP files.';
+                'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files.';
                 'You only need to set this up once on your computer!';
                 '';
                 '1. Click "Download FreeCAD" to get the standard Windows Installer.';
+                '';
                 '2. Run the installer and install it to the default directory.';
-                '3. Click "Browse..." and locate the file "FreeCADCmd.exe".';
+                '';
+                '3. Click "Browse..." and locate the file "freecadcmd.exe".';
                 '   (Typically: C:\Program Files\FreeCAD 1.0\bin\)'
                 };
             txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
@@ -689,7 +693,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             glContact.RowHeight = {35}; % Locked inner height for exactly 2 lines
             glContact.Padding = [5 5 5 5];
             glContact.BackgroundColor = sideBg;
-            txtAuthor = {'Author: [Your Name]'; 'Email:  [Your Email]'};
+            txtAuthor = {'Author: Matthew Richardson'; 'Email:  matthew.richardson@bristol.ac.uk'};
             uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             % 2. License Panel
