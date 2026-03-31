@@ -30,26 +30,26 @@ classdef HotWireSTEPApp_v6_helpers
         % ===============================================================
         % STEP -> STL -> MESH IMPORT USING FREECAD
         % ===============================================================
-function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
+        function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
 
-            V = []; 
+            V = [];
             F =[];
-            
+
             cadPath = char(cadPath);
             freeCADExe = char(freeCADExe);
-            
+
             % Single-line assignment to prevent markdown parser bugs
-            dummy0 = 0; [~, modelName, ext] = fileparts(cadPath);
-            
+            [~, modelName, ext] = fileparts(cadPath);
+
             disp(['[HotWire CAM] Importing ', modelName, ext, ' via FreeCAD...']);
 
             if ~isfile(cadPath)
-                warning('STEP file not found: %s', cadPath); 
-                return; 
+                warning('STEP file not found: %s', cadPath);
+                return;
             end
 
             if nargin < 2 || ~isfile(freeCADExe)
-                warning('FreeCAD executable not found: %s', freeCADExe); 
+                warning('FreeCAD executable not found: %s', freeCADExe);
                 return;
             end
 
@@ -57,7 +57,7 @@ function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
             tmpID  = char(java.util.UUID.randomUUID());
             outSTL = fullfile(tempdir, ['fc_out_' tmpID '.stl']);
             pyFile = fullfile(tempdir,['fc_' tmpID '.py']);
-            
+
             % Convert backslashes to forward slashes for Python string safety
             safeCadPath = strrep(cadPath, '\', '/');
             safeOutSTL  = strrep(outSTL, '\', '/');
@@ -78,33 +78,34 @@ function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
             % The Bulletproof Windows CMD workaround
             % Single-line assignment to prevent markdown parser bugs
             dummy1 = 0; [fcDir, fcName, fcExt] = fileparts(freeCADExe);
-            
+
             fcExeName = [fcName, fcExt];
             cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
-            
+
             % Single-line assignment to prevent markdown parser bugs
             dummy2 = 0; [status, cmdout] = system(cmdStr);
-            
+
             if status ~= 0
                 disp('[HotWire CAM ERROR] FreeCAD Execution Failed.');
                 disp(['Attempted Command: ', cmdStr]);
                 disp('FreeCAD Console Output:');
                 disp(cmdout);
-                warning('FreeCAD conversion failed. See command window for details.'); 
-                return; 
+                warning('FreeCAD conversion failed. See command window for details.');
+                return;
             end
 
             % Read STL
             if isfile(outSTL)
                 raw = stlread(outSTL);
-                F = double(raw.ConnectivityList); 
+                F = double(raw.ConnectivityList);
                 V = double(raw.Points);
                 disp(['[HotWire CAM] Import successful. Mesh generated with ', num2str(size(V,1)), ' vertices.']);
             else
                 disp('[HotWire CAM ERROR] FreeCAD finished, but STL file was not generated.');
-                warning('STL output not found: %s', outSTL); 
+                warning('STL output not found: %s', outSTL);
             end
         end
+
         % ===============================================================
         % TRIANGLE–PLANE SLICER  (X = x0)
         % ===============================================================

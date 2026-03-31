@@ -477,9 +477,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome');
 
-            app.GLWelcome = uigridlayout(app.TabWelcome,[1 2]);
+            app.GLWelcome = uigridlayout(app.TabWelcome, [ 1 2 ]);
             app.GLWelcome.ColumnWidth = {320, '1x'};
-            app.GLWelcome.Padding =[10 10 10 10];
+            app.GLWelcome.Padding =[ 10 10 10 10 ];
             app.GLWelcome.ColumnSpacing = 10;
 
             % -----------------------------------------------------------
@@ -488,10 +488,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
             pnlAnatomy.Layout.Column = 1;
 
-            % 4 Rows: Title, Intro Text, Mock UI (stretches), Continue Button
-            glAnat = uigridlayout(pnlAnatomy, [4 1]);
+            glAnat = uigridlayout(pnlAnatomy,[ 4 1 ]);
             glAnat.RowHeight = {'fit', 'fit', '1x', 'fit'};
-            glAnat.Padding =[10 10 10 10];
+            glAnat.Padding =[ 10 10 10 10 ];
             glAnat.BackgroundColor = sideBg;
 
             uilabel(glAnat, 'Text', 'Understanding the Interface', 'FontWeight', 'bold', 'FontSize', 16, 'FontColor', labelCol);
@@ -505,26 +504,36 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % The "Mock UI" Explainer Box
             pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
-            glMock = uigridlayout(pnlMock,[4 1]);
-            glMock.RowHeight = {'fit','fit','fit','fit'};
+
+            % 8 rows with precise placement to fix inconsistent gaps
+            glMock = uigridlayout(pnlMock, [ 8 1 ]);
+            glMock.RowHeight = {'fit','fit', 'fit','fit', 'fit','fit', 'fit','fit'};
+            glMock.RowSpacing = 2; % Tight gap between labels and text
             glMock.BackgroundColor = panelBg;
 
             lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
-            uitextarea(glMock, 'Value', {'The top left always contains your settings, buttons, and sliders.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            lbl1.Layout.Row = 1;
+            txt1 = uitextarea(glMock, 'Value', {'The top left always contains your settings, buttons, and sliders.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt1.Layout.Row = 2;
 
             lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
-            uitextarea(glMock, 'Value', {'Read this section for step-by-step help on what to do next.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            lbl2.Layout.Row = 3;
+            txt2 = uitextarea(glMock, 'Value', {'Read this section for step-by-step help on what to do next.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt2.Layout.Row = 4;
 
             lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
-
-            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings where you can still proceed (Amber), or tells you it is safe to proceed (Green).'};
-            uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor',[0.2 0.2 0.2],'FontColor',[0.4 1 0.4]);
+            lbl3.Layout.Row = 5;
+            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).'};
+            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor',[ 0.2 0.2 0.2 ],'FontColor',[ 0.4 1 0.4 ]);
+            txt3.Layout.Row = 6;
 
             lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
-            uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            lbl4.Layout.Row = 7;
+            txt4 = uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt4.Layout.Row = 8;
 
             % Continue Button
-            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
             btnWelcomeCont.Layout.Row = 4;
 
@@ -534,18 +543,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
             rightScroll.Layout.Column = 2;
 
-            glRight = uigridlayout(rightScroll,[4 1]);
-            % FIX: Changed to '1x' to make the three info blocks stretch and fill all available vertical space!
-            glRight.RowHeight = {'fit', '1x', '1x', '1x'};
+            glRight = uigridlayout(rightScroll,[ 4 1 ]);
+
+            % 70px Header, 1x About, 1.2x FreeCAD (more room), 'fit' Footer (shrinks to content)
+            glRight.RowHeight = {70, '1x', '1.2x', 'fit'};
             glRight.BackgroundColor = panelBg;
-            glRight.Padding =[40 40 40 40];
-            glRight.RowSpacing = 20;
+
+            % Padding is [Left Bottom Right Top]. 10px Top pushes the header up!
+            glRight.Padding =[ 20 5 20 5 ];
+            glRight.RowSpacing = 15;
 
             % --- Header Area ---
-            glHead = uigridlayout(glRight, [1 2]);
-            glHead.ColumnWidth = {100, '1x'};
-            glHead.RowHeight = {80};
-            glHead.Padding = [0 0 0 0];
+            glHead = uigridlayout(glRight,[ 1 2 ]);
+
+            % Text stretches on left, Logo gets a generous 280px on the right
+            glHead.ColumnWidth = {'1x', 280};
+            glHead.RowHeight = {'1x'};
+            glHead.Padding =[ 0 0 0 0 ];
             glHead.BackgroundColor = panelBg;
 
             isDark = app.UIFigure.Color(1) < 0.5;
@@ -556,25 +570,31 @@ classdef HotWireSTEPApp_v6_2 < handle
                 logoName = 'Science_engineering_BLACK.png';
             end
 
-            % FIX: Dynamically target the 'src' folder next to the app
             appDir = fileparts(mfilename('fullpath'));
-            logoPath = fullfile(appDir, 'src', logoName);
+            pathOption1 = fullfile(appDir, logoName);
+            pathOption2 = fullfile(appDir, 'src', logoName);
 
-            if isfile(logoPath)
-                uiimage(glHead, 'ImageSource', logoPath);
+            % Title on the Left
+            lblTitle = uilabel(glHead, 'Text', 'Bristol HotWire CAM', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
+            lblTitle.Layout.Row = 1; lblTitle.Layout.Column = 1;
+
+            % Logo on the Right
+            if isfile(pathOption1)
+                img = uiimage(glHead, 'ImageSource', pathOption1);
+            elseif isfile(pathOption2)
+                img = uiimage(glHead, 'ImageSource', pathOption2);
             else
-                uiimage(glHead); % Blank placeholder if file missing
+                img = uiimage(glHead); % Blank placeholder
             end
-
-            uilabel(glHead, 'Text', 'Bristol HotWire CAM', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
+            img.Layout.Row = 1; img.Layout.Column = 2;
 
             % --- About Section ---
             pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlAbout.Layout.Row = 2;
 
-            glAbout = uigridlayout(pnlAbout,[1 1]);
-            glAbout.Padding =[2 2 2 2];
-            glAbout.RowHeight = {'1x'}; % Allow text to fill block
+            glAbout = uigridlayout(pnlAbout,[ 1 1 ]);
+            glAbout.Padding =[ 5 5 5 5 ];
+            glAbout.RowHeight = {'1x'};
             glAbout.BackgroundColor = sideBg;
 
             txtAbout = {
@@ -595,9 +615,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlFC.Layout.Row = 3;
 
-            glFC = uigridlayout(pnlFC,[4 2]);
-            glFC.ColumnWidth = {'1x', 140};
-            glFC.RowHeight = {'1x', 'fit', 'fit', 'fit'}; % Text box stretches
+            glFC = uigridlayout(pnlFC, [ 1 2 ]);
+            glFC.ColumnWidth = {'1x', 300}; % 300px for the right side controls
+            glFC.RowHeight = {'1x'};
+            glFC.Padding =[ 5 5 5 5 ];
             glFC.BackgroundColor = sideBg;
 
             fcInstruct = {
@@ -606,17 +627,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '';
                 '1. Click "Download FreeCAD" to get the standard Windows Installer.';
                 '2. Run the installer and install it to the default directory.';
-                '3. Click "Browse..." below and locate the file "FreeCADCmd.exe".';
-                '   (It is typically found in: C:\Program Files\FreeCAD 1.0\bin\)'
+                '3. Click "Browse..." and locate the file "FreeCADCmd.exe".';
+                '   (Typically: C:\Program Files\FreeCAD 1.0\bin\)'
                 };
             txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            txtFC.Layout.Row = 1; txtFC.Layout.Column =[1 2];
+            txtFC.Layout.Row = 1; txtFC.Layout.Column = 1;
 
-            btnDownloadFC = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[0.2 0.5 0.8], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
-            btnDownloadFC.Layout.Row = 2; btnDownloadFC.Layout.Column = 2;
+            % 4 Rows. Download button pinned top, Path field pinned bottom.
+            glFCRight = uigridlayout(glFC,[ 4 1 ]);
+            glFCRight.RowHeight = {'fit', '1x', 'fit', 'fit'};
+            glFCRight.Padding =[ 0 0 0 0 ];
+            glFCRight.BackgroundColor = sideBg;
+            glFCRight.Layout.Row = 1; glFCRight.Layout.Column = 2;
 
-            lblFC = uilabel(glFC, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold');
-            lblFC.Layout.Row = 3; lblFC.Layout.Column =[1 2];
+            btnDownloadFC = uibutton(glFCRight, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[ 0.2 0.5 0.8 ], 'FontColor', [ 1 1 1 ], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
+            btnDownloadFC.Layout.Row = 1; btnDownloadFC.Layout.Column = 1;
+
+            lblFC = uilabel(glFCRight, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
+            lblFC.Layout.Row = 3; lblFC.Layout.Column = 1;
 
             if ispref('HotWireSTEPApp', 'FreeCADPath')
                 app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
@@ -624,40 +652,63 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
             end
 
-            app.FieldFreeCADPath = uieditfield(glFC, 'text', 'Value', app.FreeCADExe);
+            % Combine Field and Browse into a sub-grid
+            glFCBrowse = uigridlayout(glFCRight,[ 1 2 ]);
+            glFCBrowse.ColumnWidth = {'1x', 80};
+            glFCBrowse.RowHeight = {'fit'};
+            glFCBrowse.Padding =[ 0 0 0 0 ];
+            glFCBrowse.BackgroundColor = sideBg;
+            glFCBrowse.Layout.Row = 4; glFCBrowse.Layout.Column = 1;
+
+            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe);
             app.FieldFreeCADPath.BackgroundColor = inputBg;
             app.FieldFreeCADPath.FontColor = inputTxt;
             app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
-            app.FieldFreeCADPath.Layout.Row = 4; app.FieldFreeCADPath.Layout.Column = 1;
+            app.FieldFreeCADPath.Layout.Row = 1; app.FieldFreeCADPath.Layout.Column = 1;
 
-            btnBrowseFC = uibutton(glFC, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
-            btnBrowseFC.Layout.Row = 4; btnBrowseFC.Layout.Column = 2;
+            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
+            btnBrowseFC.Layout.Row = 1; btnBrowseFC.Layout.Column = 2;
 
-            % --- License & Contact Section ---
-            pnlLic = uipanel(glRight, 'Title', 'License, Open Source & Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            pnlLic.Layout.Row = 4;
+            % --- 3 Separate Footer Panels (Contact, License, Source) ---
+            glFooter = uigridlayout(glRight, [1 3]);
+            glFooter.Layout.Row = 4;
+            glFooter.ColumnWidth = {'1x', '1.5x', 180};
+            glFooter.RowHeight = {'fit'};
+            glFooter.Padding = [0 0 0 0];
+            glFooter.ColumnSpacing = 15;
+            glFooter.BackgroundColor = panelBg;
 
-            glLic = uigridlayout(pnlLic, [1 2]);
-            glLic.ColumnWidth = {'1x', 200};
-            glLic.RowHeight = {'1x'}; % Text stretches
-            glLic.BackgroundColor = sideBg;
+            % 1. Contact Panel
+            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glContact = uigridlayout(pnlContact,[1 1]);
+            glContact.RowHeight = {35}; % Locked inner height for exactly 2 lines
+            glContact.Padding = [5 5 5 5];
+            glContact.BackgroundColor = sideBg;
+            txtAuthor = {'Author: [Your Name]'; 'Email:  [Your Email]'};
+            uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
-            txtLic = {
-                'Author:[Your Name Here]';
-                'Contact: [Your Email Here]';
-                '';
-                'This software is released under the MIT Open Source License.';
-                'You are free to use, modify, and distribute this software for academic, personal, or commercial use, provided the original copyright notice is included.'
-                };
-            uitextarea(glLic, 'Value', txtLic, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            % 2. License Panel
+            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glLicense = uigridlayout(pnlLicense,[1 1]);
+            glLicense.RowHeight = {35}; % Matched to keep boxes physically level
+            glLicense.Padding =[5 5 5 5];
+            glLicense.BackgroundColor = sideBg;
+            txtLicense = {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'};
+            uitextarea(glLicense, 'Value', txtLicense, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
-            btnGit = uibutton(glLic, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+            % 3. Source Panel
+            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glSource = uigridlayout(pnlSource,[1 1]);
+            glSource.RowHeight = {35}; % Matched
+            glSource.Padding =[5 5 5 5];
+            glSource.BackgroundColor = sideBg;
+            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
 
             % ===========================================================
             % TAB 1: MODEL IMPORT & ORIENTATION
             % ===========================================================
-            app.TabModel = uitab(app.TabGroup,'Title','Model');
 
+            app.TabModel = uitab(app.TabGroup,'Title','Model');
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
             app.GLModel.ColumnWidth   = {320,'1x'};
             app.GLModel.Padding       = [10 10 10 10];
