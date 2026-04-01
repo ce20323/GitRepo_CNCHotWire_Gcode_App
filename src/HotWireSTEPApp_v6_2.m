@@ -3334,7 +3334,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
+                P =[app.LeftProfilePoints; app.RightProfilePoints];
             else
                 P = app.ModelPatch.Vertices;
             end
@@ -3346,14 +3346,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
             buf = app.ModelEdgeWarningBuffer;
+            tinyBuf = app.ModelXPlacementBuffer;
 
-            % X Size: Distance between planes + 2mm (1mm buffer each side) rounded up
-            bSizeX = ceil(abs(xR - xL) + 2.0);
+            % X Size: EXACT distance between cutting planes + 2x tiny safety buffer
+            bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
 
-            % Y Size: Profile depth + 2 * 4mm buffer, rounded up
+            % Y Size: Profile depth + 2x 4mm buffer, rounded UP to nearest mm
             bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
 
-            % Z Size: Profile height + 2 * 4mm buffer, snapped to stock sizes
+            % Z Size: Profile height + 2x 4mm buffer, snapped to stock sizes
             reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
 
             stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
@@ -3379,33 +3380,35 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % 1. Get the precise points (Sliced Profiles vs Whole Model)
+            % 1. Get bounds from sliced profiles (not the whole CAD mesh)
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
                 P = [app.LeftProfilePoints; app.RightProfilePoints];
             else
                 P = app.ModelPatch.Vertices; % Fallback
             end
 
-            % Calculate bounds (avoiding empty brackets to prevent parser crash)
+            % Safe boundary calculation
             localMins = min(P);
             localMaxs = max(P);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
+
             planeMinX = min(xL, xR);
+            tinyBuf = app.ModelXPlacementBuffer;
 
-            % Auto-place with safety buffers
+            % --- CALCULATE SHIFT ---
 
-            % X: Just barely inside the block
-            app.BilletShift(1) = app.ModelXPlacementBuffer - planeMinX;
+            % X: Snug against the left of the billet with a tiny 0.001mm safety buffer
+            app.BilletShift(1) = tinyBuf - planeMinX;
 
-            % Y: 4mm from the FRONT of the block
+            % Y: Anchor exactly 4mm from the FRONT of the block
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
 
-            % Z: 4mm from the TOP of the block
-            % Shift = BilletHeight - Buffer - ModelMaxZ
+            % Z: Anchor exactly 4mm from the TOP of the block
             app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
 
+            % Invalidate downstream cutting strategy so collisions are re-checked
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
