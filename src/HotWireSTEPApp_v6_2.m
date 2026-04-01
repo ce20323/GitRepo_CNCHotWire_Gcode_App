@@ -3189,7 +3189,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onContinue(app)
             currTab = app.TabGroup.SelectedTab;
-            
+
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 % FIX: Make sure the Welcome tab button correctly hands off to the Gatekeeper!
                 if currTab == app.TabWelcome
@@ -3203,7 +3203,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 1. Determine the next tab
             if currTab == app.TabWelcome
-                nextTab = app.TabModel; 
+                nextTab = app.TabModel;
             elseif currTab == app.TabModel
                 nextTab = app.TabProfiles;
             elseif currTab == app.TabProfiles
@@ -3226,83 +3226,65 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3. Trigger Gatekeeper
             evt = struct('OldValue', currTab, 'NewValue', nextTab);
             app.onTabChanged(app.TabGroup, evt);
-end
-% ===========================================================
+        end
+        % ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================
-
         function updateBilletDefaultsFromMesh(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
 
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            % FIX: Use the class constant (4.0mm) instead of default 5.0mm
-            buf = app.ModelEdgeWarningBuffer;
-
-            b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR, buf, buf);
-
-            % Sync the driving property
-            app.BilletSize = [b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
-
-            % For this tab, the Billet origin is always fixed at 0
-            app.BilletXMin = 0; app.BilletYMin = 0; app.BilletZMin = 0;
-
-            % Reset shift to center/safe default
-            app.BilletShift = [0 0 0];
-            % Re-run auto-position to apply the exact 4mm buffers to the shift
+            % Simply trigger the smart auto-tools!
+            app.onAutoFitBillet();
             app.onAutoPositionModel();
-            % (onAutoPositionModel calls syncBilletUI and refreshBilletPlots, so we don't need to here)
-
-            % --- ARCHITECTURE: Reset Downstream Flags ---
-            app.IsMachineInit = false;
-            app.IsCuttingInit = false;
-
         end
 
         function isValid = syncBilletUI(app)
-            % Returns: true (Valid), false (Model outside stock)
-
             if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch)
-                isValid = false; return;
+                isValid = false;
+                return;
             end
 
-            % 1. Local CAD Properties
-            V  = app.ModelPatch.Vertices;
+            % FIX: Use the extracted profiles so gap calculations match the exact cut!
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
+            else
+                P = app.ModelPatch.Vertices; % Fallback
+            end
+
+            localMins = min(P);
+            localMaxs = max(P);
+
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
-            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
-            mMax = [max(xL,xR), max(V(:,2)), max(V(:,3))];
+            mMin =[min(xL, xR), localMins(2), localMins(3)];
+            mMax =[max(xL, xR), localMaxs(2), localMaxs(3)];
             mDim = mMax - mMin;
 
-            % 2. Machining Properties
             workMin = app.BilletShift + mMin;
             workMax = workMin + mDim;
-            bSize   = app.BilletSize;
+            bSize = app.BilletSize;
 
-            % 3. Sync UI Fields
             for i = 1:3
                 app.BilletSizeEdits(i).Value = bSize(i);
                 app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
-                app.BilletNegOffsetEdits(i).Value    = workMin(i);
-                app.BilletPosOffsetEdits(i).Value    = bSize(i) - workMax(i);
+                app.BilletNegOffsetEdits(i).Value = workMin(i);
+                app.BilletPosOffsetEdits(i).Value = bSize(i) - workMax(i);
                 app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
             end
 
-            % 4. Validation Logic (Using Constants)
             tol = app.ModelContainmentTol;
             buf = app.ModelEdgeWarningBuffer;
 
             isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
-            isTooClose = (workMin(2) < buf) || (workMax(2) > bSize(2) - buf) || ...
-                (workMin(3) < buf) || (workMax(3) > bSize(3) - buf);
 
-            % Waste Check: Warning if BOTH sides of Y or Z have > 6mm gap.
-            % (Implies the model is floating in the middle of an oversized block).
-            % If one side is <= 6mm, we assume efficient placement.
+            % FIX: Added 1e-4 tolerance so exact 4.0mm doesn't trigger the warning!
+            isTooClose = (workMin(2) < buf - 1e-4) || (workMax(2) > bSize(2) - buf + 1e-4) || ...
+                (workMin(3) < buf - 1e-4) || (workMax(3) > bSize(3) - buf + 1e-4);
+
             wasteGap = 6.0;
-
             gapY_Neg = workMin(2);
             gapY_Pos = bSize(2) - workMax(2);
             isWasteY = (gapY_Neg > wasteGap) && (gapY_Pos > wasteGap);
@@ -3313,7 +3295,6 @@ end
 
             isWasteful = isWasteY || isWasteZ;
 
-            % Theme Colors
             if app.UIFigure.Color(1) < 0.5
                 panelBg = [0.16 0.16 0.16];
             else
@@ -3321,33 +3302,23 @@ end
             end
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor = [0.4 0.16 0.16]; % Dark Red
+                app.BilletLeftPanel.BackgroundColor =[0.4 0.16 0.16];
                 app.TxtBilletStatus.Value = {'CRITICAL:', 'Model is outside stock!', 'Adjust billet size or model position.'};
-                app.TxtBilletStatus.FontColor = [1 0.4 0.4];
+                app.TxtBilletStatus.FontColor =[1 0.4 0.4];
                 app.BtnBilletContinue.Enable = 'off';
                 isValid = false;
-
             elseif isTooClose
-                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Amber
-                app.TxtBilletStatus.Value = {
-                    sprintf('Warning: Model is very close (<%.0fmm) to billet edges.', buf);
-                    'Check alignments.'
-                    };
+                app.BilletLeftPanel.BackgroundColor =[0.45 0.35 0.1];
+                app.TxtBilletStatus.Value = {sprintf('Warning: Model is very close (<%.0fmm) to billet edges.', buf), 'Check alignments.'};
                 app.TxtBilletStatus.FontColor = [1 0.8 0.4];
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
-
             elseif isWasteful
-                app.BilletLeftPanel.BackgroundColor = [0.45 0.35 0.1]; % Amber
-                app.TxtBilletStatus.Value = {
-                    'REDUCE FOAM WASTE!';
-                    'Consider using a smaller billet.';
-                    sprintf('Only a %.0fmm gap is needed around the model in Y and Z.', buf)
-                    };
+                app.BilletLeftPanel.BackgroundColor =[0.45 0.35 0.1];
+                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Consider using a smaller billet.', sprintf('Only a %.0fmm gap is needed around the model in Y and Z.', buf)};
                 app.TxtBilletStatus.FontColor = [1 0.8 0.4];
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
-
             else
                 app.BilletLeftPanel.BackgroundColor = panelBg;
                 app.TxtBilletStatus.Value = {'Billet configuration valid.'};
@@ -3358,19 +3329,43 @@ end
         end
 
         function onAutoFitBillet(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
+            else
+                P = app.ModelPatch.Vertices;
+            end
+
+            localMins = min(P);
+            localMaxs = max(P);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
             buf = app.ModelEdgeWarningBuffer;
-            b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR, buf, buf);
 
-            % FIX: Round X width up to the nearest whole millimeter
-            bSizeX = ceil(b.Xmax - b.Xmin);
-            % Z already safely snaps to standard stock heights!
+            % X Size: Distance between planes + 2mm (1mm buffer each side) rounded up
+            bSizeX = ceil(abs(xR - xL) + 2.0);
 
-            app.BilletSize =[bSizeX, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
+            % Y Size: Profile depth + 2 * 4mm buffer, rounded up
+            bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
+
+            % Z Size: Profile height + 2 * 4mm buffer, snapped to stock sizes
+            reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
+
+            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
+            bSizeZ = reqZ;
+            for i = 1:numel(stocks)
+                if reqZ <= stocks(i)
+                    bSizeZ = stocks(i);
+                    break;
+                end
+            end
+
+            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
             app.BilletShift = [0 0 0];
 
             app.IsCuttingInit = false;
@@ -3380,20 +3375,37 @@ end
         end
 
         function onAutoPositionModel(app)
-            if isempty(app.ModelPatch), return; end
+            if isempty(app.ModelPatch)
+                return;
+            end
 
-            V = app.ModelPatch.Vertices;
-            localMins = min(V,[], 1);
+            % 1. Get the precise points (Sliced Profiles vs Whole Model)
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
+            else
+                P = app.ModelPatch.Vertices; % Fallback
+            end
+
+            % Calculate bounds (avoiding empty brackets to prevent parser crash)
+            localMins = min(P);
+            localMaxs = max(P);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
             planeMinX = min(xL, xR);
 
-            app.BilletShift(1) = app.ModelXPlacementBuffer - planeMinX;
-            app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
-            app.BilletShift(3) = app.ModelEdgeWarningBuffer - localMins(3);
+            % Auto-place with safety buffers
 
-            % FIX: Removed IsMachineInit = false
+            % X: Just barely inside the block
+            app.BilletShift(1) = app.ModelXPlacementBuffer - planeMinX;
+
+            % Y: 4mm from the FRONT of the block
+            app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
+
+            % Z: 4mm from the TOP of the block
+            % Shift = BilletHeight - Buffer - ModelMaxZ
+            app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
+
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3457,12 +3469,25 @@ end
 
         function onBilletOffsetEdited(app, axisIdx, whichField, src)
             val = src.Value;
-            V = app.ModelPatch.Vertices;
+
+            % FIX: Use the extracted profiles to match the UI gap logic!
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
+            else
+                if isempty(app.ModelPatch)
+                    return;
+                end
+                P = app.ModelPatch.Vertices;
+            end
+
+            localMins = min(P);
+            localMaxs = max(P);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
-            mMin = [min(xL,xR), min(V(:,2)), min(V(:,3))];
-            mMax =[max(xL,xR), max(V(:,2)), max(V(:,3))];
+
+            mMin =[min(xL, xR), localMins(2), localMins(3)];
+            mMax =[max(xL, xR), localMaxs(2), localMaxs(3)];
 
             oldShift = app.BilletShift;
 
@@ -3474,10 +3499,13 @@ end
                 app.BilletShift(axisIdx) = val;
             end
 
-            % FIX: Shift Entry points to match model movement within billet
+            % Shift Entry points to match model movement within billet
             dY = app.BilletShift(2) - oldShift(2);
             dZ = app.BilletShift(3) - oldShift(3);
             app.shiftEntryPoints(dY, dZ);
+
+            % Invalidate downstream cutting strategy
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
