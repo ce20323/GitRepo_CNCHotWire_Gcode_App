@@ -5961,10 +5961,15 @@ end
             add(sprintf('%%     Date: %s', string(datetime('now'))));
             add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
             add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
-            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.MachineBilletPos));
+            
+            % FIX: Make G-Code header match the Machine Tab UI (X relative to Bed)
+            uiBilletPos = app.MachineBilletPos;
+            uiBilletPos(1) = uiBilletPos(1) - app.MachineBedPos(1);
+            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
+            
             add('% ------------------------------------------');
-            add('G21','Metric');
-            add('G90','Absolute');
+            add('G21','Metric'); 
+            add('G90','Absolute'); 
             add('G94','Feed/min');
 
             % --- START SEQUENCE (Split G53) ---
