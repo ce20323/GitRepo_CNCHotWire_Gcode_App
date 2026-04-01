@@ -3366,10 +3366,13 @@ end
             buf = app.ModelEdgeWarningBuffer;
             b = HotWireSTEPApp_v6_helpers.computeDefaultBilletFromMesh(app.ModelPatch.Vertices, xL, xR, buf, buf);
 
-            app.BilletSize =[b.Xmax - b.Xmin, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
+            % FIX: Round X width up to the nearest whole millimeter
+            bSizeX = ceil(b.Xmax - b.Xmin);
+            % Z already safely snaps to standard stock heights!
+
+            app.BilletSize =[bSizeX, b.Ymax - b.Ymin, b.Zmax - b.Zmin];
             app.BilletShift = [0 0 0];
 
-            % FIX: Removed IsMachineInit = false to preserve user's machine placement!
             app.IsCuttingInit = false;
 
             app.syncBilletUI();
@@ -3641,30 +3644,28 @@ end
                 return;
             end
 
+            % Physical Bed Constraints
             bedX = app.MachineBedPos(1);
             maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
-            centerX = bedX + maxXLimit / 2;
 
-            minSafeX = bedX + 50.0;
-            maxSafeX = bedX + maxXLimit - 50.0;
+            % 1. X-Center Logic & Tower Path Length Optimization
+            % FIX: Generate a strict 50mm grid relative to the left edge of the bed!
+            maxRelX = floor(maxXLimit / 50.0) * 50.0;
 
-            if maxSafeX >= minSafeX
-                startTick = ceil(minSafeX / 50.0) * 50.0;
-                endTick = floor(maxSafeX / 50.0) * 50.0;
-                if startTick <= endTick
-                    testXs = startTick : 50.0 : endTick;
-                else
-                    testXs = round(centerX / 50.0) * 50.0;
-                end
+            if maxRelX >= 0
+                testRelXs = 0 : 50.0 : maxRelX;
+                testXs = bedX + testRelXs; % Apply absolute machine offset
             else
-                testXs = round(centerX / 50.0) * 50.0;
+                testXs = bedX; % Fallback if billet is technically too wide
             end
 
-            testXs = max(bedX, min(bedX + maxXLimit, testXs));
-            testXs = unique(testXs);
+            % Default to the middle of the available 50mm grid
             bestX = testXs(max(1, ceil(numel(testXs)/2)));
 
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)[yL, zL, yR, zR] = app.getSyncedKerfProfiles();
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                d1 = 0; % Anti-markdown bug
+                [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
 
                 if ~isempty(yL)
                     yL_base = yL + app.BilletShift(2);
@@ -3676,8 +3677,12 @@ end
                     pXR = app.RightProfilePoints(1,1);
                     planeDist = abs(pXR - pXL);
 
+                    % --- X Sweep Optimization ---
                     if planeDist > 1e-3
                         bestDiff = inf;
+                        centerX = bedX + maxXLimit / 2;
+
+                        % Sweep ONLY the strict 50mm grid increments
                         for x = testXs
                             xL_m = x + app.BilletShift(1) + pXL;
                             xR_m = x + app.BilletShift(1) + pXR;
@@ -3699,9 +3704,11 @@ end
 
                     app.MachineBilletPos(1) = bestX;
 
+                    % --- Evaluate Base Tower Heights at new X to solve Y and Z ---
                     xL_m = bestX + app.BilletShift(1) + pXL;
                     xR_m = bestX + app.BilletShift(1) + pXR;[tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
+                    % --- Z Logic (Standardized Stock Heights) ---
                     minProjZ = min([tL.z; tR.z]);
 
                     if minProjZ >= 0
@@ -3715,6 +3722,7 @@ end
                         app.MachineBilletPos(3) = targetZ;
                     end
 
+                    % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
                     minProjY = min([tL.y; tR.y]);
                     reqBilletY = max(50.0, 50.0 - minProjY);
                     targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
@@ -3735,11 +3743,12 @@ end
                 app.MachineBilletPos(3) = 0;
             end
 
-            % FIX: Mark Machine as fully initialized
-            app.IsMachineInit = true;
             app.IsMachineInit = true;
             app.syncMachineUI();
+
+            d2 = 0;
             [isValid, pCol, tCol, txtLines] = app.checkMachineState();
+
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
@@ -5962,10 +5971,15 @@ end
             add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
             add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
             
-            % FIX: Make G-Code header match the Machine Tab UI (X relative to Bed)
             uiBilletPos = app.MachineBilletPos;
             uiBilletPos(1) = uiBilletPos(1) - app.MachineBedPos(1);
             add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
+            
+            add('% ------------------------------------------');
+            
+            % Insert placeholders to be replaced after paths are generated!
+            add('%%EXTENTS_MIN%%');
+            add('%%EXTENTS_MAX%%');
             
             add('% ------------------------------------------');
             add('G21','Metric'); 
@@ -6107,6 +6121,28 @@ end
             add('M30', 'End Program');
 
             % --- FINALIZE ---
+
+            % Scan the generated arrays for Min/Max bounds!
+            % We slice (3:end-2) to safely ignore the first two and last two G53 Home moves.
+            if pathIdx > 4
+                minX = min(app.PP_TowerPathL(3:end-2, 2));
+                maxX = max(app.PP_TowerPathL(3:end-2, 2));
+                minY = min(app.PP_TowerPathL(3:end-2, 3));
+                maxY = max(app.PP_TowerPathL(3:end-2, 3));
+
+                minZ = min(app.PP_TowerPathR(3:end-2, 2));
+                maxZ = max(app.PP_TowerPathR(3:end-2, 2));
+                minA = min(app.PP_TowerPathR(3:end-2, 3));
+                maxA = max(app.PP_TowerPathR(3:end-2, 3));
+
+                minStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX, minY, minZ, minA);
+                maxStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX, maxY, maxZ, maxA);
+
+                % Swap the placeholders
+                lines = replace(lines, '%%EXTENTS_MIN%%', minStr);
+                lines = replace(lines, '%%EXTENTS_MAX%%', maxStr);
+            end
+
             app.PP_GCodeLines = lines;
             app.PP_LineToPathIndex = map;
             app.ListGCode.Items = cellstr(lines);
