@@ -2362,6 +2362,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 3: BILLET ---
             if needsBillet
+                % QUIET AUTO-FIT: If user hasn't locked custom billet values, always shrink-wrap to latest profiles.
+                if ~app.IsBilletUserModified && hasProfiles
+                    disp('>> QUIET AUTO: Tracking Billet to new profiles');
+                    app.onAutoFitBillet();
+                    app.onAutoPositionModel();
+                end
+
                 isValidBillet = app.syncBilletUI();
 
                 if sum(app.BilletSize) == 0 || ~isValidBillet
@@ -2398,8 +2405,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 4: MACHINE ---
             if needsMachine
-                chkM = cell(1,4);[chkM{1}, chkM{2}, chkM{3}, chkM{4}] = app.checkMachineState();
-                isValidMach = chkM{1}; pCol = chkM{2}; tCol = chkM{3}; msgLines = chkM{4};
+                d1 = 0; % Anti-markdown bug
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
 
                 if isMachine && ~app.IsMachineInit
                     app.onResetMachineBilletPosition();
@@ -2435,40 +2442,27 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY ---
             if needsCutting
+                d2 = 0;
+                [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
 
-                % [DEBUG TELEMETRY]
-                disp('>> [DEBUG] Level 5: Cutting Strategy Check');
-                disp(['   -> IsCuttingInit flag: ', num2str(app.IsCuttingInit)]);
-                disp(['   -> EntryPointL is empty? ', num2str(isempty(app.EntryPointL))]);
-
-                % FIX: ONLY auto-trigger if the points literally do not exist!
-                % Previously this checked ~app.IsCuttingInit, which ruthlessly overwrote
-                % your custom points anytime a downstream setting changed.
-                if isempty(app.EntryPointL)
-                    disp('>> QUIET AUTO: Initializing Cutting Strategy (First Run)');
+                if isCutting && ~app.IsCuttingInit
                     app.onAutoStart(false);
                     app.onAutoEntry(false);
                     drawnow; pause(0.1);
-                end
 
-                d2 = 0; % Anti-markdown bug
-                [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
-
-                % If points exist but are now DANGEROUS (e.g. billet grew over them)
-                if ~isValidCut
-                    disp('>> MISSING/INVALID: Cutting Strategy');
+                elseif (~app.IsCuttingInit || ~isValidCut) && ~isCutting
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
-                            sprintf('Your Cutting Strategy is now invalid (Collision or gouging detected).\nThis usually happens if you changed the Billet Size or Kerf and it engulfed your entry points.\n\nDo you want to fix this manually, or Auto-Generate new safe paths?'), ...
-                            'Cutting Strategy Error', ...
-                            'Options', {'Go to Cutting Tab', 'Auto-Generate All', 'Cancel'}, ...
+                            sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
+                            'Step Skipped', ...
+                            'Options', {'Go to Cutting Tab', 'Auto-Configure All', 'Cancel'}, ...
                             'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
 
                         if strcmp(sel, 'Go to Cutting Tab')
                             app.TabGroup.SelectedTab = app.TabCutting;
-                            app.CuttingLeftPanel.BackgroundColor = pCol;
-                            app.TxtCuttingStatus.Value = msgLines;
-                            app.TxtCuttingStatus.FontColor = tCol;
+                            app.CuttingLeftPanel.BackgroundColor = pColC;
+                            app.TxtCuttingStatus.Value = msgLinesC;
+                            app.TxtCuttingStatus.FontColor = tColC;
                             return;
                         elseif strcmp(sel, 'Cancel')
                             app.TabGroup.SelectedTab = oldTab;
@@ -2478,7 +2472,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
-                        disp('>> AUTO: Generating Safe Cutting Strategy');
                         app.onAutoStart(false);
                         app.onAutoEntry(false);
                         drawnow; pause(0.1);
@@ -2489,57 +2482,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- EXECUTE SAFE TAB TRANSITION ---
             disp(['>> ALL GATES PASSED. Rendering ' targetTab.Title ' tab.']);
             app.resetInteractionState();
-            drawnow; pause(0.05); % Stabilize UI to prevent plot discarding
+            drawnow; pause(0.05);
 
             if isWelcome
                 app.applyTheme();
 
             elseif isBillet
-                % If user hasn't locked in custom values, automatically adapt!
-                if ~app.IsBilletUserModified
-                    app.onAutoFitBillet();
-                    app.onAutoPositionModel();
-                end
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
             elseif isMachine
                 app.syncMachineUI();
+                d3 = 0;
+                [ isValidMachF, pColF, tColF, msgLinesF ] = app.checkMachineState();
 
-                chkM2 = cell(1,4);[chkM2{1}, chkM2{2}, chkM2{3}, chkM2{4}] = app.checkMachineState();
-                isValidMachFinal = chkM2{1};
-                pColFinal = chkM2{2};
-                tColFinal = chkM2{3};
-                msgLinesFinal = chkM2{4};
-
-                app.MachineLeftPanel.BackgroundColor = pColFinal;
-                app.TxtMachineStatus.Value = msgLinesFinal;
-                app.TxtMachineStatus.FontColor = tColFinal;
-
-                if isValidMachFinal
-                    app.BtnMachineContinue.Enable = 'on';
-                else
-                    app.BtnMachineContinue.Enable = 'off';
-                end
-
+                app.MachineLeftPanel.BackgroundColor = pColF;
+                app.TxtMachineStatus.Value = msgLinesF;
+                app.TxtMachineStatus.FontColor = tColF;
+                if isValidMachF, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
                 app.refreshMachinePlot();
 
             elseif isCutting
-                chkC2 = cell(1,4);[chkC2{1}, chkC2{2}, chkC2{3}, chkC2{4}] = app.validateCuttingStrategy();
-                isValidCutFinal = chkC2{1};
-                pColCFinal = chkC2{2};
-                tColCFinal = chkC2{3};
-                msgLinesCFinal = chkC2{4};
+                d4 = 0;
+                [ isValidCutF, pColCF, tColCF, msgLinesCF ] = app.validateCuttingStrategy();
 
-                app.CuttingLeftPanel.BackgroundColor = pColCFinal;
-                app.TxtCuttingStatus.Value = msgLinesCFinal;
-                app.TxtCuttingStatus.FontColor = tColCFinal;
-
-                if isValidCutFinal
-                    app.BtnCuttingContinue.Enable = 'on';
-                else
-                    app.BtnCuttingContinue.Enable = 'off';
-                end
+                app.CuttingLeftPanel.BackgroundColor = pColCF;
+                app.TxtCuttingStatus.Value = msgLinesCF;
+                app.TxtCuttingStatus.FontColor = tColCF;
+                if isValidCutF, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
 
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
@@ -2550,7 +2520,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             elseif isPost
                 app.updatePostProcessUI();
-                app.onPostProcess(); % Actually generate the G-code and draw the plot!
+
+                % FORCE: Fresh generation of paths in case Billet/Machine coordinates moved
+                app.generateSimulationData();
+                app.onPostProcess();
             end
 
             disp('>> Render complete.');
