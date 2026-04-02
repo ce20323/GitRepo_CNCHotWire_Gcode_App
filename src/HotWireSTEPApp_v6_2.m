@@ -185,6 +185,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         IsDragging logical = false      % Flag for mouse drag state
         LastMousePos (1,2) double = [NaN NaN]  % Last mouse position
         AppState (1,1) double = 0       % 0=Model Only, 1=Active Cutting
+        IsBilletUserModified (1,1) logical = false
+        BilletViewMode string = "Billet" 
         IsMachineInit (1,1) logical = false % Tracks if user/auto has set Machine Pos
         IsCuttingInit (1,1) logical = false % Tracks if user/auto has set Entry Pts
 
@@ -1044,23 +1046,31 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.GLBillet = uigridlayout(app.TabBillet, [1 2]);
             app.GLBillet.ColumnWidth = {320, '1x'};
-            app.GLBillet.Padding = [10 10 10 10];
+            app.GLBillet.Padding =[10 10 10 10];
 
-            % --- Left Control Panel (10 Rows) ---
-            app.BilletLeftPanel = uigridlayout(app.GLBillet, [10 1]);
+            % --- Left Control Panel (11 Rows) ---
+            app.BilletLeftPanel = uigridlayout(app.GLBillet, [11 1]);
             app.BilletLeftPanel.Layout.Column = 1;
-            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
             app.BilletLeftPanel.Padding = [10 10 10 10];
             app.BilletLeftPanel.BackgroundColor = sideBg;
 
-            % 1. Auto Fit
+            % 1. VIEW CONTROLS
+            pnlBView = uipanel(app.BilletLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlBView.Layout.Row = 1;
+
+            gridBView = uigridlayout(pnlBView,[1 2]); gridBView.Padding=[5 5 5 5]; gridBView.BackgroundColor=panelBg;
+            btnBVM = uibutton(gridBView, 'Text','Model View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
+            btnBVB = uibutton(gridBView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
+
+            % 2. Auto Fit
             app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
-            app.BtnAutoFitBillet.Layout.Row = 1;
+            app.BtnAutoFitBillet.Layout.Row = 2;
             app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
 
-            % 2. Size Controls
+            % 3. Size Controls
             pnlBSize = uipanel(app.BilletLeftPanel, 'Title', 'Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
-            pnlBSize.Layout.Row = 2;
+            pnlBSize.Layout.Row = 3;
 
             gridBSizeOuter = uigridlayout(pnlBSize, [1 1]);
             gridBSizeOuter.Padding = [5 5 5 5];
@@ -1070,7 +1080,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridBSize.Padding = [4 4 4 4];
             gridBSize.ColumnSpacing = 4;
 
-            % Headings
             uilabel(gridBSize, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
 
             lblStkH = uilabel(gridBSize, 'Text', 'Stock [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
@@ -1098,12 +1107,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizeMinusBtns(i).Layout.Row = r;
                 app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
-                % REVERTED TO EDIT FIELD (Numeric)
+                % Edit Field
                 app.BilletSizeEdits(i) = uieditfield(gridBSize, 'numeric', ...
                     'Value', 100, ...
                     'HorizontalAlignment', 'center', ...
                     'ValueDisplayFormat', '%.2f', ...
-                    'BackgroundColor', [0.7 0.7 0.8], 'FontColor', [0 0 0], ...
+                    'BackgroundColor',[0.7 0.7 0.8], 'FontColor', [0 0 0], ...
                     'Tooltip', sizeTooltips{i}, ...
                     'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = r;
@@ -1120,17 +1129,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
-            % 3. Position Buttons
+            % 4. Auto Position
             app.BtnAutoPositionModel = uibutton(app.BilletLeftPanel, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
-            app.BtnAutoPositionModel.Layout.Row = 3;
+            app.BtnAutoPositionModel.Layout.Row = 4;
             app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
 
+            % 5. Reset Position
             app.BtnResetPosition = uibutton(app.BilletLeftPanel, 'Text', 'Reset Position', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onResetPosition());
-            app.BtnResetPosition.Layout.Row = 4;
+            app.BtnResetPosition.Layout.Row = 5;
 
-            % 4. Position Controls
+            % 6. Position Controls
             pnlBPos = uipanel(app.BilletLeftPanel, 'Title', 'Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
-            pnlBPos.Layout.Row = 5;
+            pnlBPos.Layout.Row = 6;
 
             gridBPos = uigridlayout(pnlBPos, [4 6]);
             gridBPos.ColumnWidth = {35, 65, 20, 65, 20, 65};
@@ -1142,7 +1152,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblNegH = uilabel(gridBPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
             lblNegH.Layout.Column = 2;
 
-            lblShftH = uilabel(gridBPos, 'Text', 'Shift [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblShftH = uilabel(gridBPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
             lblShftH.Layout.Column = [3 5];
 
             lblPosH = uilabel(gridBPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
@@ -1154,42 +1164,36 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             for k = 1:3
                 rk = k + 1;
-                % Axis Label
                 txtLabelP = uilabel(gridBPos, 'Text', axisLabels{k}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol);
                 txtLabelP.Layout.Row = rk;
 
-                % NEG OFFSET (EditField)
                 app.BilletNegOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
                 app.BilletNegOffsetEdits(k).Layout.Row = rk;
                 app.BilletNegOffsetEdits(k).Layout.Column = 2;
                 app.BilletNegOffsetEdits(k).Tooltip = 'Axis offset between model and billet edge (min axes value)';
 
-                % Minus Button
                 btnMinP = uibutton(gridBPos, 'Text', '-', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
                 btnMinP.Layout.Row = rk;
                 btnMinP.Layout.Column = 3;
 
-                % CENTER OFFSET (Shift EditField)
                 app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', [0.7 0.7 0.8], 'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
                 app.BilletCenterOffsetEdits(k).Layout.Row = rk;
                 app.BilletCenterOffsetEdits(k).Layout.Column = 4;
                 app.BilletCenterOffsetEdits(k).Tooltip = 'Offset in axis relative to imported model origin';
 
-                % Plus Button
                 btnPlusP = uibutton(gridBPos, 'Text', '+', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
                 btnPlusP.Layout.Row = rk;
                 btnPlusP.Layout.Column = 5;
 
-                % POS OFFSET (EditField)
                 app.BilletPosOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
                 app.BilletPosOffsetEdits(k).Layout.Row = rk;
                 app.BilletPosOffsetEdits(k).Layout.Column = 6;
                 app.BilletPosOffsetEdits(k).Tooltip = 'Axis offset between model and billet edge (max axes value)';
             end
 
-            % 6. GUIDANCE
+            % 7. GUIDANCE
             lblGuide = uilabel(app.BilletLeftPanel, 'Text', 'Guidance', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblGuide.Layout.Row = 6;
+            lblGuide.Layout.Row = 7;
 
             guideTxt = {
                 'REDUCE FOAM WASTE! >'
@@ -1202,19 +1206,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '2. Adjust using the control blocks if needed.'
                 };
             app.TxtBilletGuide = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtBilletGuide.Layout.Row = 7;
+            app.TxtBilletGuide.Layout.Row = 8;
 
-            % 7. STATUS
+            % 8. STATUS
             lblStat = uilabel(app.BilletLeftPanel, 'Text', 'Status', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblStat.Layout.Row = 8;
+            lblStat.Layout.Row = 9;
 
             app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
-            app.TxtBilletStatus.Layout.Row = 9;
+            app.TxtBilletStatus.Layout.Row = 10;
 
-            % 8. Continue
-            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text', 'Continue', 'FontWeight', 'bold', 'BackgroundColor', [0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
-            app.BtnBilletContinue.Layout.Row = 10;
-
+            % 9. Continue
+            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text', 'Continue', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            app.BtnBilletContinue.Layout.Row = 11;
             % --- Right Panel: 4 Views (Ortho + Iso) ---
             app.BilletRightPanel = uigridlayout(app.GLBillet, [2 2]);
             app.BilletRightPanel.Layout.Column = 2;
@@ -2486,12 +2489,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- EXECUTE SAFE TAB TRANSITION ---
             disp(['>> ALL GATES PASSED. Rendering ' targetTab.Title ' tab.']);
             app.resetInteractionState();
-            drawnow; pause(0.05);
+            drawnow; pause(0.05); % Stabilize UI to prevent plot discarding
 
             if isWelcome
                 app.applyTheme();
-                
+
             elseif isBillet
+                % If user hasn't locked in custom values, automatically adapt!
+                if ~app.IsBilletUserModified
+                    app.onAutoFitBillet();
+                    app.onAutoPositionModel();
+                end
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
@@ -2499,22 +2507,39 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.syncMachineUI();
 
                 chkM2 = cell(1,4);[chkM2{1}, chkM2{2}, chkM2{3}, chkM2{4}] = app.checkMachineState();
-                isValidMachF = chkM2{1}; pColF = chkM2{2}; tColF = chkM2{3}; msgLinesF = chkM2{4};
+                isValidMachFinal = chkM2{1};
+                pColFinal = chkM2{2};
+                tColFinal = chkM2{3};
+                msgLinesFinal = chkM2{4};
 
-                app.MachineLeftPanel.BackgroundColor = pColF;
-                app.TxtMachineStatus.Value = msgLinesF;
-                app.TxtMachineStatus.FontColor = tColF;
-                if isValidMachF, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
+                app.MachineLeftPanel.BackgroundColor = pColFinal;
+                app.TxtMachineStatus.Value = msgLinesFinal;
+                app.TxtMachineStatus.FontColor = tColFinal;
+
+                if isValidMachFinal
+                    app.BtnMachineContinue.Enable = 'on';
+                else
+                    app.BtnMachineContinue.Enable = 'off';
+                end
+
                 app.refreshMachinePlot();
 
             elseif isCutting
                 chkC2 = cell(1,4);[chkC2{1}, chkC2{2}, chkC2{3}, chkC2{4}] = app.validateCuttingStrategy();
-                isValidCutF = chkC2{1}; pColCF = chkC2{2}; tColCF = chkC2{3}; msgLinesCF = chkC2{4};
+                isValidCutFinal = chkC2{1};
+                pColCFinal = chkC2{2};
+                tColCFinal = chkC2{3};
+                msgLinesCFinal = chkC2{4};
 
-                app.CuttingLeftPanel.BackgroundColor = pColCF;
-                app.TxtCuttingStatus.Value = msgLinesCF;
-                app.TxtCuttingStatus.FontColor = tColCF;
-                if isValidCutF, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+                app.CuttingLeftPanel.BackgroundColor = pColCFinal;
+                app.TxtCuttingStatus.Value = msgLinesCFinal;
+                app.TxtCuttingStatus.FontColor = tColCFinal;
+
+                if isValidCutFinal
+                    app.BtnCuttingContinue.Enable = 'on';
+                else
+                    app.BtnCuttingContinue.Enable = 'off';
+                end
 
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
@@ -2525,6 +2550,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             elseif isPost
                 app.updatePostProcessUI();
+                app.onPostProcess(); % Actually generate the G-code and draw the plot!
             end
 
             disp('>> Render complete.');
@@ -3328,7 +3354,60 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+        function onResetBilletViewModel(app)
+            app.BilletViewMode = "Model";
+            app.refreshBilletPlots();
+        end
+
+        function onResetBilletViewBillet(app)
+            app.BilletViewMode = "Billet";
+            app.refreshBilletPlots();
+        end
+
         function onAutoFitBillet(app)
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
+            else
+                P = app.ModelPatch.Vertices;
+            end
+
+            localMins = min(P);
+            localMaxs = max(P);
+
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            buf = app.ModelEdgeWarningBuffer;
+            tinyBuf = app.ModelXPlacementBuffer;
+
+            bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
+            bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
+
+            reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
+            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
+            bSizeZ = reqZ;
+            for i = 1:numel(stocks)
+                if reqZ <= stocks(i)
+                    bSizeZ = stocks(i);
+                    break;
+                end
+            end
+
+            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
+            app.BilletShift = [0 0 0];
+
+            app.IsCuttingInit = false;
+            app.IsBilletUserModified = false; % Tracks auto state
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function onAutoPositionModel(app)
             if isempty(app.ModelPatch)
                 return;
             end
@@ -3344,72 +3423,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            buf = app.ModelEdgeWarningBuffer;
-            tinyBuf = app.ModelXPlacementBuffer;
-
-            % X Size: EXACT distance between cutting planes + 2x tiny safety buffer
-            bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
-
-            % Y Size: Profile depth + 2x 4mm buffer, rounded UP to nearest mm
-            bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
-
-            % Z Size: Profile height + 2x 4mm buffer, snapped to stock sizes
-            reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
-
-            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
-            bSizeZ = reqZ;
-            for i = 1:numel(stocks)
-                if reqZ <= stocks(i)
-                    bSizeZ = stocks(i);
-                    break;
-                end
-            end
-
-            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
-            app.BilletShift = [0 0 0];
-
-            app.IsCuttingInit = false;
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function onAutoPositionModel(app)
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            % 1. Get bounds from sliced profiles (not the whole CAD mesh)
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
-            else
-                P = app.ModelPatch.Vertices; % Fallback
-            end
-
-            % Safe boundary calculation
-            localMins = min(P);
-            localMaxs = max(P);
-
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
             planeMinX = min(xL, xR);
             tinyBuf = app.ModelXPlacementBuffer;
 
-            % --- CALCULATE SHIFT ---
-
-            % X: Snug against the left of the billet with a tiny 0.001mm safety buffer
             app.BilletShift(1) = tinyBuf - planeMinX;
-
-            % Y: Anchor exactly 4mm from the FRONT of the block
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
-
-            % Z: Anchor exactly 4mm from the TOP of the block
             app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
 
-            % Invalidate downstream cutting strategy so collisions are re-checked
             app.IsCuttingInit = false;
+            app.IsBilletUserModified = false; % Tracks auto state
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3420,11 +3442,13 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetPosition(app)
-            if isempty(app.ModelPatch), return; end
+            if isempty(app.ModelPatch)
+                return;
+            end
 
             app.BilletShift = [0 0 0];
-
             app.IsCuttingInit = false;
+            app.IsBilletUserModified = true; % User forced a reset
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3435,6 +3459,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
 
             app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3443,17 +3468,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onBilletSizeEdited(app, axisIdx, src)
             val = src.Value;
             minVal = 1.0;
-            maxVal = 10000.0;
-
-            switch axisIdx
-                case 1 % X Axis
-                    maxVal = app.MachineBedSize(1);
-                case 2 % Y Axis
-                    maxVal = app.MachineBedSize(2);
-                case 3 % Z Axis
-                    % FIX: Use the correct constant scalar property
-                    maxVal = app.MachineLimitZ;
-            end
+            maxVal = app.MachineLimitZ;
+            if axisIdx == 1, maxVal = app.MachineBedSize(1); end
+            if axisIdx == 2, maxVal = app.MachineBedSize(2); end
 
             if val < minVal
                 val = minVal;
@@ -3465,6 +3482,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSize(axisIdx) = val;
 
             app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3473,24 +3491,23 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onBilletOffsetEdited(app, axisIdx, whichField, src)
             val = src.Value;
 
-            % FIX: Use the extracted profiles to match the UI gap logic!
+            % FIX: Use the exact same profile-aware bounds as syncBilletUI!
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
                 P = [app.LeftProfilePoints; app.RightProfilePoints];
             else
-                if isempty(app.ModelPatch)
-                    return;
-                end
+                if isempty(app.ModelPatch), return; end
                 P = app.ModelPatch.Vertices;
             end
 
-            localMins = min(P);
-            localMaxs = max(P);
+            % Use '1' flag for safe column minimums
+            localMins = min(P,[], 1);
+            localMaxs = max(P,[], 1);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
 
-            mMin =[min(xL, xR), localMins(2), localMins(3)];
-            mMax =[max(xL, xR), localMaxs(2), localMaxs(3)];
+            mMin =[min(xL,xR), localMins(2), localMins(3)];
+            mMax =[max(xL,xR), localMaxs(2), localMaxs(3)];
 
             oldShift = app.BilletShift;
 
@@ -3507,8 +3524,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             dZ = app.BilletShift(3) - oldShift(3);
             app.shiftEntryPoints(dY, dZ);
 
-            % Invalidate downstream cutting strategy
             app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3517,7 +3534,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         function moveModelInSpace(app, axisIdx, delta)
             app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
 
-            % FIX: Shift Entry points to match model movement
             dY = 0;
             dZ = 0;
             if axisIdx == 2
@@ -3527,6 +3543,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 dZ = delta(1);
             end
             app.shiftEntryPoints(dY, dZ);
+
+            app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3541,12 +3560,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
-            disp('--- [DEBUG] refreshBilletPlots START ---');
+            % Check if we have a model to plot
             if isempty(app.ModelPatch)
-                disp('   -> Aborted: No ModelPatch.');
                 return;
             end
 
+            % 1. Setup Data
             V     = app.ModelPatch.Vertices;
             F     = app.ModelPatch.Faces;
             bSize = app.BilletSize;
@@ -3555,82 +3574,152 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
+            % Style Settings
             outlineStyle = '--';
             outlineColor = 'k';
-            if isDark, outlineColor = 'w'; end
+            if isDark
+                outlineColor = 'w';
+            end
 
-            modelColor =[0.5 0.5 0.6];
+            % Match Model Appearance across all views
+            modelColor =[ 0.5 0.5 0.6 ];
             modelAlpha = 0.4;
-            wireRed   =[t.planeRed, 0.6];
-            wireGreen = [t.planeGreen, 0.6];
 
+            % Pale Profile Colors for "Wireframe" look
+            wireRed   =[ t.planeRed, 0.6 ];
+            wireGreen = [ t.planeGreen, 0.6 ];
+
+            % 2. Calculate Global Bounding Box (Union of Billet & Model)
             V_shifted = V + shift;
-            allMin = min([0 0 0; min(V_shifted,[],1)]);
-            allMax = max([bSize; max(V_shifted,[],1)]);
+
+            % --- VIEW LOGIC ---
+            if app.BilletViewMode == "Model"
+                allMin = min(V_shifted, [], 1);
+                allMax = max(V_shifted,[], 1);
+            else
+                % TRUE BILLET VIEW: Ignore the model, bound strictly to the Billet!
+                allMin = [ 0, 0, 0 ];
+                allMax = bSize;
+            end
+
+            % --- RESTORE PROPORTIONAL ENGINEERING SCALING ---
+            % Use the maximum single dimension for all axes so Top, Front,
+            % and Right views share the exact same physical scale/zoom!
             span = max(allMax - allMin);
-            if span < 1, span = 100; end
-            center = (allMin + allMax) / 2;
-            limitRange = span * 0.6;
+            if span < 1
+                span = 100;
+            end
 
-            commonX =[center(1)-limitRange, center(1)+limitRange];
-            commonY =[center(2)-limitRange, center(2)+limitRange];
-            commonZ =[center(3)-limitRange, center(3)+limitRange];
+            center = (allMin + allMax) / 2.0;
+            limitRange = span * 0.6; % Half-width + 10% padding
 
+            commonX =[ center(1)-limitRange, center(1)+limitRange ];
+            commonY =[ center(2)-limitRange, center(2)+limitRange ];
+            commonZ =[ center(3)-limitRange, center(3)+limitRange ];
+
+            % Prep Profiles Data (Shifted)
             hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
-            disp(['   -> hasProfiles: ' num2str(hasProfiles)]);
 
             if hasProfiles
                 pL_shifted = app.LeftProfilePoints + shift;
                 pR_shifted = app.RightProfilePoints + shift;
-                disp(['   -> LeftProfile Size: ' num2str(size(pL_shifted,1)) 'x' num2str(size(pL_shifted,2))]);
             end
 
+            % 3. Plot
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[1 2], [1 3], [2 3],[1 2 3]};
-            labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
+            dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ],[ 1 2 3 ]};
+            labs = {
+                {'X (mm)','Y (mm)'};
+                {'X (mm)','Z (mm)'};
+                {'Y (mm)','Z (mm)'};
+                {'X','Y','Z'}
+                };
 
             for i = 1:4
-                ax = axs{i}; d = dims{i};
-                if isempty(ax) || ~isgraphics(ax), continue; end
-                cla(ax); hold(ax,'on');
+                ax = axs{i};
+                d = dims{i};
+
+                if isempty(ax) || ~isgraphics(ax)
+                    continue;
+                end
+
+                cla(ax);
+                hold(ax,'on');
 
                 if i < 4
-                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, 'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+                    % --- 2D ORTHOGRAPHIC VIEWS ---
+                    % 1. Draw Model Projection (Background)
+                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
+                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+
+                    % 2. Draw Ghost Profiles (Midground)
                     if hasProfiles
-                        % Use patch for hardware-accelerated transparent lines
                         patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
-                            'EdgeColor', wireRed(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                         patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
-                            'EdgeColor', wireGreen(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
-                    bx =[0 bSize(d(1)) bSize(d(1)) 0 0];
-                    by =[0 0 bSize(d(2)) bSize(d(2)) 0];
+
+                    % 3. Draw Billet Rectangle (Foreground - on top)
+                    bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
+                    by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
                     plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                 else
-                    patch(ax, 'Vertices', V_shifted, 'Faces', F, 'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+                    % --- 3D ISO VIEW ---
+                    % 1. Draw Model (3D)
+                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
+                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+
+                    % 2. Draw Ghost Profiles (3D)
                     if hasProfiles
-                        patch(ax, 'XData', pL_shifted(:,1), 'YData', pL_shifted(:,2), 'ZData', pL_shifted(:,3), ...
-                            'EdgeColor', wireRed(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
-                        patch(ax, 'XData', pR_shifted(:,1), 'YData', pR_shifted(:,2), 'ZData', pR_shifted(:,3), ...
-                            'EdgeColor', wireGreen(1:3), 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                        patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
+                        patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
+
+                    % 3. Draw Billet Box Wireframe (Foreground - on top)
                     d1 = 0; % Anti-markdown bug
-                    [bx, by, bz] = app.makeBoxVertices(d1, d1, d1, bSize(1), bSize(2), bSize(3));
-                    patch(ax, 'Vertices',[bx, by, bz], 'Faces', app.boxFaces, 'FaceColor', 'none', 'EdgeColor', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
+                    [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
+
+                    % Use patch for 3D box edges
+                    patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
+                        'FaceColor', 'none', ...
+                        'EdgeColor', outlineColor, ...
+                        'LineStyle', outlineStyle, ...
+                        'LineWidth', 1.5);
+
+                    % Standard 3D View settings
                     view(ax, 3);
                 end
 
-                axis(ax, 'equal'); grid(ax, 'on');
+                % Apply Common Styling
+                axis(ax, 'equal');
+                grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
-                if i==1, xlim(ax, commonX); ylim(ax, commonY); end
-                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
-                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
-                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
-            end
-            drawnow limitrate;
-            disp('--- [DEBUG] refreshBilletPlots END ---');
-        end
 
+                % Apply synced limits
+                if i==1
+                    xlim(ax, commonX); ylim(ax, commonY);
+                elseif i==2
+                    xlim(ax, commonX); ylim(ax, commonZ);
+                elseif i==3
+                    xlim(ax, commonY); ylim(ax, commonZ);
+                elseif i==4
+                    xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ);
+                end
+
+                xlabel(ax, labs{i}{1});
+                ylabel(ax, labs{i}{2});
+                if i==4
+                    zlabel(ax, labs{i}{3});
+                end
+
+                set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
+            end
+
+            drawnow limitrate;
+        end
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
@@ -4515,21 +4604,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             daspect(app.AxCutRight,[1 1 1]);
         end
 
-        function [yL, zL, yR, zR] = getSyncedKerfProfiles(app)
+        function[yL, zL, yR, zR] = getSyncedKerfProfiles(app)
             % Centralized Kerf & Sync logic to guarantee exact 1:1 topology
-            % BEFORE any user modifications (Start Index, Flip) are applied.
             if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
                 yL=[]; zL=[]; yR=[]; zR=[];
                 return;
             end
 
-            yL = app.LeftProfilePoints(:,2); zL = app.LeftProfilePoints(:,3);
-            yR = app.RightProfilePoints(:,2); zR = app.RightProfilePoints(:,3);
+            yL = app.LeftProfilePoints(:,2);
+            zL = app.LeftProfilePoints(:,3);
+            yR = app.RightProfilePoints(:,2);
+            zR = app.RightProfilePoints(:,3);
 
             if app.KerfEnabled
-                [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
-                [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                if app.KerfLeftValue ~= 0
+                    [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                end
+                if app.KerfRightValue ~= 0
+                    [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                end
             end
+
+            % --- FIX: ALWAYS re-align start points before syncing! ---
+            % This prevents twist when Kerf is 0, ensuring both profiles
+            % are anchored to the exact front face before parameter blending.
+            [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
             [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
         end
@@ -4786,49 +4885,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 doPlot = true;
             end
 
-            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
-                return;
-            end
+            % Because getSyncedKerfProfiles now strictly enforces reorderLoopByMinY,
+            % Index 1 is mathematically guaranteed to be the exact Z-centroid
+            % on the front face (min Y) for BOTH profiles, regardless of kerf!
+            app.SelectedStartIdxL = 1;
+            app.SelectedStartIdxR = 1;
 
-            yLk = app.LeftProfilePoints(:,2);
-            zLk = app.LeftProfilePoints(:,3);
-
-            yRk = app.RightProfilePoints(:,2);
-            zRk = app.RightProfilePoints(:,3);
-
-            if app.KerfEnabled
-                if app.KerfLeftValue ~= 0
-                    [yLk, zLk] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yLk, zLk, app.KerfLeftValue, app.ProfileTolerance);
-                end
-                if app.KerfRightValue ~= 0
-                    [yRk, zRk] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yRk, zRk, app.KerfRightValue, app.ProfileTolerance);
-                end
-            end
-            [yL_b, ~, yR_b, ~] = HotWireSTEPApp_v6_helpers.syncPointCounts(yLk, zLk, yRk, zRk);
-
-            idxL = 1;
-            idxR = 1;
-
-            if ~isempty(yL_b)
-                [~, idxL] = min(yL_b);
-            end
-
-            if ~isempty(yR_b)[~, idxR] = min(yR_b);
-            end
-
-            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                app.SelectedStartIdxL = idxL;
-                app.SelectedStartIdxR = idxL;
-            else
-                app.SelectedStartIdxL = idxL;
-                app.SelectedStartIdxR = idxR;
-            end
-
-            % FIX: Mark Strategy as initialized
             app.IsCuttingInit = true;
 
             if doPlot
-                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
