@@ -2442,15 +2442,28 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY ---
             if needsCutting
-                d2 = 0;
-                [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
+                disp('>> [DEBUG] Level 5: Cutting Strategy Gate');
+
+                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
+                isValidCut = chkC{1};
+                pColC = chkC{2};
+                tColC = chkC{3};
+                msgLinesC = chkC{4};
+
+                disp(['   -> IsCuttingInit: ', num2str(app.IsCuttingInit)]);
+                disp(['   -> isValidCut: ', num2str(isValidCut)]);
+                if ~isValidCut
+                    disp(['   -> Reason Invalid: ', char(msgLinesC(2))]);
+                end
 
                 if isCutting && ~app.IsCuttingInit
+                    disp('>> QUIET AUTO: Initializing Cutting Strategy');
                     app.onAutoStart(false);
                     app.onAutoEntry(false);
                     drawnow; pause(0.1);
 
                 elseif (~app.IsCuttingInit || ~isValidCut) && ~isCutting
+                    disp('   -> TRIGGERING SKIP WARNING!');
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
@@ -2472,6 +2485,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
+                        disp('>> AUTO: Generating Cutting Strategy');
                         app.onAutoStart(false);
                         app.onAutoEntry(false);
                         drawnow; pause(0.1);
@@ -3338,6 +3352,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoFitBillet(app)
+            disp('--- [DEBUG] onAutoFitBillet START ---');
             if isempty(app.ModelPatch)
                 return;
             end
@@ -3361,6 +3376,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
 
             reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
+
             stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
             bSizeZ = reqZ;
             for i = 1:numel(stocks)
@@ -3370,23 +3386,32 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
+            oldSize = app.BilletSize;
             app.BilletSize = [bSizeX, bSizeY, bSizeZ];
-            app.BilletShift = [0 0 0];
 
-            app.IsCuttingInit = false;
-            app.IsBilletUserModified = false; % Tracks auto state
+            if ~isequal(oldSize, app.BilletSize)
+                disp(['   -> Size changed from ', mat2str(oldSize), ' to ', mat2str(app.BilletSize)]);
+                app.IsCuttingInit = false;
+            end
+
+            % FIX: Removed app.BilletShift = [0 0 0];
+            % Setting it to 0 temporarily destroys the oldShift comparison in AutoPositionModel!
+
+            app.IsBilletUserModified = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
+            disp('--- [DEBUG] onAutoFitBillet END ---');
         end
 
         function onAutoPositionModel(app)
+            disp('--- [DEBUG] onAutoPositionModel START ---');
             if isempty(app.ModelPatch)
                 return;
             end
 
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P =[app.LeftProfilePoints; app.RightProfilePoints];
+                P = [app.LeftProfilePoints; app.RightProfilePoints];
             else
                 P = app.ModelPatch.Vertices;
             end
@@ -3396,15 +3421,26 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
+
             planeMinX = min(xL, xR);
             tinyBuf = app.ModelXPlacementBuffer;
+
+            oldShift = app.BilletShift;
 
             app.BilletShift(1) = tinyBuf - planeMinX;
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
             app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
 
-            app.IsCuttingInit = false;
-            app.IsBilletUserModified = false; % Tracks auto state
+            % Compare with a tolerance to avoid floating point mismatch
+            diffShift = max(abs(oldShift - app.BilletShift));
+            disp(['   -> Max Shift Diff: ', num2str(diffShift)]);
+
+            if diffShift > 1e-4
+                disp(['   -> Shift changed from ', mat2str(oldShift), ' to ', mat2str(app.BilletShift)]);
+                app.IsCuttingInit = false;
+            end
+
+            app.IsBilletUserModified = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3412,6 +3448,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
+            disp('--- [DEBUG] onAutoPositionModel END ---');
         end
 
         function onResetPosition(app)
@@ -4755,9 +4792,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- CASE 1: SET START POINT ---
             if app.BtnPickStart.Value
 
-                [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+                % Safe multi-output call
+                chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
+                syncY_L = chkP{1}; syncZ_L = chkP{2}; syncY_R = chkP{3}; syncZ_R = chkP{4};
 
-                yData = [];
+                yData =[];
                 zData =[];
                 offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
                 offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
@@ -4779,8 +4818,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
-
-                [ ~, minIdx ] = min(distances);
+                [~, minIdx] = min(distances);
 
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
                     app.SelectedStartIdxL = minIdx;
@@ -4819,7 +4857,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
 
-                % --- CASE 4: LINK 2 (NEW) ---
+                % --- CASE 4: LINK 2 ---
             elseif isprop(app, 'BtnPickEntry3') && app.BtnPickEntry3.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPoint3L = cp;
@@ -4832,23 +4870,26 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
             end
-            
+
+            % FIX: Tell the Gatekeeper the user has manually set up the tab!
             app.IsCuttingInit = true;
             app.updateCuttingPlots();
         end
 
         function onSyncToggleChanged(app, src)
-            % Start Point Coupling
             if strcmp(src.Value, 'Coupled')
                 app.SelectedStartIdxR = app.SelectedStartIdxL;
+                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
 
         function onSyncEntryToggleChanged(app, src)
-            % Entry Point Coupling
             if strcmp(src.Value, 'Coupled')
                 app.EntryPointR = app.EntryPointL;
+                app.EntryPoint2R = app.EntryPoint2L;
+                app.EntryPoint3R = app.EntryPoint3L;
+                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
@@ -4858,12 +4899,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                 doPlot = true;
             end
 
-            % Because getSyncedKerfProfiles now strictly enforces reorderLoopByMinY,
-            % Index 1 is mathematically guaranteed to be the exact Z-centroid
-            % on the front face (min Y) for BOTH profiles, regardless of kerf!
-            app.SelectedStartIdxL = 1;
-            app.SelectedStartIdxR = 1;
+            chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
+            yL_b = chkP{1}; yR_b = chkP{3};
 
+            if isempty(yL_b)
+                return;
+            end
+
+            [~, idxL] = min(yL_b);[~, idxR] = min(yR_b);
+
+            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxL;
+            else
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxR;
+            end
+
+            % FIX: Tell the Gatekeeper Auto-Start succeeded!
             app.IsCuttingInit = true;
 
             if doPlot
@@ -4876,7 +4929,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 doPlot = true;
             end
 
-            [yL, zL, yR, zR] = app.getSyncedKerfProfiles();
+            chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
+            yL = chkP{1}; zL = chkP{2}; yR = chkP{3}; zR = chkP{4};
+
             if isempty(yL), return; end
 
             bMinY = app.MachineBilletPos(2);
@@ -4888,7 +4943,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             offZ = app.BilletShift(3) + bMinZ;
             useDualMode = ~isempty(app.EntryPoint2L);
 
-            function [lead, link1, link2] = calcEntryLogic(y, z, startIdx)
+            function[lead, link1, link2] = calcEntryLogic(y, z, startIdx)
                 lead=[]; link1=[]; link2=[];
                 N = numel(y);
                 if startIdx > N || startIdx < 1, startIdx = 1; end
@@ -4898,7 +4953,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 idxN = mod(startIdx, N) + 1;
 
                 S = [y(idxS), z(idxS)];
-                P = [y(idxP), z(idxP)];
+                P =[y(idxP), z(idxP)];
                 N_pt =[y(idxN), z(idxN)];
 
                 vIn  = (S - P) / (norm(S - P) + 1e-9);
@@ -4906,7 +4961,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 vBisect =[-vIn(2), vIn(1)] + [-vOut(2), vOut(1)];
                 if norm(vBisect) < 1e-3
-                    vBisect =[-vIn(2), vIn(1)];
+                    vBisect = [-vIn(2), vIn(1)];
                 end
                 vBisect = vBisect / norm(vBisect);
 
@@ -4945,8 +5000,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 needsRouting = (lead(2) >= bMaxZ) || (lead(1) >= bMaxY);
                 if needsRouting
                     safeZ = bMaxZ + app.MachineSafeHeight;
-                    link2 =[lead(1), max(safeZ, lead(2))];
-                    link1 =[bMinY - 10.0, safeZ];
+                    link2 = [lead(1), max(safeZ, lead(2))];
+                    link1 = [bMinY - 10.0, safeZ];
                 end
             end
 
@@ -4957,16 +5012,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                 app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
             else
-                yR_s = yR + offY; zR_s = zR + offZ;
-                [eR, l1R, l2R] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
+                yR_s = yR + offY; zR_s = zR + offZ;[eR, l1R, l2R] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
                 app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
             end
 
-            % FIX: Mark Strategy as initialized
+            % FIX: Tell the Gatekeeper Auto-Entry succeeded!
             app.IsCuttingInit = true;
 
             if doPlot
-                app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
@@ -5090,6 +5143,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onClearEntries(app)
             app.EntryPointL = []; app.EntryPointR = [];
             app.EntryPoint2L = []; app.EntryPoint2R = [];
+            app.EntryPoint3L = []; app.EntryPoint3R = [];
+            app.IsCuttingInit = true;
             app.updateCuttingPlots();
         end
 
