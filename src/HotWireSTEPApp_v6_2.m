@@ -362,6 +362,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % ---------- Post-Process Tab ----------
         SpinFeedRate
+        ChkDynamicFeed
         SpinPower
         FieldFilename
         BtnPostProcess
@@ -1632,9 +1633,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             panPSettings = uipanel(app.PostLeftPanel, 'Title','Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             panPSettings.Layout.Row = 2;
 
-            gridPSet = uigridlayout(panPSettings, [ 2 2 ]);
-            gridPSet.ColumnWidth={'1x', 80};
-            gridPSet.Padding=[ 5 5 5 5 ]; gridPSet.BackgroundColor=panelBg;
+            % FIX: Expanded to 3 columns to fit the checkbox!
+            gridPSet = uigridlayout(panPSettings, [ 2 3 ]);
+            gridPSet.ColumnWidth={'1x', 80, 85};
+            gridPSet.Padding=[ 5 5 5 5 ];
+            gridPSet.BackgroundColor=panelBg;
 
             lblFeed = uilabel(gridPSet, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
             lblFeed.Layout.Row=1; lblFeed.Layout.Column=1;
@@ -1643,6 +1646,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=2;
             app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
             app.SpinFeedRate.ValueChangedFcn = @(src,evt)app.updatePostStatus();
+
+            % NEW: Dynamic Feed Checkbox
+            app.ChkDynamicFeed = uicheckbox(gridPSet, 'Text', 'Dynamic', 'FontColor', labelCol, 'Value', true);
+            app.ChkDynamicFeed.Layout.Row=1; app.ChkDynamicFeed.Layout.Column=3;
+            app.ChkDynamicFeed.Tooltip = 'Scale feed rate continuously so the wire maintains constant speed through the foam on tapered parts.';
+            app.ChkDynamicFeed.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
             lblPower = uilabel(gridPSet, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
             lblPower.Layout.Row=2; lblPower.Layout.Column=1;
@@ -2243,19 +2252,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
 
             if ~isTaper
-                % Straight Mode: Must be Coupled
+                % Straight Mode: Must be Coupled Kerf and NO Dynamic Feed
                 if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
-                    % Force value
                     app.KerfModeSwitch.Value = 'Coupled';
-                    % Trigger the coupled logic (disables Right spinner, syncs values)
                     app.onKerfModeChanged(app.KerfModeSwitch);
-                    % Visually disable the switch so user can't change it
                     app.KerfModeSwitch.Enable = 'off';
+                end
+                if isprop(app, 'ChkDynamicFeed') && isgraphics(app.ChkDynamicFeed)
+                    app.ChkDynamicFeed.Value = false;
+                    app.ChkDynamicFeed.Enable = 'off';
                 end
             else
                 % Taper Mode: Allow Independent choice
                 if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Enable = 'on';
+                end
+                if isprop(app, 'ChkDynamicFeed') && isgraphics(app.ChkDynamicFeed)
+                    app.ChkDynamicFeed.Enable = 'on';
                 end
             end
 
@@ -5997,28 +6010,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             pathIdx = 0;
 
             function add(code, comment, tx, ty, tz, ta)
+                % Format the string safely, dropping empty comments
+                if nargin >= 2 && ~isempty(char(comment))
+                    if startsWith(strtrim(comment), '(')
+                        s = sprintf('%-35s %s', code, comment);
+                    else
+                        s = sprintf('%-35s (%s)', code, comment);
+                    end
+                else
+                    s = code;
+                end
+
                 if nargin < 6
                     % Command without movement
-                    s = code;
-                    if nargin >= 2 && ~isempty(comment)
-                        if startsWith(strtrim(comment), '(')
-                            s = sprintf('%-35s %s', code, comment);
-                        else
-                            s = sprintf('%-35s (%s)', code, comment);
-                        end
-                    end
                     lines(end+1) = s;
                     map(end+1) = max(1, pathIdx);
                 else
                     % Movement command
-                    s = sprintf('%-35s (%s)', code, comment);
                     lines(end+1) = s;
                     pathIdx = pathIdx + 1;
 
-                    app.PP_TowerPathL(pathIdx,:) = [xT_L, tx, ty];
-                    app.PP_TowerPathR(pathIdx,:) = [xT_R, tz, ta];
+                    app.PP_TowerPathL(pathIdx,:) =[xT_L, tx, ty];
+                    app.PP_TowerPathR(pathIdx,:) =[xT_R, tz, ta];
 
-                    dummy0 = 0;[mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta);
+                    d1 = 0;
+                    [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta);
 
                     app.PP_PathL(pathIdx,:) =[mxL, myL, mzL];
                     app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
@@ -6112,14 +6128,58 @@ classdef HotWireSTEPApp_v6_2 < handle
             pSyncL = app.ProfileSyncL;
             pSyncR = app.ProfileSyncR;
 
-            dummy4 = 0; [tx, ty, tz, ta] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
-            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Start Point', tx, ty, tz, ta);
+            useDynamicFeed = app.ChkDynamicFeed.Value;
+
+            d5 = 0;
+            [tx_prev, ty_prev, tz_prev, ta_prev] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
+
+            % Add initial Start Point move
+            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx_prev, ty_prev, tz_prev, ta_prev), 'Start Point', tx_prev, ty_prev, tz_prev, ta_prev);
 
             app.PP_ProfileStartIndex = pathIdx;
 
             for i = 2:size(pSyncL, 1)
-                dummy5 = 0; [tx, ty, tz, ta] = project(pSyncL(i,1), pSyncL(i,2), pSyncR(i,1), pSyncR(i,2));
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', tx, ty, tz, ta);
+
+                % 1. Get Model/Foam coordinates for this segment
+                mL1 = pSyncL(i-1, :); mL2 = pSyncL(i, :);
+                mR1 = pSyncR(i-1, :); mR2 = pSyncR(i, :);
+
+                % 2. Get Machine Tower coordinates for this segment
+                d6 = 0;
+                [tx, ty, tz, ta] = project(mL2(1), mL2(2), mR2(1), mR2(2));
+
+                if useDynamicFeed
+                    % 3. Calculate Distances
+                    distL_model = hypot(mL2(1) - mL1(1), mL2(2) - mL1(2));
+                    distR_model = hypot(mR2(1) - mR1(1), mR2(2) - mR1(2));
+
+                    % We govern the speed by the side moving the fastest through the foam
+                    dist_Model_Max = max(distL_model, distR_model);
+
+                    % Calculate the 4D distance Mach4 will use to govern the axes
+                    dist_Mach4 = sqrt((tx - tx_prev)^2 + (ty - ty_prev)^2 + (tz - tz_prev)^2 + (ta - ta_prev)^2);
+
+                    % 4. Calculate Dynamic Feedrate
+                    if dist_Model_Max > 1e-5
+                        dynamicFeed = feed * (dist_Mach4 / dist_Model_Max);
+                    else
+                        dynamicFeed = feed; % Fallback for stationary/micro moves
+                    end
+
+                    % Cap the maximum machine speed to prevent motor stall (e.g., 1500 mm/min limit)
+                    if dynamicFeed > 1500.0
+                        dynamicFeed = 1500.0;
+                    end
+
+                    % Output the line with the custom F-word
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynamicFeed), '', tx, ty, tz, ta);
+                else
+                    % Standard fallback output
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', tx, ty, tz, ta);
+                end
+
+                % Store previous tower coordinates for next loop
+                tx_prev = tx; ty_prev = ty; tz_prev = tz; ta_prev = ta;
             end
 
             app.PP_ProfileEndIndex = pathIdx;
