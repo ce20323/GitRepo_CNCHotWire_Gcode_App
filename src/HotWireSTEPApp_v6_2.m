@@ -1966,7 +1966,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Compute and plot intersection profiles for left/right planes.
             if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
 
-            disp('>> COMPUTE PROFILES: Started');
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value,'Tapered');
 
@@ -1981,8 +1980,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
             xRight = app.ModelXMin + app.NumRightOffset.Value;
 
-            disp(['   Slicing Left at X = ' num2str(xLeft)]);
-
             % Left Extraction
             meshL = cell(1,3);
             [meshL{1}, meshL{2}, meshL{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
@@ -1994,12 +1991,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             [loopL{1}, loopL{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
             yLoopL = loopL{1}; zLoopL = loopL{2};
 
-            disp(['   Left Raw Loop Points: ' num2str(numel(yLoopL))]);
-
             % Right Extraction
             yLoopR =[]; zLoopR = [];
             if isTaper
-                disp(['   Slicing Right at X = ' num2str(xRight)]);
                 meshR = cell(1,3);
                 [meshR{1}, meshR{2}, meshR{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
                 xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
@@ -2010,12 +2004,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 [loopR{1}, loopR{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
                 yLoopR = loopR{1}; zLoopR = loopR{2};
             else
-                disp('   Straight Mode: Copying Left to Right');
                 yLoopR = yLoopL; zLoopR = zLoopL;
                 app.RightProfileRawYZ = app.LeftProfileRawYZ;
             end
-
-            disp(['   Right Raw Loop Points: ' num2str(numel(yLoopR))]);
 
             % Resampling
             if ~isempty(yLoopL) && ~isempty(yLoopR)
@@ -2044,7 +2035,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             nL = size(app.LeftProfilePoints,1);
             nR = size(app.RightProfilePoints,1);
-            disp(['   Extraction Complete. Final Synced Points -> L: ' num2str(nL) ', R: ' num2str(nR)]);
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
                 app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL, nR);
@@ -2286,11 +2276,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            disp('================================================');
-            disp(['TAB JUMP REQUESTED: ' oldTab.Title ' -> ' targetTab.Title]);
-
-            % Determine which checks are needed based on destination
-            isWelcome  = (targetTab == app.TabWelcome);
             isModel    = (targetTab == app.TabModel);
             isProfiles = (targetTab == app.TabProfiles);
             isBillet   = (targetTab == app.TabBillet);
@@ -2299,7 +2284,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             isSim      = (targetTab == app.TabSimulation);
             isPost     = (targetTab == app.TabPostProcess);
 
-            needsProfiles = isProfiles || isBillet || isMachine || isCutting || isSim || isPost;
+            needsProfiles = ~isModel;
             needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
             needsBillet   = isBillet || isMachine || isCutting || isSim || isPost;
             needsMachine  = isMachine || isCutting || isSim || isPost;
@@ -2362,17 +2347,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 3: BILLET ---
             if needsBillet
-                % QUIET AUTO-FIT: If user hasn't locked custom billet values, always shrink-wrap to latest profiles.
-                if ~app.IsBilletUserModified && hasProfiles
-                    disp('>> QUIET AUTO: Tracking Billet to new profiles');
-                    app.onAutoFitBillet();
-                    app.onAutoPositionModel();
-                end
-
                 isValidBillet = app.syncBilletUI();
 
                 if sum(app.BilletSize) == 0 || ~isValidBillet
-                    if isBillet
+
+                    if targetTab == app.TabBillet
                         app.onAutoFitBillet();
                         app.onAutoPositionModel();
                         drawnow; pause(0.1);
@@ -2405,14 +2384,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 4: MACHINE ---
             if needsMachine
-                d1 = 0; % Anti-markdown bug
-                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
-
-                if isMachine && ~app.IsMachineInit
+                if targetTab == app.TabMachine && ~app.IsMachineInit
                     app.onResetMachineBilletPosition();
                     drawnow; pause(0.1);
+                end
 
-                elseif (~app.IsMachineInit || ~isValidMach) && ~isMachine
+                d1 = 0;
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+
+                if ~app.IsMachineInit || ~isValidMach
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('You skipped a step! The billet has not been safely positioned on the machine bed.\n\nIt is highly recommended to click the "Auto-Position Billet" button on the Machine tab, and manually adjust if needed.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
@@ -2442,28 +2422,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY ---
             if needsCutting
-                disp('>> [DEBUG] Level 5: Cutting Strategy Gate');
-
-                chkC = cell(1,4);[chkC{1}, chkC{2}, chkC{3}, chkC{4}] = app.validateCuttingStrategy();
-                isValidCut = chkC{1};
-                pColC = chkC{2};
-                tColC = chkC{3};
-                msgLinesC = chkC{4};
-
-                disp(['   -> IsCuttingInit: ', num2str(app.IsCuttingInit)]);
-                disp(['   -> isValidCut: ', num2str(isValidCut)]);
-                if ~isValidCut
-                    disp(['   -> Reason Invalid: ', char(msgLinesC(2))]);
-                end
-
-                if isCutting && ~app.IsCuttingInit
-                    disp('>> QUIET AUTO: Initializing Cutting Strategy');
+                if targetTab == app.TabCutting && ~app.IsCuttingInit
                     app.onAutoStart(false);
                     app.onAutoEntry(false);
                     drawnow; pause(0.1);
+                end
 
-                elseif (~app.IsCuttingInit || ~isValidCut) && ~isCutting
-                    disp('   -> TRIGGERING SKIP WARNING!');
+                d2 = 0; % Anti-markdown bug
+                [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
+
+                if ~app.IsCuttingInit || ~isValidCut
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
@@ -2485,7 +2453,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                         end
                     end
                     if forceAuto
-                        disp('>> AUTO: Generating Cutting Strategy');
                         app.onAutoStart(false);
                         app.onAutoEntry(false);
                         drawnow; pause(0.1);
@@ -2494,19 +2461,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- EXECUTE SAFE TAB TRANSITION ---
-            disp(['>> ALL GATES PASSED. Rendering ' targetTab.Title ' tab.']);
             app.resetInteractionState();
             drawnow; pause(0.05);
 
-            if isWelcome
-                app.applyTheme();
-
-            elseif isBillet
+            if targetTab == app.TabBillet
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
-            elseif isMachine
+            elseif targetTab == app.TabMachine
                 app.syncMachineUI();
+
                 d3 = 0;
                 [ isValidMachF, pColF, tColF, msgLinesF ] = app.checkMachineState();
 
@@ -2516,7 +2480,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if isValidMachF, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
                 app.refreshMachinePlot();
 
-            elseif isCutting
+            elseif targetTab == app.TabCutting
+
                 d4 = 0;
                 [ isValidCutF, pColCF, tColCF, msgLinesCF ] = app.validateCuttingStrategy();
 
@@ -2528,19 +2493,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
-            elseif isSim
+            elseif targetTab == app.TabSimulation
                 app.applyTheme();
                 app.generateSimulationData();
 
-            elseif isPost
+            elseif targetTab == app.TabPostProcess
                 app.updatePostProcessUI();
-
-                % FORCE: Fresh generation of paths in case Billet/Machine coordinates moved
                 app.generateSimulationData();
                 app.onPostProcess();
             end
-
-            disp('>> Render complete.');
         end
 
         function onProfileToleranceChanged(app, src)
@@ -3352,7 +3313,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onAutoFitBillet(app)
-            disp('--- [DEBUG] onAutoFitBillet START ---');
             if isempty(app.ModelPatch)
                 return;
             end
@@ -3374,7 +3334,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
             bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
-
             reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
 
             stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
@@ -3387,25 +3346,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             oldSize = app.BilletSize;
-            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
+            app.BilletSize =[bSizeX, bSizeY, bSizeZ];
 
             if ~isequal(oldSize, app.BilletSize)
-                disp(['   -> Size changed from ', mat2str(oldSize), ' to ', mat2str(app.BilletSize)]);
                 app.IsCuttingInit = false;
             end
-
-            % FIX: Removed app.BilletShift = [0 0 0];
-            % Setting it to 0 temporarily destroys the oldShift comparison in AutoPositionModel!
 
             app.IsBilletUserModified = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
-            disp('--- [DEBUG] onAutoFitBillet END ---');
         end
 
         function onAutoPositionModel(app)
-            disp('--- [DEBUG] onAutoPositionModel START ---');
             if isempty(app.ModelPatch)
                 return;
             end
@@ -3431,12 +3384,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
             app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
 
-            % Compare with a tolerance to avoid floating point mismatch
             diffShift = max(abs(oldShift - app.BilletShift));
-            disp(['   -> Max Shift Diff: ', num2str(diffShift)]);
 
             if diffShift > 1e-4
-                disp(['   -> Shift changed from ', mat2str(oldShift), ' to ', mat2str(app.BilletShift)]);
                 app.IsCuttingInit = false;
             end
 
@@ -3448,7 +3398,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
-            disp('--- [DEBUG] onAutoPositionModel END ---');
         end
 
         function onResetPosition(app)
@@ -4673,7 +4622,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onCutDirectionChanged(app)
             % Triggered when switching between CW (Top First) and CCW (Bottom First)
-            disp(['Direction changed to: ' app.SwitchCutDir.Value]);
             app.updateCuttingPlots();
         end
 
@@ -5182,7 +5130,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
 
         function generateSimulationData(app)
-            disp('--- [DEBUG] generateSimulationData START ---');
 
             if isempty(app.AxSim) || ~isgraphics(app.AxSim)
                 disp('   -> ERROR: AxSim is missing!'); return;
@@ -5192,12 +5139,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-
-            disp('   -> Fetching Synced Kerf Profiles...');
+            
             d1 = 0; % Anti-markdown bug
             [syncY_L, syncZ_L, syncY_R, syncZ_R] = app.getSyncedKerfProfiles();
-
-            disp(['   -> Base Profiles: L=' num2str(numel(syncY_L)) ' pts, R=' num2str(numel(syncY_R)) ' pts']);
 
             d2 = 0; % Anti-markdown bug
             [yL, zL] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
@@ -5209,7 +5153,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            disp('   -> Applying Truth Geometry for G-Code...');
             app.ProfileSyncL = [yL(:), zL(:)];
             app.ProfileSyncR = [yR(:), zR(:)];
 
@@ -5258,7 +5201,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                     [0, 0]];
             end
 
-            disp('   -> Generating Raw Routing Segments...');
             rawRapL = mkRapid(app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
             rawRapR = mkRapid(app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
@@ -5332,7 +5274,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 out.yL = yLD; out.zL = zLD; out.yR = yRD; out.zR = zRD;
             end
 
-            disp('   -> Densifying Waypoints...');
             tmp = densifyWaypoints(rawRapL(:,1), rawRapL(:,2), rawRapR(:,1), rawRapR(:,2));
             dRapL_y = tmp.yL; dRapL_z = tmp.zL; dRapR_y = tmp.yR; dRapR_z = tmp.zR;
 
@@ -5398,9 +5339,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.SimIndexSpinner.Value = 1;
             end
 
-            disp('   -> Data generated. Initializing Plot...');
             app.initSimulationPlot();
-            disp('--- [DEBUG] generateSimulationData END ---');
         end
 
         % --- View Management ---
