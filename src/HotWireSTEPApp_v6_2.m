@@ -117,6 +117,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         TxtWelcomeIntro                 % Welcome Intro Text
         TxtWelcomeInstruct              % Welcome Instructions Text
         BtnBrowseFreeCAD                % Browse Button
+        ThemeSwitch                     % Theme Toggle
+        ImgWelcomeLogo                  % Logo handle for dynamic swapping
         GLModel                         % Model tab layout
         GLLeft                          % Model tab left panel
         GLProfiles                      % Profiles tab layout
@@ -324,6 +326,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         LblReadoutY                       % Y Coord
         LblReadoutZ                       % Z Coord
         LblReadoutA                       % A Coord
+        LblBaseFeed                       % Base Feed Set on Post Tab
 
         % --- Visual Data (Interpolated for Smoothness) ---
         SimPathL                          % Nx3 [x, y, z] Machine Coords (Left)
@@ -455,6 +458,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 1. Main Window Setup ---
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
+            app.UIFigure.Color = [0.16 0.16 0.16];% <--- FORCE DARK MODE DEFAULT
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
             app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event); %key press on post tab to scroll code
@@ -491,8 +495,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
             pnlAnatomy.Layout.Column = 1;
 
-            glAnat = uigridlayout(pnlAnatomy,[ 4 1 ]);
-            glAnat.RowHeight = {'fit', '1x', '2x', 'fit'};
+% 5 Rows to accommodate the new switch
+            glAnat = uigridlayout(pnlAnatomy,[ 5 1 ]);
+            glAnat.RowHeight = {'fit', '1x', '2x', 'fit', 'fit'};
             glAnat.Padding =[ 10 10 10 10 ];
             glAnat.BackgroundColor = sideBg;
 
@@ -513,15 +518,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             % The "Mock UI" Explainer Box
             pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
 
-            % 8 rows with precise placement to fix inconsistent gaps
-            glMock = uigridlayout(pnlMock, [ 8 1 ]);
+            glMock = uigridlayout(pnlMock,[ 8 1 ]);
             glMock.RowHeight = {'fit','fit', 'fit','fit', 'fit','fit', 'fit','fit'};
             glMock.RowSpacing = 2; % Tight gap between labels and text
             glMock.BackgroundColor = panelBg;
 
             lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
             lbl1.Layout.Row = 1;
-            txt1 = uitextarea(glMock, 'Value', {'For eacht tab, the top of the left panel will containt buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt1 = uitextarea(glMock, 'Value', {'For each tab, the top of the left panel will contain buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
             txt1.Layout.Row = 2;
 
             lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
@@ -540,10 +544,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             txt4 = uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
             txt4.Layout.Row = 8;
 
+            % --- NEW: Theme Toggle ---
+            glTheme = uigridlayout(glAnat, [ 1 2 ]);
+            glTheme.RowHeight = {'fit'};
+            glTheme.ColumnWidth = {'fit', 'fit'};
+            glTheme.Padding =[ 0 0 0 0 ];
+            glTheme.BackgroundColor = sideBg;
+            glTheme.Layout.Row = 4;
+            
+            lblTheme = uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
+            lblTheme.Layout.Column = 1;
+            
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', 'Dark');
+            app.ThemeSwitch.FontColor = labelCol;
+            app.ThemeSwitch.ValueChangedFcn = @(src,evt)app.onThemeToggleChanged(src);
+            app.ThemeSwitch.Layout.Column = 2;
+
             % Continue Button
             btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            btnWelcomeCont.Layout.Row = 4;
+            btnWelcomeCont.Layout.Row = 5;
 
             % -----------------------------------------------------------
             % RIGHT PANEL: Main Content & Setup
@@ -588,13 +608,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Logo on the Right
             if isfile(pathOption1)
-                img = uiimage(glHead, 'ImageSource', pathOption1);
+                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption1);
             elseif isfile(pathOption2)
-                img = uiimage(glHead, 'ImageSource', pathOption2);
+                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption2);
             else
-                img = uiimage(glHead); % Blank placeholder
+                app.ImgWelcomeLogo = uiimage(glHead); % Blank placeholder
             end
-            img.Layout.Row = 1; img.Layout.Column = 2;
+            app.ImgWelcomeLogo.Layout.Row = 1; app.ImgWelcomeLogo.Layout.Column = 2;
 
             % --- About Section ---
             pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
@@ -1224,7 +1244,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletRightPanel.Layout.Column = 2;
             app.BilletRightPanel.RowHeight = {'1x', '1x'};
             app.BilletRightPanel.ColumnWidth = {'1x', '1x'};
-            app.BilletRightPanel.BackgroundColor = [0 0 0];
+            app.BilletRightPanel.BackgroundColor = panelBg;
 
             % Top Left
             app.AxBilletTop = uiaxes(app.BilletRightPanel);
@@ -1538,14 +1558,27 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlSSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSSet.Layout.Row = 3;
 
-            gridSSet = uigridlayout(pnlSSet, [1 2]);
-            gridSSet.ColumnWidth={'fit','1x'};
+            % 2 Rows, 2 Columns
+            gridSSet = uigridlayout(pnlSSet, [2 2]);
+            gridSSet.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
+            gridSSet.RowHeight={'fit', 'fit'};
             gridSSet.Padding=[5 5 5 5];
             gridSSet.BackgroundColor=panelBg;
 
-            lblSimSpeed = uilabel(gridSSet, 'Text','Speed (x):', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            % Row 1: Sim Speed
+            lblSimSpeed = uilabel(gridSSet, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSimSpeed.Layout.Row=1; lblSimSpeed.Layout.Column=1;
 
-            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 10], 'Value',1.0, 'Step',0.1);
+            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 60], 'Value',1.0, 'Step',0.1, 'Tooltip', 'Simulation speed as multiple of set feed rate');
+            app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
+
+            % Row 2: Read-only Base Feed
+            lblBaseFeed = uilabel(gridSSet, 'Text','Base Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblBaseFeed.Layout.Row=2; lblBaseFeed.Layout.Column=1;
+
+            app.LblBaseFeed = uilabel(gridSSet, 'Text', sprintf('%.0f', HotWireSTEPApp_v6_2.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
+                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+            app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
 
             % 4. Live Coordinates
             pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
@@ -1633,31 +1666,33 @@ classdef HotWireSTEPApp_v6_2 < handle
             panPSettings = uipanel(app.PostLeftPanel, 'Title','Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             panPSettings.Layout.Row = 2;
 
-            % FIX: Expanded to 3 columns to fit the checkbox!
+            % Col 1 ('1x') aligns Checkbox Left, pushing Col 2 and 3 to the Right!
             gridPSet = uigridlayout(panPSettings, [ 2 3 ]);
-            gridPSet.ColumnWidth={'1x', 80, 85};
-            gridPSet.Padding=[ 5 5 5 5 ];
+            gridPSet.ColumnWidth={'1x', 'fit', 80};
+            gridPSet.RowHeight={'fit', 'fit'};
+            gridPSet.Padding=[ 5 5 5 5 ]; 
             gridPSet.BackgroundColor=panelBg;
 
-            lblFeed = uilabel(gridPSet, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
-            lblFeed.Layout.Row=1; lblFeed.Layout.Column=1;
-
-            app.SpinFeedRate = uispinner(gridPSet, 'Limits',[ 10 500 ], 'Value', HotWireSTEPApp_v6_2.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f');
-            app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=2;
-            app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
-            app.SpinFeedRate.ValueChangedFcn = @(src,evt)app.updatePostStatus();
-
-            % NEW: Dynamic Feed Checkbox
+            % Row 1
             app.ChkDynamicFeed = uicheckbox(gridPSet, 'Text', 'Dynamic', 'FontColor', labelCol, 'Value', true);
-            app.ChkDynamicFeed.Layout.Row=1; app.ChkDynamicFeed.Layout.Column=3;
+            app.ChkDynamicFeed.Layout.Row=1; app.ChkDynamicFeed.Layout.Column=1;
             app.ChkDynamicFeed.Tooltip = 'Scale feed rate continuously so the wire maintains constant speed through the foam on tapered parts.';
             app.ChkDynamicFeed.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
+            lblFeed = uilabel(gridPSet, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblFeed.Layout.Row=1; lblFeed.Layout.Column=2;
+
+            app.SpinFeedRate = uispinner(gridPSet, 'Limits',[ 10 500 ], 'Value', HotWireSTEPApp_v6_2.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f');
+            app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=3;
+            app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
+            app.SpinFeedRate.ValueChangedFcn = @(src,evt)app.updatePostStatus();
+
+            % Row 2
             lblPower = uilabel(gridPSet, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
-            lblPower.Layout.Row=2; lblPower.Layout.Column=1;
+            lblPower.Layout.Row=2; lblPower.Layout.Column=2;
 
             app.SpinPower = uispinner(gridPSet, 'Limits',[ 10 100 ], 'Value', HotWireSTEPApp_v6_2.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f');
-            app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=2;
+            app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=3;
             app.SpinPower.Tooltip = 'Programmed wire power, kerf is proportional to wire power';
             app.SpinPower.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
@@ -2507,7 +2542,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.onResetCuttingViewBillet();
 
             elseif targetTab == app.TabSimulation
-                app.applyTheme();
+                app.applyTheme();              
+                app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);             
                 app.generateSimulationData();
 
             elseif targetTab == app.TabPostProcess
@@ -3347,24 +3383,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
             bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
-            reqZ = (localMaxs(3) - localMins(3)) + (2.0 * buf);
 
-            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
-            bSizeZ = reqZ;
-            for i = 1:numel(stocks)
-                if reqZ <= stocks(i)
-                    bSizeZ = stocks(i);
-                    break;
-                end
-            end
+            % FIX: Round Z up to the nearest millimeter just like Y!
+            bSizeZ = ceil((localMaxs(3) - localMins(3)) + (2.0 * buf));
 
-            oldSize = app.BilletSize;
-            app.BilletSize =[bSizeX, bSizeY, bSizeZ];
+            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
+            app.BilletShift =[0 0 0];
 
-            if ~isequal(oldSize, app.BilletSize)
-                app.IsCuttingInit = false;
-            end
-
+            app.IsCuttingInit = false;
             app.IsBilletUserModified = false;
 
             app.syncBilletUI();
@@ -3532,12 +3558,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
-            % Check if we have a model to plot
             if isempty(app.ModelPatch)
                 return;
             end
 
-            % 1. Setup Data
             V     = app.ModelPatch.Vertices;
             F     = app.ModelPatch.Faces;
             bSize = app.BilletSize;
@@ -3546,50 +3570,40 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isDark = app.UIFigure.Color(1) < 0.5;
 
-            % Style Settings
             outlineStyle = '--';
             outlineColor = 'k';
             if isDark
                 outlineColor = 'w';
             end
 
-            % Match Model Appearance across all views
             modelColor =[ 0.5 0.5 0.6 ];
             modelAlpha = 0.4;
 
-            % Pale Profile Colors for "Wireframe" look
             wireRed   =[ t.planeRed, 0.6 ];
-            wireGreen = [ t.planeGreen, 0.6 ];
+            wireGreen =[ t.planeGreen, 0.6 ];
 
-            % 2. Calculate Global Bounding Box (Union of Billet & Model)
             V_shifted = V + shift;
 
-            % --- VIEW LOGIC ---
             if app.BilletViewMode == "Model"
-                allMin = min(V_shifted, [], 1);
-                allMax = max(V_shifted,[], 1);
+                allMin = min(V_shifted,[], 1);
+                allMax = max(V_shifted, [], 1);
             else
-                % TRUE BILLET VIEW: Ignore the model, bound strictly to the Billet!
-                allMin = [ 0, 0, 0 ];
+                allMin =[ 0, 0, 0 ];
                 allMax = bSize;
             end
 
-            % --- RESTORE PROPORTIONAL ENGINEERING SCALING ---
-            % Use the maximum single dimension for all axes so Top, Front,
-            % and Right views share the exact same physical scale/zoom!
             span = max(allMax - allMin);
             if span < 1
                 span = 100;
             end
 
             center = (allMin + allMax) / 2.0;
-            limitRange = span * 0.6; % Half-width + 10% padding
+            limitRange = span * 0.6;
 
             commonX =[ center(1)-limitRange, center(1)+limitRange ];
             commonY =[ center(2)-limitRange, center(2)+limitRange ];
             commonZ =[ center(3)-limitRange, center(3)+limitRange ];
 
-            % Prep Profiles Data (Shifted)
             hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
 
             if hasProfiles
@@ -3597,7 +3611,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 pR_shifted = app.RightProfilePoints + shift;
             end
 
-            % 3. Plot
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
             dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ],[ 1 2 3 ]};
             labs = {
@@ -3619,12 +3632,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hold(ax,'on');
 
                 if i < 4
-                    % --- 2D ORTHOGRAPHIC VIEWS ---
-                    % 1. Draw Model Projection (Background)
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
                         'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
 
-                    % 2. Draw Ghost Profiles (Midground)
                     if hasProfiles
                         patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
                             'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
@@ -3632,17 +3642,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                             'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
 
-                    % 3. Draw Billet Rectangle (Foreground - on top)
                     bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
                     by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
                     plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
                 else
-                    % --- 3D ISO VIEW ---
-                    % 1. Draw Model (3D)
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
                         'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
 
-                    % 2. Draw Ghost Profiles (3D)
                     if hasProfiles
                         patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
                             'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
@@ -3650,27 +3656,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                             'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
 
-                    % 3. Draw Billet Box Wireframe (Foreground - on top)
-                    d1 = 0; % Anti-markdown bug
                     [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
 
-                    % Use patch for 3D box edges
                     patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
                         'FaceColor', 'none', ...
                         'EdgeColor', outlineColor, ...
                         'LineStyle', outlineStyle, ...
                         'LineWidth', 1.5);
 
-                    % Standard 3D View settings
                     view(ax, 3);
                 end
 
-                % Apply Common Styling
                 axis(ax, 'equal');
                 grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
 
-                % Apply synced limits
                 if i==1
                     xlim(ax, commonX); ylim(ax, commonY);
                 elseif i==2
@@ -3692,6 +3692,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             drawnow limitrate;
         end
+
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
@@ -3939,7 +3940,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshMachinePlot(app)
-            % REFRESH MACHINE PLOT: High-Fidelity Sim with Blue Billet & Extracted Profiles
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
 
@@ -3962,23 +3962,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             wireRed   =[ t.planeRed, 0.6 ];
-            wireGreen = [ t.planeGreen, 0.6 ];
+            wireGreen =[ t.planeGreen, 0.6 ];
 
             offX = app.MachineBedPos(1);
             mX = app.MachineSpanX;
             mLimY = app.MachineLimitY;
             mLimZ = app.MachineLimitZ;
             bs = app.MachineBedSize;
-            bp = app.MachineBedPos;
-
-            d1 = 0; % Anti-markdown bug
-            [ xb, yb, zb ] = app.makeBoxVertices(d1, bp(2), -bs(3), bs(1), bs(2), bs(3));
+            bp = app.MachineBedPos;[ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
 
             hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
                 'FaceColor',[ 0.4 0.4 0.4 ], 'FaceAlpha', 0.5, 'EdgeColor',[ 0.2 0.2 0.2 ]);
 
-            d2 = 0; % Anti-markdown bug
-            [ xl, yl, zl ] = app.makeBoxVertices(-offX, d2, d2, mX, mLimY, mLimZ);
+            [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
 
             hLim = patch(ax, 'Vertices',[ xl, yl, zl ], 'Faces', app.boxFaces, ...
                 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
@@ -4006,21 +4002,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
                 totalShift = bPlotPos + app.BilletShift;
 
-                d3 = 0; % Anti-markdown bug
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
 
                 hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
-                    'FaceColor',[ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
+                    'FaceColor', [ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
                     'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
 
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor',[ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+                    'FaceColor', [ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
 
-                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                    d4 = 0; % Anti-markdown bug
-                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)[ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
                         app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
@@ -4031,24 +4023,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                         'Color', wireRed, 'LineWidth', 0.75, 'LineStyle', '-');
 
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
-                        'Color', wireGreen, 'LineWidth', 0.75, 'LineStyle', '-');
-
-                    d5 = 0; % Anti-markdown bug
-                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
+                        'Color', wireGreen, 'LineWidth', 0.75, 'LineStyle', '-');[ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
-                        % FIX: LineWidth reduced to 0.75 for consistency
+                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+
+                        [ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);[ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
+
                         hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
                         plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
-                        d6 = 0; % Anti-markdown bug
                         [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
-                        % FIX: LineWidth reduced to 0.75 for consistency
                         plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
                         plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
 
@@ -4096,10 +4086,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
 
             xlim(ax,[ -offX - 100, mX - offX + 100 ]);
-            ylim(ax, [ -50, mLimY + 50 ]);
+            ylim(ax,[ -50, mLimY + 50 ]);
             zlim(ax,[ -bs(3)-20, mLimZ + 80 ]);
 
-            d7 = 0; % Anti-markdown bug
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             if isViolated
@@ -5228,7 +5217,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 3. Densify Segments
             function [yLD, zLD, yRD, zRD] = densifySynced(yiL, ziL, yiR, ziR, step)
-                if nargin < 5, step = 2.0; end
+                if nargin < 5, step = HotWireSTEPApp_v6_2.SimSpatialResolution; end
                 N = numel(yiL);
                 if N < 2
                     yLD=yiL; zLD=ziL; yRD=yiR; zRD=ziR; return;
@@ -5255,7 +5244,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             function out = densifyWaypoints(yiL, ziL, yiR, ziR, step)
-                if nargin < 5, step = 2.0; end
+                if nargin < 5, step = HotWireSTEPApp_v6_2.SimSpatialResolution; end
                 N_max = max(numel(yiL), numel(yiR));
 
                 if numel(yiL) < N_max
@@ -5515,7 +5504,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.SimPlayDist >= app.SimTotalLength - 1e-3, app.SimPlayDist = 0; end
 
             if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
-                app.SimTimer = timer('ExecutionMode', 'fixedRate', 'Period', 0.05, 'TimerFcn', @(~,~)app.onSimTimerTick());
+                % FIX: Use the global Frame Rate constant to calculate Timer Period
+                periodSec = 1.0 / HotWireSTEPApp_v6_2.SimFramesPerSecond;
+                app.SimTimer = timer('ExecutionMode', 'fixedRate', 'Period', periodSec, 'TimerFcn', @(~,~)app.onSimTimerTick());
             end
             if strcmp(app.SimTimer.Running, 'off')
                 start(app.SimTimer);
@@ -5536,10 +5527,16 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onSimTimerTick(app)
-            % Timer Updates Distance -> Updates UI (One Way)
+            % --- REAL-TIME SPEED SYNC ---
+            feed_mm_min = app.SpinFeedRate.Value;
+            feed_mm_sec = feed_mm_min / 60.0;
 
-            % Calculate step based on speed multiplier
-            step = app.SimStepDist * app.SimSpeedSpinner.Value;
+            % FIX: Use the global Frame Rate constant to calculate frame distance
+            periodSec = 1.0 / HotWireSTEPApp_v6_2.SimFramesPerSecond;
+            baseStepDist = feed_mm_sec * periodSec;
+
+            step = baseStepDist * app.SimSpeedSpinner.Value;
+
             app.SimPlayDist = app.SimPlayDist + step;
 
             isDone = false;
@@ -5548,10 +5545,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isDone = true;
             end
 
-            % Map physical distance back to array index
             idx = app.simIndexAtDistance(app.SimPlayDist);
-
-            % Update visual + controls WITHOUT triggering their callbacks (Value update only)
             app.syncSimControls(idx);
             app.updateSimVisuals(idx);
 
@@ -6100,20 +6094,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R; % Link 1
             e3L = app.EntryPoint3L; e3R = app.EntryPoint3R; % Link 2
 
-            % CORRECT ORDER FOR ENTRY: Link 1 -> Link 2 -> Lead In
-            if ~isempty(e2L)
-                dummy1 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
-            end
-
+            % Order: Link 2 -> Link 1
             if ~isempty(e3L)
-                dummy2 = 0; [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                dummy1 = 0; [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
             end
 
-            if ~isempty(e1L)
-                dummy3 = 0; [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Lead In Point', tx, ty, tz, ta);
+            if ~isempty(e2L)
+                dummy2 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
             end
 
             app.PP_RapidEndIndex = pathIdx;
@@ -6123,63 +6112,59 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('M301', 'Extraction ON > Wait 5s > Power ON');
             add(sprintf('F%d', feed), 'Set Cut Feedrate');
 
-            % --- PHASE 3: PROFILE ---
-            add('%% --- PROFILE CUT ---', '');
+            useDynamicFeed = app.ChkDynamicFeed.Value;
+
+            % --- NEW HELPER: Dynamic G1 Moves ---
+            function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
+                [tx, ty, tz, ta] = project(targL(1), targL(2), tgtR(1), tgtR(2));
+                [px, py, pz, pa] = project(prevL(1), prevL(2), prevR(1), prevR(2));
+
+                if useDynamicFeed
+                    distL_model = hypot(targL(1) - prevL(1), targL(2) - prevL(2));
+                    distR_model = hypot(tgtR(1) - prevR(1), tgtR(2) - prevR(2));
+                    dist_Model_Max = max(distL_model, distR_model);
+                    dist_Mach4 = sqrt((tx - px)^2 + (ty - py)^2 + (tz - pz)^2 + (ta - pa)^2);
+
+                    if dist_Model_Max > 1e-5
+                        dynF = feed * (dist_Mach4 / dist_Model_Max);
+                    else
+                        dynF = feed;
+                    end
+
+                    if dynF > 1500.0, dynF = 1500.0; end % Safety cap
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynF), commentStr, tx, ty, tz, ta);
+                else
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), commentStr, tx, ty, tz, ta);
+                end
+            end
+
             pSyncL = app.ProfileSyncL;
             pSyncR = app.ProfileSyncR;
 
-            useDynamicFeed = app.ChkDynamicFeed.Value;
+            % Lead In Move (Dynamic!)
+            if ~isempty(e1L)
+                prevL = e2L; if isempty(prevL), prevL =[bY, bZ]; end
+                prevR = e2R; if isempty(prevR), prevR =[bY, bZ]; end
+                addDynamicG1(e1L, e1R, prevL, prevR, 'Lead In Point');
+            end
 
-            d5 = 0;
-            [tx_prev, ty_prev, tz_prev, ta_prev] = project(pSyncL(1,1), pSyncL(1,2), pSyncR(1,1), pSyncR(1,2));
+            % --- PHASE 3: PROFILE ---
+            add('%% --- PROFILE CUT ---', '');
 
-            % Add initial Start Point move
-            add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx_prev, ty_prev, tz_prev, ta_prev), 'Start Point', tx_prev, ty_prev, tz_prev, ta_prev);
+            % Start Point Move (Dynamic!)
+            startL = pSyncL(1,:); startR = pSyncR(1,:);
+            if ~isempty(e1L)
+                addDynamicG1(startL, startR, e1L, e1R, 'Start Point');
+            else
+                prevL = e2L; if isempty(prevL), prevL = [bY, bZ]; end
+                prevR = e2R; if isempty(prevR), prevR = [bY, bZ]; end
+                addDynamicG1(startL, startR, prevL, prevR, 'Start Point');
+            end
 
             app.PP_ProfileStartIndex = pathIdx;
 
             for i = 2:size(pSyncL, 1)
-
-                % 1. Get Model/Foam coordinates for this segment
-                mL1 = pSyncL(i-1, :); mL2 = pSyncL(i, :);
-                mR1 = pSyncR(i-1, :); mR2 = pSyncR(i, :);
-
-                % 2. Get Machine Tower coordinates for this segment
-                d6 = 0;
-                [tx, ty, tz, ta] = project(mL2(1), mL2(2), mR2(1), mR2(2));
-
-                if useDynamicFeed
-                    % 3. Calculate Distances
-                    distL_model = hypot(mL2(1) - mL1(1), mL2(2) - mL1(2));
-                    distR_model = hypot(mR2(1) - mR1(1), mR2(2) - mR1(2));
-
-                    % We govern the speed by the side moving the fastest through the foam
-                    dist_Model_Max = max(distL_model, distR_model);
-
-                    % Calculate the 4D distance Mach4 will use to govern the axes
-                    dist_Mach4 = sqrt((tx - tx_prev)^2 + (ty - ty_prev)^2 + (tz - tz_prev)^2 + (ta - ta_prev)^2);
-
-                    % 4. Calculate Dynamic Feedrate
-                    if dist_Model_Max > 1e-5
-                        dynamicFeed = feed * (dist_Mach4 / dist_Model_Max);
-                    else
-                        dynamicFeed = feed; % Fallback for stationary/micro moves
-                    end
-
-                    % Cap the maximum machine speed to prevent motor stall (e.g., 1500 mm/min limit)
-                    if dynamicFeed > 1500.0
-                        dynamicFeed = 1500.0;
-                    end
-
-                    % Output the line with the custom F-word
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynamicFeed), '', tx, ty, tz, ta);
-                else
-                    % Standard fallback output
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), '', tx, ty, tz, ta);
-                end
-
-                % Store previous tower coordinates for next loop
-                tx_prev = tx; ty_prev = ty; tz_prev = tz; ta_prev = ta;
+                addDynamicG1(pSyncL(i,:), pSyncR(i,:), pSyncL(i-1,:), pSyncR(i-1,:), '');
             end
 
             app.PP_ProfileEndIndex = pathIdx;
@@ -6187,61 +6172,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- PHASE 4: EXIT ---
             add('%% --- EXIT SEQUENCE ---', '');
 
-            % Lead Out
+            % Lead Out (Dynamic!)
             if ~isempty(e1L)
-                dummy6 = 0; [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Lead Out to Entry Point', tx, ty, tz, ta);
+                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead Out to Entry Point');
             end
 
             app.PP_LeadOutEndIndex = pathIdx;
 
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
-
-            % CORRECT ORDER FOR EXIT: Link 2 -> Link 1
-            if ~isempty(e3L)
-                dummy7 = 0;[tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
-            end
-
-            if ~isempty(e2L)
-                dummy8 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
-            end
-
-            % Retract Safety (Horizontal) before homing (matches Simulation pRetract exactly)
-            bY_Ret = app.MachineBilletPos(2) - 10.0;
-            bZ_Ret = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
-            dummy9 = 0; [tx, ty, tz, ta] = project(bY_Ret, bZ_Ret, bY_Ret, bZ_Ret);
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
-
-            % --- FINAL RETURN (Split G53) ---
-            % Step 1: Retract Horizontals (X, Z) to 0 (Depth -> 0)
-            pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, bZ_Ret];
-            app.PP_TowerPathR(pathIdx,:) =[xT_R, 0, bZ_Ret];
-
-            dummy10 = 0;[mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, bZ_Ret, 0, bZ_Ret);
-
-            app.PP_PathL(pathIdx,:) =[mxL, myL, mzL];
-            app.PP_PathR(pathIdx,:) =[mxR, myR, mzR];
-
-            lines(end+1) = 'G53 G0 X0 Z0 (Retract Horizontals)';
-            map(end+1) = pathIdx;
-
-            % Step 2: Retract Verticals (Y, A) to 0 (Height -> 0)
-            pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
-            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
-
-            dummy11 = 0; [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
-
-            app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
-            app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
-
-            lines(end+1) = 'G53 G0 Y0 A0 (Retract Verticals)';
-            map(end+1) = pathIdx;
-
-            add('M30', 'End Program');
 
             % --- FINALIZE ---
 
@@ -6481,6 +6419,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                         isReadout = true;
                     end
 
+                    % FIX: Protect the Simulation Base Feed label from being wiped!
+                    if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
+                        isReadout = true;
+                    end
+
                     if isReadout
                         obj.BackgroundColor = t.readoutBg;
                         obj.FontColor       = t.readoutTxt;
@@ -6517,6 +6460,32 @@ classdef HotWireSTEPApp_v6_2 < handle
             if app.TabGroup.SelectedTab == app.TabMachine
                 app.refreshMachinePlot();
             end
+        end
+
+        function onThemeToggleChanged(app, src)
+            isDark = strcmp(src.Value, 'Dark');
+
+            if isDark
+                app.UIFigure.Color =[0.16 0.16 0.16];
+                logoName = 'Science_engineering_WHITE.png';
+            else
+                app.UIFigure.Color = [0.96 0.96 0.96];
+                logoName = 'Science_engineering_BLACK.png';
+            end
+
+            % Update the logo instantly
+            appDir = fileparts(mfilename('fullpath'));
+            pathOption1 = fullfile(appDir, logoName);
+            pathOption2 = fullfile(appDir, 'src', logoName);
+
+            if isfile(pathOption1)
+                app.ImgWelcomeLogo.ImageSource = pathOption1;
+            elseif isfile(pathOption2)
+                app.ImgWelcomeLogo.ImageSource = pathOption2;
+            end
+
+            % Push the new colors to the entire app!
+            app.applyTheme();
         end
 
         function th = getTheme(app)
