@@ -92,6 +92,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultFeedRate = 40.0; % [mm/min] Baseline feed
         DefaultPower    = 35.0; % [%] Baseline power for standard blocks
 
+        % --- Simulation Settings ---
+        SimFramesPerSecond   (1,1) double = 20.0; % [Hz] Redraw rate for the 3D plot
+        SimSpatialResolution (1,1) double = 1.0;  % [mm] Distance between interpolated path points
+
     end
 
     properties
@@ -1569,7 +1573,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblSimSpeed = uilabel(gridSSet, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'HorizontalAlignment','right');
             lblSimSpeed.Layout.Row=1; lblSimSpeed.Layout.Column=1;
 
-            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 60], 'Value',1.0, 'Step',0.1, 'Tooltip', 'Simulation speed as multiple of set feed rate');
+            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'Tooltip', 'Simulation speed as multiple of set feed rate');
             app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
 
             % Row 2: Read-only Base Feed
@@ -6094,15 +6098,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R; % Link 1
             e3L = app.EntryPoint3L; e3R = app.EntryPoint3R; % Link 2
 
-            % Order: Link 2 -> Link 1
-            if ~isempty(e3L)
-                dummy1 = 0; [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
-            end
+            % Order: Link 1 -> Link 2
 
             if ~isempty(e2L)
                 dummy2 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
+            end
+
+            if ~isempty(e3L)
+                dummy1 = 0; [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
             end
 
             app.PP_RapidEndIndex = pathIdx;
@@ -6180,6 +6185,52 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.PP_LeadOutEndIndex = pathIdx;
 
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
+
+            % CORRECT ORDER FOR EXIT: Link 2 -> Link 1
+            if ~isempty(e3L)
+                dummy7 = 0;[tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
+            end
+
+            if ~isempty(e2L)
+                dummy8 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
+            end
+
+            % Retract Safety (Horizontal) before homing (matches Simulation pRetract exactly)
+            bY_Ret = app.MachineBilletPos(2) - 10.0;
+            bZ_Ret = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
+            dummy9 = 0; [tx, ty, tz, ta] = project(bY_Ret, bZ_Ret, bY_Ret, bZ_Ret);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
+
+            % --- FINAL RETURN (Split G53) ---
+            % Step 1: Retract Horizontals (X, Z) to 0 (Depth -> 0)
+            pathIdx = pathIdx + 1;
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, bZ_Ret];
+            app.PP_TowerPathR(pathIdx,:) =[xT_R, 0, bZ_Ret];
+
+            dummy10 = 0;[mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, bZ_Ret, 0, bZ_Ret);
+
+            app.PP_PathL(pathIdx,:) =[mxL, myL, mzL];
+            app.PP_PathR(pathIdx,:) =[mxR, myR, mzR];
+
+            lines(end+1) = 'G53 G0 X0 Z0 (Retract Horizontals)';
+            map(end+1) = pathIdx;
+
+            % Step 2: Retract Verticals (Y, A) to 0 (Height -> 0)
+            pathIdx = pathIdx + 1;
+            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
+            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
+
+            dummy11 = 0; [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
+
+            app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
+            app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
+
+            lines(end+1) = 'G53 G0 Y0 A0 (Retract Verticals)';
+            map(end+1) = pathIdx;
+
+            add('M30', 'End Program');
 
             % --- FINALIZE ---
 
@@ -6394,73 +6445,73 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % THEME HELPERS
         % ===========================================================
-        function applyTheme(app)
-            t = app.getTheme();
-            app.UIFigure.Color = t.sideBg;
-
-            % All sidebar containers
-            sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel, app.SimLeftPanel, app.PostLeftPanel};
-
-            for i = 1:numel(sidebars)
-                container = sidebars{i};
-                if isempty(container) || ~isgraphics(container), continue; end
-
-                % 1. Update the Main Grid background
-                container.BackgroundColor = t.sideBg;
-
-                % 2. Drill down to components
-                allObjs = findall(container);
-                for j = 1:numel(allObjs)
-                    obj = allObjs(j);
-
-                    % --- A. DETECT READOUTS ---
-                    isReadout = false;
-                    if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
-                        isReadout = true;
-                    end
-
-                    % FIX: Protect the Simulation Base Feed label from being wiped!
-                    if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
-                        isReadout = true;
-                    end
-
-                    if isReadout
-                        obj.BackgroundColor = t.readoutBg;
-                        obj.FontColor       = t.readoutTxt;
-                        continue;
-                    end
-
-                    % --- B. DETECT CONTAINERS ---
-                    if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
-                        obj.BackgroundColor = t.sideBg;
-                        continue;
-                    end
-
-                    % --- C. DETECT LABELS ---
-                    if isa(obj, 'matlab.ui.control.Label')
-                        obj.FontColor = t.labelCol;
-                        obj.BackgroundColor = t.sideBg;
-                        continue;
-                    end
-
-                    % --- D. DETECT SWITCHES (NEW) ---
-                    if isa(obj, 'matlab.ui.control.Switch')
-                        obj.FontColor = t.labelCol;
-                        % Switches don't have a background color property in the same way,
-                        % but FontColor fixes the text visibility.
-                        continue;
-                    end
-
-                    % --- E. INPUT FIELDS ---
-                    % Left alone to preserve Edit/Readout distinctions
-                end
-            end
-
-            % Refresh machine plot
-            if app.TabGroup.SelectedTab == app.TabMachine
-                app.refreshMachinePlot();
-            end
-        end
+        % function applyTheme(app)
+        %     t = app.getTheme();
+        %     app.UIFigure.Color = t.sideBg;
+        % 
+        %     % All sidebar containers
+        %     sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel, app.SimLeftPanel, app.PostLeftPanel};
+        % 
+        %     for i = 1:numel(sidebars)
+        %         container = sidebars{i};
+        %         if isempty(container) || ~isgraphics(container), continue; end
+        % 
+        %         % 1. Update the Main Grid background
+        %         container.BackgroundColor = t.sideBg;
+        % 
+        %         % 2. Drill down to components
+        %         allObjs = findall(container);
+        %         for j = 1:numel(allObjs)
+        %             obj = allObjs(j);
+        % 
+        %             % --- A. DETECT READOUTS ---
+        %             isReadout = false;
+        %             if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
+        %                 isReadout = true;
+        %             end
+        % 
+        %             % FIX: Protect the Simulation Base Feed label from being wiped!
+        %             if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
+        %                 isReadout = true;
+        %             end
+        % 
+        %             if isReadout
+        %                 obj.BackgroundColor = t.readoutBg;
+        %                 obj.FontColor       = t.readoutTxt;
+        %                 continue;
+        %             end
+        % 
+        %             % --- B. DETECT CONTAINERS ---
+        %             if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
+        %                 obj.BackgroundColor = t.sideBg;
+        %                 continue;
+        %             end
+        % 
+        %             % --- C. DETECT LABELS ---
+        %             if isa(obj, 'matlab.ui.control.Label')
+        %                 obj.FontColor = t.labelCol;
+        %                 obj.BackgroundColor = t.sideBg;
+        %                 continue;
+        %             end
+        % 
+        %             % --- D. DETECT SWITCHES (NEW) ---
+        %             if isa(obj, 'matlab.ui.control.Switch')
+        %                 obj.FontColor = t.labelCol;
+        %                 % Switches don't have a background color property in the same way,
+        %                 % but FontColor fixes the text visibility.
+        %                 continue;
+        %             end
+        % 
+        %             % --- E. INPUT FIELDS ---
+        %             % Left alone to preserve Edit/Readout distinctions
+        %         end
+        %     end
+        % 
+        %     % Refresh machine plot
+        %     if app.TabGroup.SelectedTab == app.TabMachine
+        %         app.refreshMachinePlot();
+        %     end
+        % end
 
         function onThemeToggleChanged(app, src)
             isDark = strcmp(src.Value, 'Dark');
