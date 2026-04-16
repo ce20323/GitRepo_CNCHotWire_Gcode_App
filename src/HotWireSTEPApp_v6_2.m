@@ -151,8 +151,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         TxtCuttingStatus
         TxtCuttingGuide
         TxtPostStatus
-        TxtPostGuide 
-        
+        TxtPostGuide
+
         % Background panels
         cutPanel; cutGrid               % Toggle switch containers
 
@@ -192,7 +192,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         LastMousePos (1,2) double = [NaN NaN]  % Last mouse position
         AppState (1,1) double = 0       % 0=Model Only, 1=Active Cutting
         IsBilletUserModified (1,1) logical = false
-        BilletViewMode string = "Billet" 
+        BilletViewMode string = "Billet"
         IsMachineInit (1,1) logical = false % Tracks if user/auto has set Machine Pos
         IsCuttingInit (1,1) logical = false % Tracks if user/auto has set Entry Pts
 
@@ -415,41 +415,41 @@ classdef HotWireSTEPApp_v6_2 < handle
             % ===========================================================
             % try
             %     testFile = "C:\Users\ce20323\OneDrive - University of Bristol\Documents\MATLAB\CNCHotWire_GCode_App\examples\RibTemplate_NewCNCTest1.step";
-            % 
+            %
             %     if isfile(testFile)
             %         disp("DEV AUTOLOAD: Loading test STEP model...");
-            % 
+            %
             %         % --- Use the existing helper to import STEP via FreeCAD ---
             %         [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
             %             testFile, app.FreeCADExe);
-            % 
+            %
             %         if isempty(V)
             %             warning("DEV AUTOLOAD: STEP import returned empty data.");
             %         else
             %             % Store original vertices for rotation resets
             %             app.ModelVerticesOriginal = V;
             %             app.CurrentModelName      = "AUTOLOADED: RibTemplate_NewCNCTest1.step";
-            % 
+            %
             %             % Reset orientation
             %             app.RotAngles = [0 0 0];
             %             for i = 1:3
             %                 app.RotEdit(i).Value = 0;
             %             end
-            % 
+            %
             %             % Reset plane offsets
             %             app.NumLeftOffset.Value  = 0;
             %             app.NumRightOffset.Value = 0;
-            % 
+            %
             %             % --- Plot mesh and planes ---
             %             app.plotMesh(V,F);
             %             app.enterState0();
-            % 
+            %
             %             disp("DEV AUTOLOAD: Completed.");
             %         end
             %     else
             %         warning("DEV AUTOLOAD: File not found:\n%s", testFile);
             %     end
-            % 
+            %
             % catch ME
             %     warning('DEV_AUTOLOAD:Error','%s', ME.message);
             % end
@@ -462,7 +462,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 1. Main Window Setup ---
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
-            app.UIFigure.Color = [0.16 0.16 0.16];% <--- FORCE DARK MODE DEFAULT
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
             app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event); %key press on post tab to scroll code
@@ -499,7 +498,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
             pnlAnatomy.Layout.Column = 1;
 
-% 5 Rows to accommodate the new switch
+            % 5 Rows to accommodate the new switch
             glAnat = uigridlayout(pnlAnatomy,[ 5 1 ]);
             glAnat.RowHeight = {'fit', '1x', '2x', 'fit', 'fit'};
             glAnat.Padding =[ 10 10 10 10 ];
@@ -555,11 +554,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             glTheme.Padding =[ 0 0 0 0 ];
             glTheme.BackgroundColor = sideBg;
             glTheme.Layout.Row = 4;
-            
+
             lblTheme = uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
             lblTheme.Layout.Column = 1;
-            
-            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', 'Dark');
+
+            % Read the saved preference to set the switch's initial state
+            if ispref('HotWireSTEPApp', 'Theme')
+                currentTheme = getpref('HotWireSTEPApp', 'Theme');
+            else
+                currentTheme = 'Dark';
+            end
+
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme);
             app.ThemeSwitch.FontColor = labelCol;
             app.ThemeSwitch.ValueChangedFcn = @(src,evt)app.onThemeToggleChanged(src);
             app.ThemeSwitch.Layout.Column = 2;
@@ -1674,7 +1680,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridPSet = uigridlayout(panPSettings, [ 2 3 ]);
             gridPSet.ColumnWidth={'1x', 'fit', 80};
             gridPSet.RowHeight={'fit', 'fit'};
-            gridPSet.Padding=[ 5 5 5 5 ]; 
+            gridPSet.Padding=[ 5 5 5 5 ];
             gridPSet.BackgroundColor=panelBg;
 
             % Row 1
@@ -1778,97 +1784,64 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Force initial UI state sync
             app.onTaperModeChanged();
-
-            % --- Final Theme Application ---
+            
+            % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
             app.applyTheme();
-
         end
 
         % ===========================================================
         % STATE & PROFILE HELPERS
         % ===========================================================
-        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
-            % Centralized Logic for Machine & Bed Safety
-
+        function[isValid, panelCol, textCol, msgLines] = checkMachineState(app)
             bPos  = app.MachineBilletPos;
             bSize = app.BilletSize;
-
             bMin = bPos;
             bMax = bPos + bSize;
-
             bedMin = app.MachineBedPos;
             bedMax = app.MachineBedPos + app.MachineBedSize;
-
             limZ = [0, app.MachineLimitZ];
+            
+            t = app.getTheme(); % <--- Master Palette
 
-            if app.UIFigure.Color(1) < 0.5
-                panelBg =[0.16 0.16 0.16];
-            else
-                panelBg =[0.94 0.94 0.94];
-            end
-
-            % Critical Checks (Red)
             crit = strings(0);
-
-            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1
-                crit(end+1) = "Billet overhangs Bed (X).";
-            end
-
-            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1
-                crit(end+1) = "Billet overhangs Bed (Y).";
-            end
-
-            if bMin(3) < 0 - 0.1
-                crit(end+1) = "Billet below bed surface (Z < 0).";
-            end
-
-            if bMax(3) > limZ(2) + 0.1
-                crit(end+1) = "Billet exceeds max Z travel.";
-            end
+            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
+            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
+            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
+            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
 
             if ~isempty(crit)
                 isValid = false;
-                panelCol =[0.4 0.16 0.16];
-                textCol =[1 0.4 0.4];
+                panelCol = t.statErrBg;
+                textCol = t.statErrTxt;
                 msgLines = ["CRITICAL ERROR:"; crit'];
                 return;
             end
 
-            % Warning Checks (Amber)
             warn = strings(0);
             buf = app.SafetyBuffer_BedEdge;
 
-            if (bMin(1) - bedMin(1) < buf)
-                warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf);
-            end
-
+            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
             if (bedMax(1) - bMax(1) < buf)
                 warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
-                % FIX: Taper warning for brass fitting
                 if strcmp(app.TaperToggle.Value, 'Tapered')
                     warn(end+1) = "TAPER WARNING: Brass wire fixture may hit right tower.";
                 end
             end
-
-            % Front edge Y=50 is ok (bedMin(2)), so we skip checking it.
-            % Back edge check only:
-            if (bedMax(2) - bMax(2) < buf)
-                warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf);
-            end
+            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
 
             if ~isempty(warn)
                 isValid = true;
-                panelCol =[0.45 0.35 0.1];
-                textCol =[1 0.8 0.4]; % Amber Text
+                panelCol = t.statWarnBg;
+                textCol = t.statWarnTxt;
                 msgLines =["Warning: Proximity to bed edge."; warn'];
             else
                 isValid = true;
-                panelCol = panelBg;
-                textCol = [0.4 1 0.4]; % Green Text
-                msgLines = ["Machine configuration valid.", "Ready to proceed."];
+                panelCol = t.statPassBg;
+                textCol = t.statPassTxt;
+                msgLines =["Machine configuration valid.", "Ready to proceed."];
             end
         end
-
+        
         function clearPlanes(app)
             % Deletes any existing plane graphics and resets handles
             if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
@@ -2090,6 +2063,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
 
+            t = app.getTheme(); % Fetch theme
             if ~isempty(yLoopL)
                 app.TxtProfileStatus.Value = {
                     sprintf('Profiles extracted.');
@@ -2097,13 +2071,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     sprintf('Right: %d pts', numel(yLoopR));
                     'Ready to apply Kerf.'
                     };
-                app.TxtProfileStatus.FontColor = [1 1 1]; % White
+                app.TxtProfileStatus.FontColor = t.labelCol; % <--- FIX: Neutral text before kerf is applied
             else
                 app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
-                app.TxtProfileStatus.FontColor =[1 0.4 0.4]; % Red
+                app.TxtProfileStatus.FontColor = t.statErrTxt; % <--- FIX
             end
 
             drawnow limitrate nocallbacks;
+        
         end
 
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
@@ -2546,8 +2521,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.onResetCuttingViewBillet();
 
             elseif targetTab == app.TabSimulation
-                app.applyTheme();              
-                app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);             
+                app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);
                 app.generateSimulationData();
 
             elseif targetTab == app.TabPostProcess
@@ -2615,14 +2589,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
                 return;
             end
+
             app.KerfEnabled = true;
 
             app.BtnProfilesContinue.Enable = 'on';
-            app.BtnProfilesContinue.BackgroundColor =[0.1 0.6 0.1];
-            app.BtnProfilesContinue.FontColor       = [1 1 1];
 
-            yL = []; zL = []; xLeft  = 0;
-            yR =[]; zR =[]; xRight = 0;
+            % Using spaces inside brackets to prevent markdown parser crashes
+            app.BtnProfilesContinue.BackgroundColor =[ 0.1, 0.6, 0.1 ];
+            app.BtnProfilesContinue.FontColor       = [ 1, 1, 1 ];
+
+            % Using zeros(0,1) instead of empty brackets to prevent truncation!
+            yL = zeros(0,1);
+            zL = zeros(0,1);
+            xLeft  = 0;
+
+            yR = zeros(0,1);
+            zR = zeros(0,1);
+            xRight = 0;
 
             if ~isempty(app.LeftProfilePoints)
                 xLeft = app.LeftProfilePoints(1,1);
@@ -2641,14 +2624,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
             app.ProfileAxesLocked = wasLocked;
 
+            t = app.getTheme();
+
             if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
+                % FIX: Use actual class properties instead of local variables
+                valL = app.KerfLeftValue;
+                valR = app.KerfRightValue;
+
                 if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                    msg = sprintf('Kerf Applied: %.2f mm', app.KerfLeftValue);
+                    msg = sprintf('Kerf Applied: %.2f mm', valL);
                 else
-                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', app.KerfLeftValue, app.KerfRightValue);
+                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', valL, valR);
                 end
+
                 app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
-                app.TxtProfileStatus.FontColor = [0.4 1 0.4];
+                app.TxtProfileStatus.FontColor = t.statPassTxt;
             end
         end
 
@@ -2694,7 +2684,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.KerfLeftSpinner.Value = app.KerfLeftValue;
                 app.KerfValue = app.KerfLeftValue;
             end
-            
+
             app.IsCuttingInit = false;
             app.ProfileAxesLocked = true;
             app.onApplyKerf();
@@ -3108,28 +3098,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.NumLeftOffset.Limits  = [0, modelWidth];
             app.NumRightOffset.Limits = [0, modelWidth];
 
+            t = app.getTheme(); % <--- FIX: Get theme
+
             if nargin < 2, resetOffsets = true; end
 
             if resetOffsets
-                % Reset to Ends
                 app.NumLeftOffset.Value  = 0;
                 app.NumRightOffset.Value = modelWidth;
 
-                % Update Status
                 if ~isempty(app.TxtModelStatus)
                     app.TxtModelStatus.Value = {'Model loaded.', sprintf('Size: %.1f x %.1f x %.1f mm', ...
                         modelWidth, app.ModelYMax-app.ModelYMin, app.ModelZMax-app.ModelZMin)};
-                    app.TxtModelStatus.FontColor = [0.4 1 0.4]; % Green
+                    app.TxtModelStatus.FontColor = t.statPassTxt; % <--- FIX
                 end
             else
-                % Clamp existing values if they are now out of bounds (e.g. after rotation)
                 if app.NumLeftOffset.Value > modelWidth, app.NumLeftOffset.Value = modelWidth; end
                 if app.NumRightOffset.Value > modelWidth, app.NumRightOffset.Value = modelWidth; end
 
-                % Check if valid
                 if ~isempty(app.TxtModelStatus)
                     app.TxtModelStatus.Value = {'Model re-oriented.', 'Check plane positions.'};
-                    app.TxtModelStatus.FontColor = [1 0.8 0.4]; % Amber
+                    app.TxtModelStatus.FontColor = t.statWarnTxt; % <--- FIX
                 end
             end
         end
@@ -3273,15 +3261,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % FIX: Use the extracted profiles so gap calculations match the exact cut!
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
+                P =[app.LeftProfilePoints; app.RightProfilePoints];
             else
-                P = app.ModelPatch.Vertices; % Fallback
+                P = app.ModelPatch.Vertices; 
             end
 
-            localMins = min(P);
-            localMaxs = max(P);
+            localMins = min(P,[], 1);
+            localMaxs = max(P,[], 1);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
             xR = app.ModelXMin + app.NumRightOffset.Value;
@@ -3306,8 +3293,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             buf = app.ModelEdgeWarningBuffer;
 
             isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
-
-            % FIX: Added 1e-4 tolerance so exact 4.0mm doesn't trigger the warning!
             isTooClose = (workMin(2) < buf - 1e-4) || (workMax(2) > bSize(2) - buf + 1e-4) || ...
                 (workMin(3) < buf - 1e-4) || (workMax(3) > bSize(3) - buf + 1e-4);
 
@@ -3322,39 +3307,35 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             isWasteful = isWasteY || isWasteZ;
 
-            if app.UIFigure.Color(1) < 0.5
-                panelBg = [0.16 0.16 0.16];
-            else
-                panelBg = [0.94 0.94 0.94];
-            end
+            t = app.getTheme(); % <--- Master Palette
 
             if isOutside
-                app.BilletLeftPanel.BackgroundColor =[0.4 0.16 0.16];
+                app.BilletLeftPanel.BackgroundColor = t.statErrBg;
                 app.TxtBilletStatus.Value = {'CRITICAL:', 'Model is outside stock!', 'Adjust billet size or model position.'};
-                app.TxtBilletStatus.FontColor =[1 0.4 0.4];
+                app.TxtBilletStatus.FontColor = t.statErrTxt;
                 app.BtnBilletContinue.Enable = 'off';
                 isValid = false;
             elseif isTooClose
-                app.BilletLeftPanel.BackgroundColor =[0.45 0.35 0.1];
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
                 app.TxtBilletStatus.Value = {sprintf('Warning: Model is very close (<%.0fmm) to billet edges.', buf), 'Check alignments.'};
-                app.TxtBilletStatus.FontColor = [1 0.8 0.4];
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
             elseif isWasteful
-                app.BilletLeftPanel.BackgroundColor =[0.45 0.35 0.1];
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
                 app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Consider using a smaller billet.', sprintf('Only a %.0fmm gap is needed around the model in Y and Z.', buf)};
-                app.TxtBilletStatus.FontColor = [1 0.8 0.4];
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
             else
-                app.BilletLeftPanel.BackgroundColor = panelBg;
+                app.BilletLeftPanel.BackgroundColor = t.statPassBg;
                 app.TxtBilletStatus.Value = {'Billet configuration valid.'};
-                app.TxtBilletStatus.FontColor = [0.4 1 0.4];
+                app.TxtBilletStatus.FontColor = t.statPassTxt;
                 app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
             end
         end
-
+        
         function onResetBilletViewModel(app)
             app.BilletViewMode = "Model";
             app.refreshBilletPlots();
@@ -3563,7 +3544,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function refreshBilletPlots(app)
             if isempty(app.ModelPatch)
-                return;
+                return; 
             end
 
             V     = app.ModelPatch.Vertices;
@@ -3571,38 +3552,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             bSize = app.BilletSize;
             shift = app.BilletShift;
 
-            t = app.getTheme();
-            isDark = app.UIFigure.Color(1) < 0.5;
-
-            outlineStyle = '--';
-            outlineColor = 'k';
-            if isDark
-                outlineColor = 'w';
-            end
-
-            modelColor =[ 0.5 0.5 0.6 ];
-            modelAlpha = 0.4;
-
-            wireRed   =[ t.planeRed, 0.6 ];
-            wireGreen =[ t.planeGreen, 0.6 ];
+            t = app.getTheme(); % <--- Master Palette
 
             V_shifted = V + shift;
 
             if app.BilletViewMode == "Model"
                 allMin = min(V_shifted,[], 1);
-                allMax = max(V_shifted, [], 1);
+                allMax = max(V_shifted,[], 1);
             else
                 allMin =[ 0, 0, 0 ];
                 allMax = bSize;
             end
 
             span = max(allMax - allMin);
-            if span < 1
-                span = 100;
-            end
+            if span < 1, span = 100; end
 
             center = (allMin + allMax) / 2.0;
-            limitRange = span * 0.6;
+            limitRange = span * 0.6; 
 
             commonX =[ center(1)-limitRange, center(1)+limitRange ];
             commonY =[ center(2)-limitRange, center(2)+limitRange ];
@@ -3617,56 +3583,49 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
             dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ],[ 1 2 3 ]};
-            labs = {
-                {'X (mm)','Y (mm)'};
-                {'X (mm)','Z (mm)'};
-                {'Y (mm)','Z (mm)'};
-                {'X','Y','Z'}
-                };
+            labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
 
             for i = 1:4
                 ax = axs{i};
                 d = dims{i};
 
-                if isempty(ax) || ~isgraphics(ax)
-                    continue;
-                end
+                if isempty(ax) || ~isgraphics(ax), continue; end
 
                 cla(ax);
                 hold(ax,'on');
 
                 if i < 4
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
-                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
 
                     if hasProfiles
+                        % FIX: Use strict RGB for EdgeColor and explicitly set EdgeAlpha
                         patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
                             'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                         patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
                             'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
 
-                    bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
-                    by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
-                    plot(ax, bx, by, 'Color', outlineColor, 'LineStyle', outlineStyle, 'LineWidth', 1.5);
+                    bx =[0, bSize(d(1)), bSize(d(1)), 0, 0];
+                    by =[0, 0, bSize(d(2)), bSize(d(2)), 0];
+                    plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '--', 'LineWidth', 1.5);
                 else
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
-                        'FaceColor', modelColor, 'EdgeColor', 'none', 'FaceAlpha', modelAlpha);
+                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
 
                     if hasProfiles
+                        % FIX: Use strict RGB for EdgeColor and explicitly set EdgeAlpha
                         patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
                             'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                         patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
                             'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
-
+                    
+                    d1 = 0; % Anti-markdown bug
                     [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
 
                     patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
-                        'FaceColor', 'none', ...
-                        'EdgeColor', outlineColor, ...
-                        'LineStyle', outlineStyle, ...
-                        'LineWidth', 1.5);
+                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '--', 'LineWidth', 1.5);
 
                     view(ax, 3);
                 end
@@ -3675,28 +3634,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                 grid(ax, 'on');
                 ax.BackgroundColor = t.panelBg;
 
-                if i==1
-                    xlim(ax, commonX); ylim(ax, commonY);
-                elseif i==2
-                    xlim(ax, commonX); ylim(ax, commonZ);
-                elseif i==3
-                    xlim(ax, commonY); ylim(ax, commonZ);
-                elseif i==4
-                    xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ);
-                end
+                if i==1, xlim(ax, commonX); ylim(ax, commonY); end
+                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
+                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
+                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
 
-                xlabel(ax, labs{i}{1});
-                ylabel(ax, labs{i}{2});
-                if i==4
-                    zlabel(ax, labs{i}{3});
-                end
+                xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
+                if i==4, zlabel(ax, labs{i}{3}); end
 
                 set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
             end
 
             drawnow limitrate;
         end
-
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
@@ -3950,34 +3900,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             delete(allchild(ax));
             hold(ax, 'on');
 
-            t = app.getTheme();
-            isDark = app.UIFigure.Color(1) < 0.5;
-
-            if isDark
-                cageCol =[ 0.6 0.6 0.6 ];
-                tickCol =[ 1 1 1 ];
-                wireBaseCol  =[ 0.50 0.50 0.50 ];
-                modelAlpha = 0.35;
-            else
-                cageCol =[ 0.3 0.3 0.3 ];
-                tickCol =[ 0 0 0 ];
-                wireBaseCol  =[ 0.40 0.40 0.40 ];
-                modelAlpha = 0.30;
-            end
-
-            wireRed   =[ t.planeRed, 0.6 ];
-            wireGreen =[ t.planeGreen, 0.6 ];
+            t = app.getTheme(); % <--- Master Palette
 
             offX = app.MachineBedPos(1);
             mX = app.MachineSpanX;
             mLimY = app.MachineLimitY;
             mLimZ = app.MachineLimitZ;
             bs = app.MachineBedSize;
-            bp = app.MachineBedPos;[ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
+            bp = app.MachineBedPos;
+
+            d1 = 0; % Anti-markdown bug
+            [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
 
             hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
-                'FaceColor',[ 0.4 0.4 0.4 ], 'FaceAlpha', 0.5, 'EdgeColor',[ 0.2 0.2 0.2 ]);
+                'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
+            d2 = 0; % Anti-markdown bug
             [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
 
             hLim = patch(ax, 'Vertices',[ xl, yl, zl ], 'Faces', app.boxFaces, ...
@@ -3995,28 +3933,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
             text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
 
-            hBillet = gobjects(0);
-            hModel = gobjects(0);
-            hGhostL = gobjects(0);
-            hWireL = gobjects(0);
-
+            hBillet = gobjects(0); hModel = gobjects(0); hGhostL = gobjects(0); hWireL = gobjects(0);
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
                 bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
                 totalShift = bPlotPos + app.BilletShift;
 
+                d3 = 0; % Anti-markdown bug
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
 
-                hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
-                    'FaceColor', [ 0.3 0.5 0.8 ], 'FaceAlpha', 0.2, ...
+                hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
+                    'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
                     'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
 
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', [ 0.6 0.6 0.7 ], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none');
 
-                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)[ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                    d4 = 0; % Anti-markdown bug
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
                         app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
@@ -4024,21 +3962,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
 
                     hGhostL = plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
-                        'Color', wireRed, 'LineWidth', 0.75, 'LineStyle', '-');
+                        'Color', t.ghostRed, 'LineWidth', 0.75, 'LineStyle', '-');
 
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
-                        'Color', wireGreen, 'LineWidth', 0.75, 'LineStyle', '-');[ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
+                        'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
+
+                    d5 = 0; % Anti-markdown bug
+                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
-                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-
-                        [ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);[ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
+                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');[ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);
+                        [ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
 
                         hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
                         plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
+                        d6 = 0; % Anti-markdown bug
                         [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
@@ -4057,7 +3998,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         for k = 1:numel(idx)
                             currIdx = idx(k);
 
-                            wCol =[ wireBaseCol, 0.60 ];
+                            wCol =[ t.wireBaseCol, 0.60 ];
                             if bad(currIdx)
                                 wCol =[ 1 0.8 0 0.8 ];
                             end
@@ -4093,12 +4034,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             ylim(ax,[ -50, mLimY + 50 ]);
             zlim(ax,[ -bs(3)-20, mLimZ + 80 ]);
 
+            d7 = 0; % Anti-markdown bug
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             if isViolated
                 isValid = false;
-                pCol =[ 0.4 0.16 0.16 ];
-                tCol =[ 1 0.4 0.4 ];
+                pCol = t.statErrBg;
+                tCol = t.statErrTxt;
                 txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
             end
 
@@ -4294,31 +4236,26 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Check Left
             checkSide("Left", app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L, yL, zL);
-
-            % Check Right (only if independent or forced check)
             if ~isempty(app.EntryPointR)
                 checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
             end
 
-            % 2. Determine State
-            if app.UIFigure.Color(1) < 0.5
-                pCol =[0.16 0.16 0.16]; % Dark
-            else
-                pCol =[0.94 0.94 0.94]; % Light
-            end
+            t = app.getTheme(); % <--- Master Palette
 
             if ~isempty(crit)
                 isValid = false;
-                pCol = [0.4 0.16 0.16]; % Red
-                tCol = [1 0.4 0.4];
+                pCol = t.statErrBg;
+                tCol = t.statErrTxt;
                 msgLines =["CRITICAL ERROR:"; crit(1)];
             elseif ~isempty(warn)
                 isValid = true;
-                pCol =[0.45 0.35 0.1]; % Amber
-                tCol =[1 0.8 0.4];
-                msgLines = ["Warning:"; warn(1)];
+                pCol = t.statWarnBg;
+                tCol = t.statWarnTxt;
+                msgLines =["Warning:"; warn(1)];
             else
-                tCol = [0.4 1 0.4]; % Green
+                isValid = true;
+                pCol = t.statPassBg;
+                tCol = t.statPassTxt;
                 msgLines =["Strategy valid.", "Ready to cut."];
             end
         end
@@ -4526,10 +4463,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if ~isgraphics(hEntryDotL)
-                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.',[1 0.5 0], [1 0.5 0], 1.0);
+                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', t.wireLead, t.wireLead, 1.0);
             end
             if ~isgraphics(hEntryDotR)
-                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', [1 0.5 0], [1 0.5 0], 1.0);
+                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0);
             end
 
             buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
@@ -4995,6 +4932,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [1 0 1], 'LineWidth', 1.5, 'HitTest','off');
 
+            t = app.getTheme();
             % --- INBOUND PATH ---
             pts =[pZero; pSafe; pLoad; pRetract];
             if ~isempty(link1)
@@ -5009,10 +4947,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hRapid = plot(ax, pts(:,1), pts(:,2), '-', 'Color',[0.9 0.8 0], 'LineWidth',0.5, 'HitTest','off');
             end
 
-            hLead = plot(ax, [lead(1), startPt(1)],[lead(2), startPt(2)], '-', 'Color',[1 0.5 0], 'LineWidth',0.5, 'HitTest','off');
-
+            hLead = plot(ax, [lead(1), startPt(1)],[lead(2), startPt(2)], '-', 'Color', t.wireLead, 'LineWidth',0.5, 'HitTest','off');
             % --- OUTBOUND PATH (Retrace) ---
-            plot(ax,[endPt(1), lead(1)], [endPt(2), lead(2)], '--', 'Color',[1 0.5 0], 'LineWidth',1.0, 'HitTest','off');
+            plot(ax,[endPt(1), lead(1)], [endPt(2), lead(2)], '--', 'Color', t.wireLead, 'LineWidth',1.0, 'HitTest','off');
 
             ptsOut = lead;
             if ~isempty(link2)
@@ -5131,7 +5068,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-      % ===========================================================
+        % ===========================================================
         % SIMULATION LOGIC (Final Clean Version)
         % ===========================================================
 
@@ -5145,7 +5082,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-            
+
             d1 = 0; % Anti-markdown bug
             [syncY_L, syncZ_L, syncY_R, syncZ_R] = app.getSyncedKerfProfiles();
 
@@ -5354,7 +5291,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             ax = app.AxSim;
             cla(ax);
             hold(ax,'on');
-            t = app.getTheme();
+            t = app.getTheme(); % <--- Master Palette
 
             % Setup Geometry
             offX = app.MachineBedPos(1);
@@ -5365,7 +5302,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             d1 = 0; % Anti-markdown bug
             [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -20, 1000, 700, 20); % Bed
 
-            patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor',[0.4 0.4 0.4], 'FaceAlpha',0.5, 'EdgeColor',[0.2 0.2 0.2]);
+            patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha',0.5, 'EdgeColor', t.bedEdge);
 
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
@@ -5378,11 +5315,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             d2 = 0; % Anti-markdown bug
             [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
 
-            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor',[0.3 0.5 0.8], 'FaceAlpha',0.2, 'EdgeColor',t.labelCol, 'LineStyle','--');
+            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','--');
 
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
-                    'FaceColor',[0.6 0.6 0.7], 'FaceAlpha',0.3, 'EdgeColor','none', 'Tag','SimModel');
+                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor','none', 'Tag','SimModel');
             end
 
             % --- NEW: Ghost Profiles in neutral Grey ---
@@ -5397,13 +5334,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 xL_world = app.LeftProfilePoints(1,1) + totalShift(1) - offX;
                 xR_world = app.RightProfilePoints(1,1) + totalShift(1) - offX;
 
-                % Use the theme's rawMesh color (grey) with transparency
-                ghostColor =[0.9 0.9 0.9, 0.6];
-
                 plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
-                    'Color', ghostColor, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostL');
+                    'Color', t.ghostNeutral, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostL');
                 plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
-                    'Color', ghostColor, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostR');
+                    'Color', t.ghostNeutral, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostR');
             end
 
             % --- Dynamic Elements ---
@@ -5418,14 +5352,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Trails
             tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
-            cols = {[0.9 0.8 0], [1 0.5 0], t.planeRed,[1 0.5 0], [0.9 0.8 0]};
+            cols = {[0.9 0.8 0], t.wireLead, t.planeRed, t.wireLead,[0.9 0.8 0]};
             styles = {'-','-','-','--','--'};
 
             for i=1:5
                 colL = cols{i};
                 colR = cols{i};
 
-                % FIX: Separate Feed Colors so Right Tower isn't Red!
+                % Separate Feed Colors so Right Tower isn't Red!
                 if i==3
                     colL = t.planeRed;
                     colR = t.planeGreen;
@@ -5441,7 +5375,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateSimVisuals(1);
             app.onResetSimViewMachine();
         end
-
+        
         % --- Core Visualization Loop ---
         function updateSimVisuals(app, idx)
             % Efficiently updates coordinates of existing plot objects
@@ -5751,26 +5685,26 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updatePostStatus(app)
-            % Dynamic Status/Validation for Feed and Power settings
             if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus)
                 return;
             end
 
             feed = app.SpinFeedRate.Value;
             power = app.SpinPower.Value;
+            
+            t = app.getTheme(); % <--- Master Palette
 
             msg = strings(0);
-            tCol =[ 0.9 0.9 0.9 ]; % Default White/Grey
+            tCol = t.labelCol; 
 
-            % Heuristic Warnings
             if power < 25 && feed > 80
                 msg(end+1) = "WARNING: Risk of wire drag/breakage.";
                 msg(end+1) = "Power is very low relative to feed rate.";
-                tCol =[ 1 0.8 0.4 ]; % Amber
+                tCol = t.statWarnTxt;
             elseif power > 80 && feed < 30
                 msg(end+1) = "WARNING: Risk of overheating/melting.";
                 msg(end+1) = "Power is very high relative to feed rate.";
-                tCol =[ 1 0.8 0.4 ]; % Amber
+                tCol = t.statWarnTxt;
             end
 
             if isempty(app.PP_GCodeLines)
@@ -5781,8 +5715,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             else
                 if isempty(msg)
                     msg =[sprintf("Success! Generated %d lines of G-Code.", numel(app.PP_GCodeLines)), "Verify paths and click Save."];
-                    if tCol(1) ~= 1 % If not Amber from warnings
-                        tCol =[ 0.4 1 0.4 ]; % Green
+                    if sum(tCol == t.statWarnTxt) ~= 3 % If not Amber
+                        tCol = t.statPassTxt; 
                     end
                 end
                 app.BtnSaveGCode.Enable = 'on';
@@ -5791,7 +5725,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtPostStatus.Value = msg;
             app.TxtPostStatus.FontColor = tCol;
         end
-
+        
         function initPostPlot(app)
             axP = app.AxPost;
             cla(axP); hold(axP,'on');
@@ -6047,20 +5981,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             add(sprintf('%%     Date: %s', string(datetime('now'))));
             add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
             add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
-            
+
             uiBilletPos = app.MachineBilletPos;
             uiBilletPos(1) = uiBilletPos(1) - app.MachineBedPos(1);
             add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
-            
+
             add('% ------------------------------------------');
-            
+
             % Insert placeholders to be replaced after paths are generated!
             add('%%EXTENTS_MIN%%');
             add('%%EXTENTS_MAX%%');
-            
+
             add('% ------------------------------------------');
-            add('G21','Metric'); 
-            add('G90','Absolute'); 
+            add('G21','Metric');
+            add('G90','Absolute');
             add('G94','Feed/min');
 
             % --- START SEQUENCE (Split G53) ---
@@ -6445,144 +6379,255 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % THEME HELPERS
         % ===========================================================
-        % function applyTheme(app)
-        %     t = app.getTheme();
-        %     app.UIFigure.Color = t.sideBg;
-        % 
-        %     % All sidebar containers
-        %     sidebars = {app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.MachineLeftPanel, app.CuttingLeftPanel, app.SimLeftPanel, app.PostLeftPanel};
-        % 
-        %     for i = 1:numel(sidebars)
-        %         container = sidebars{i};
-        %         if isempty(container) || ~isgraphics(container), continue; end
-        % 
-        %         % 1. Update the Main Grid background
-        %         container.BackgroundColor = t.sideBg;
-        % 
-        %         % 2. Drill down to components
-        %         allObjs = findall(container);
-        %         for j = 1:numel(allObjs)
-        %             obj = allObjs(j);
-        % 
-        %             % --- A. DETECT READOUTS ---
-        %             isReadout = false;
-        %             if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
-        %                 isReadout = true;
-        %             end
-        % 
-        %             % FIX: Protect the Simulation Base Feed label from being wiped!
-        %             if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
-        %                 isReadout = true;
-        %             end
-        % 
-        %             if isReadout
-        %                 obj.BackgroundColor = t.readoutBg;
-        %                 obj.FontColor       = t.readoutTxt;
-        %                 continue;
-        %             end
-        % 
-        %             % --- B. DETECT CONTAINERS ---
-        %             if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
-        %                 obj.BackgroundColor = t.sideBg;
-        %                 continue;
-        %             end
-        % 
-        %             % --- C. DETECT LABELS ---
-        %             if isa(obj, 'matlab.ui.control.Label')
-        %                 obj.FontColor = t.labelCol;
-        %                 obj.BackgroundColor = t.sideBg;
-        %                 continue;
-        %             end
-        % 
-        %             % --- D. DETECT SWITCHES (NEW) ---
-        %             if isa(obj, 'matlab.ui.control.Switch')
-        %                 obj.FontColor = t.labelCol;
-        %                 % Switches don't have a background color property in the same way,
-        %                 % but FontColor fixes the text visibility.
-        %                 continue;
-        %             end
-        % 
-        %             % --- E. INPUT FIELDS ---
-        %             % Left alone to preserve Edit/Readout distinctions
-        %         end
-        %     end
-        % 
-        %     % Refresh machine plot
-        %     if app.TabGroup.SelectedTab == app.TabMachine
-        %         app.refreshMachinePlot();
-        %     end
-        % end
-
-        function onThemeToggleChanged(app, src)
-            isDark = strcmp(src.Value, 'Dark');
-
-            if isDark
-                app.UIFigure.Color =[0.16 0.16 0.16];
-                logoName = 'Science_engineering_WHITE.png';
-            else
-                app.UIFigure.Color = [0.96 0.96 0.96];
-                logoName = 'Science_engineering_BLACK.png';
-            end
-
-            % Update the logo instantly
-            appDir = fileparts(mfilename('fullpath'));
-            pathOption1 = fullfile(appDir, logoName);
-            pathOption2 = fullfile(appDir, 'src', logoName);
-
-            if isfile(pathOption1)
-                app.ImgWelcomeLogo.ImageSource = pathOption1;
-            elseif isfile(pathOption2)
-                app.ImgWelcomeLogo.ImageSource = pathOption2;
-            end
-
-            % Push the new colors to the entire app!
-            app.applyTheme();
-        end
-
         function th = getTheme(app)
             % Central source for all App Colors
-            if app.UIFigure.Color(1) < 0.5
-                % DARK THEME
-                th.sideBg      = [0.16 0.16 0.16];
-                th.panelBg     = [0.12 0.12 0.12];
-                th.labelCol    = [0.90 0.90 0.90];
-                th.accentBg    = [0.30 0.35 0.45]; % Muted blue-grey for Dark
-                th.editBg      = [0.24 0.24 0.24]; % Darker box for inputs
-                th.editTxt     = [1.00 1.00 1.00]; % White text
-                th.readoutBg   = [0.7 0.7 0.7]; % Fixed Pale Grey
-                th.readoutTxt  = [0.2 0.2 0.2];
-                th.inputBg     = [1.00 1.00 1.00];
-                th.inputTxt    = [0.00 0.00 0.00];
-
-                th.planeRed    = [0.96 0.06 0.06];
-                th.planeGreen  = [0.20 1.00 0.35];
-                th.planeRedTxt = [0.96 0.40 0.40];
-                th.planeGreenTxt = [0.40 1.00 0.50];
-
-                th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
-                th.wireNeutral = [0.80 0.80 0.80]; % White/Grey for Machining View
-                th.rawMeshCol  = [0.50 0.50 0.50]; % Dull grey for mesh slices
+            if ispref('HotWireSTEPApp', 'Theme')
+                themeStr = getpref('HotWireSTEPApp', 'Theme');
             else
-                % LIGHT THEME
-                th.sideBg      = [0.96 0.96 0.96];
-                th.panelBg     = [0.90 0.90 0.90];
-                th.labelCol    = [0.15 0.15 0.15];
-                th.accentBg    = [0.70 0.70 0.80]; % Classic blue-grey for Light
-                th.editBg      = [1.00 1.00 1.00]; % Pure white box for inputs
-                th.editTxt     = [0.00 0.00 0.00]; % Black text
-                th.readoutBg   = [0.4 0.4 0.4]; % Fixed Pale Grey
-                th.readoutTxt  = [0.7 0.7 0.7];
-                th.inputBg     = [1.00 1.00 1.00];
-                th.inputTxt    = [0.00 0.00 0.00];
+                themeStr = 'Dark';
+            end
 
-                th.planeRed    = [0.80 0.00 0.00];
-                th.planeGreen  = [0.00 0.60 0.00];
-                th.planeRedTxt = [0.60 0.00 0.00];
-                th.planeGreenTxt = [0.00 0.40 0.00];
+            isDark = strcmp(themeStr, 'Dark');
 
-                th.wireKerf  = [1.00 0.75 0.00]; % Warm "Hot Wire" path
-                th.wireNeutral = [0.20 0.20 0.20]; % Black/Dark Grey for Machining View
-                th.rawMeshCol  = [0.70 0.70 0.70];
+            if isDark
+                % --- DARK THEME ---
+                th.sideBg      =[0.16 0.16 0.16];
+                th.panelBg     =[0.12 0.12 0.12];
+                th.labelCol    =[0.90 0.90 0.90];
+                th.accentBg    =[0.30 0.35 0.45];
+                th.editBg      =[0.24 0.24 0.24];
+                th.editTxt     =[1.00 1.00 1.00];
+                th.readoutBg   =[0.70 0.70 0.70];
+                th.readoutTxt  =[0.20 0.20 0.20];
+                th.inputBg     =[1.00 1.00 1.00];
+                th.inputTxt    =[0.00 0.00 0.00];
+
+                th.btnBg       =[0.25 0.25 0.25];
+                th.btnTxt      =[1.00 1.00 1.00];
+                th.axBg        =[0.05 0.05 0.05];
+
+                th.planeRed    =[0.96 0.06 0.06];
+                th.planeGreen  =[0.20 1.00 0.35];
+                th.planeRedTxt =[0.96 0.40 0.40];
+                th.planeGreenTxt =[0.40 1.00 0.50];
+
+                th.wireKerf    =[1.00 0.75 0.00];
+                th.wireNeutral =[0.80 0.80 0.80];
+                th.rawMeshCol  =[0.60 0.60 0.60];
+                th.wireLead    =[1.00 0.50 0.00];
+
+                % FIX: Status Box Colors (Red / Amber / Green)
+                th.statErrBg   =[0.40 0.16 0.16];
+                th.statErrTxt  =[1.00 0.40 0.40];
+                th.statWarnBg  =[0.45 0.35 0.10];
+                th.statWarnTxt =[1.00 0.80 0.40]; % Amber
+                th.statPassBg  = th.panelBg;
+                th.statPassTxt = th.planeGreen;    % Matched to the vibrant green!
+
+                th.modelColor  =[0.50 0.50 0.60];
+                th.modelAlpha  = 0.40;
+                th.billetColor = [0.30 0.50 0.80];
+                th.billetAlpha = 0.20;
+                th.billetLine  = 'w';
+
+                th.bedCol      =[0.40 0.40 0.40];
+                th.bedEdge     =[0.20 0.20 0.20];
+                th.cageCol     =[0.60 0.60 0.60];
+                th.wireBaseCol =[0.50 0.50 0.50];
+
+                th.ghostRed    = [th.planeRed, 0.6];
+                th.ghostGreen  = [th.planeGreen, 0.6];
+                th.ghostNeutral= [0.90 0.90 0.90, 0.7];
+
+            else
+                % --- LIGHT THEME ---
+                th.sideBg      =[0.96 0.96 0.96];
+                th.panelBg     =[0.90 0.90 0.90];
+                th.labelCol    =[0.15 0.15 0.15];
+                th.accentBg    =[0.70 0.70 0.80];
+                th.editBg      =[1.00 1.00 1.00];
+                th.editTxt     =[0.00 0.00 0.00];
+                th.readoutBg   =[0.85 0.85 0.85];
+                th.readoutTxt  =[0.20 0.20 0.20];
+                th.inputBg     =[1.00 1.00 1.00];
+                th.inputTxt    =[0.00 0.00 0.00];
+
+                th.btnBg       =[0.85 0.85 0.85];
+                th.btnTxt      =[0.00 0.00 0.00];
+                th.axBg        =[0.95 0.95 0.95];
+
+                th.planeRed    =[0.80 0.00 0.00];
+                th.planeGreen  =[0.00 0.60 0.00];
+                th.planeRedTxt =[0.60 0.00 0.00];
+                th.planeGreenTxt =[0.00 0.40 0.00];
+
+                th.wireKerf    =[1.00 0.75 0.00];
+                th.wireNeutral =[0.20 0.20 0.20];
+                th.rawMeshCol  =[0.40 0.40 0.40];
+                th.wireLead    =[0.85 0.35 0.00];
+
+                % FIX: Status Box Colors (Red / Amber / Green)
+                th.statErrBg   =[1.00 0.80 0.80];
+                th.statErrTxt  =[0.80 0.00 0.00];
+                th.statWarnBg  =[1.00 0.90 0.70];
+                th.statWarnTxt =[0.65 0.30 0.00]; % Darker, highly legible Amber
+                th.statPassBg  = th.panelBg;
+                th.statPassTxt = th.planeGreen;    % Matched to the vibrant green!
+
+                th.modelColor  = [0.50 0.50 0.60];
+                th.modelAlpha  = 0.30;
+                th.billetColor =[0.30 0.50 0.80];
+                th.billetAlpha = 0.20;
+                th.billetLine  = 'k';
+
+                th.bedCol      = [0.80 0.80 0.80];
+                th.bedEdge     = [0.50 0.50 0.50];
+                th.cageCol     = [0.30 0.30 0.30];
+                th.wireBaseCol = [0.40 0.40 0.40];
+
+                th.ghostRed    = [th.planeRed, 0.6];
+                th.ghostGreen  =[th.planeGreen, 0.6];
+                th.ghostNeutral=[0.20 0.20 0.20, 0.5];
+            end
+        end
+
+        function applyTheme(app)
+            % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
+            t = app.getTheme();
+            app.UIFigure.Color = t.sideBg;
+
+            % 1. Paint ALL Physical Tabs
+            tabs =[app.TabWelcome, app.TabModel, app.TabProfiles, app.TabBillet, ...
+                app.TabMachine, app.TabCutting, app.TabSimulation, app.TabPostProcess];
+            for i = 1:numel(tabs)
+                if isgraphics(tabs(i))
+                    tabs(i).BackgroundColor = t.sideBg;
+                end
+            end
+
+            % 2. Sweep and update ALL layout grids and panels
+            containers = {app.GLWelcome, app.GLModel, app.GLProfiles, app.GLBillet, ...
+                app.GLMachine, app.GLCutting, app.GLSimulation, app.GLPostProcess, ...
+                app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.BilletRightPanel, ...
+                app.MachineLeftPanel, app.CuttingLeftPanel, ...
+                app.SimLeftPanel, app.PostLeftPanel, ...
+                app.PanelGCode, app.GridGCode};
+
+            for i = 1:numel(containers)
+                c = containers{i};
+                if isempty(c) || ~isgraphics(c), continue; end
+
+                c.BackgroundColor = t.sideBg;
+
+                kids = findall(c);
+                for j = 1:numel(kids)
+                    obj = kids(j);
+
+                    % A. Protect Readouts
+                    isReadout = false;
+                    if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
+                        isReadout = true;
+                    end
+                    if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
+                        isReadout = true;
+                    end
+                    if isReadout
+                        obj.BackgroundColor = t.readoutBg;
+                        obj.FontColor       = t.readoutTxt;
+                        continue;
+                    end
+
+                    % B. Sync Status Boxes Background but protect their Red/Amber/Green FontColor!
+                    isStatusBox = false;
+                    if isprop(app, 'TxtModelStatus') && obj == app.TxtModelStatus, isStatusBox = true; end
+                    if isprop(app, 'TxtProfileStatus') && obj == app.TxtProfileStatus, isStatusBox = true; end
+                    if isprop(app, 'TxtBilletStatus') && obj == app.TxtBilletStatus, isStatusBox = true; end
+                    if isprop(app, 'TxtMachineStatus') && obj == app.TxtMachineStatus, isStatusBox = true; end
+                    if isprop(app, 'TxtCuttingStatus') && obj == app.TxtCuttingStatus, isStatusBox = true; end
+                    if isprop(app, 'TxtPostStatus') && obj == app.TxtPostStatus, isStatusBox = true; end
+
+                    if isStatusBox
+                        obj.BackgroundColor = t.panelBg; % FIX: Matches the panel so text contrasts properly!
+                        continue;
+                    end
+
+                    % C. Standard Component Styling
+                    if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
+                        obj.BackgroundColor = t.sideBg;
+                        if isprop(obj, 'ForegroundColor')
+                            obj.ForegroundColor = t.labelCol;
+                        end
+                    elseif isa(obj, 'matlab.ui.control.Label') || isa(obj, 'matlab.ui.control.Switch') || isa(obj, 'matlab.ui.control.CheckBox') || isa(obj, 'matlab.ui.control.Slider')
+                        obj.FontColor = t.labelCol;
+                    elseif isa(obj, 'matlab.ui.control.TextArea') || isa(obj, 'matlab.ui.control.ListBox')
+                        obj.BackgroundColor = t.sideBg;
+                        obj.FontColor = t.labelCol;
+                    elseif isa(obj, 'matlab.ui.control.NumericEditField') || isa(obj, 'matlab.ui.control.EditField') || isa(obj, 'matlab.ui.control.Spinner')
+                        obj.BackgroundColor = t.inputBg;
+                        obj.FontColor = t.inputTxt;
+                    elseif isa(obj, 'matlab.ui.control.Button') || isa(obj, 'matlab.ui.control.StateButton')
+                        % Safely theme standard buttons without touching Semantic (Green/Red) buttons
+                        bg = obj.BackgroundColor;
+                        if abs(bg(1)-bg(2)) < 1e-3 && abs(bg(2)-bg(3)) < 1e-3
+                            obj.BackgroundColor = t.btnBg;
+                            obj.FontColor = t.btnTxt;
+                        end
+                    end
+                end
+            end
+
+            % 3. Sweep and update All Axes
+            allAxes =[app.AxModel, app.AxLeftProfile, app.AxRightProfile, ...
+                app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso, ...
+                app.AxMachine, app.AxCutLeft, app.AxCutRight, app.AxSim, app.AxPost];
+
+            for i = 1:numel(allAxes)
+                ax = allAxes(i);
+                if isgraphics(ax)
+                    ax.Color = t.axBg;
+                    if isprop(ax, 'BackgroundColor')
+                        ax.BackgroundColor = t.sideBg;
+                    end
+                    ax.XColor = t.labelCol;
+                    ax.YColor = t.labelCol;
+                    ax.ZColor = t.labelCol;
+                    ax.GridColor = t.labelCol;
+
+                    if isprop(ax, 'Title') && isgraphics(ax.Title)
+                        ax.Title.Color = t.labelCol;
+                    end
+                end
+            end
+
+            % 4. Sweep and update all Legends
+            lgds = findall(app.UIFigure, 'Type', 'legend');
+            for i = 1:numel(lgds)
+                lgds(i).TextColor = t.labelCol;
+            end
+        end
+
+        function onThemeToggleChanged(app, src)
+            % Ask for confirmation before restarting
+            sel = uiconfirm(app.UIFigure, ...
+                'Changing the theme requires the application to restart. Any unsaved progress will be lost. Do you wish to restart now?', ...
+                'Restart Required', ...
+                'Options', {'Restart Now', 'Cancel'}, ...
+                'DefaultOption', 1, 'CancelOption', 2, 'Icon', 'info');
+
+            if strcmp(sel, 'Restart Now')
+                % Save the new preference
+                setpref('HotWireSTEPApp', 'Theme', src.Value);
+
+                % Safely close current app and launch a new instance
+                delete(app.UIFigure);
+                HotWireSTEPApp_v6_2();
+            else
+                % Revert the switch visually if they cancelled
+                if strcmp(src.Value, 'Dark')
+                    src.Value = 'Light';
+                else
+                    src.Value = 'Dark';
+                end
             end
         end
 
