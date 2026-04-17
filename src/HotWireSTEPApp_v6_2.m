@@ -84,7 +84,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         
         % Allowable extra slack before "Waste" Warning (Amber)
         % Total gap allowed = ModelEdgeWarningBuffer + MaxWasteBuffer
-        MaxWasteBuffer = 2.0; % [mm]
+        MaxWasteBuffer = 23.0; % [mm]
         
         % Tiny buffer for X placement (Start just inside the block)
         ModelXPlacementBuffer = 0.001; % [mm]
@@ -2389,32 +2389,59 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.onAutoFitBillet();
                     isValidBillet = app.syncBilletUI(); % Re-check validity
                 end
-                
+
                 % 2. Position Logic: Auto-position if lock is off and still invalid
                 if ~isValidBillet && ~app.IsBilletPosUserModified
                     app.onAutoPositionModel();
                     isValidBillet = app.syncBilletUI();
                 end
 
-                % 3. Safety Popup: Only if STILL invalid and trying to move forward
-                if ~isValidBillet && targetTab ~= app.TabBillet
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('The model is currently outside your manual billet bounds.\n\nWould you like to Auto-Fit the billet/position now, or return to adjust it manually?'), ...
-                            'Billet Collision', ...
-                            'Options', {'Auto-Fit All', 'Adjust Manually', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                % 3. Safety Popups (Only if moving FORWARD past the Billet tab)
+                if targetTab ~= app.TabBillet && ~isModel && ~isProfiles && ~isWelcome
 
-                        if strcmp(sel, 'Adjust Manually')
-                            app.TabGroup.SelectedTab = app.TabBillet;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        else
-                            app.onAutoFitBillet();
-                            app.onAutoPositionModel();
-                            forceAuto = true;
+                    % --- CASE A: CRITICAL ERROR (RED) ---
+                    if ~isValidBillet
+                        if ~forceAuto
+                            sel = uiconfirm(app.UIFigure, ...
+                                sprintf('The model is currently outside your manual billet bounds.\n\nWould you like to Auto-Fit the billet/position now, or return to adjust it manually?'), ...
+                                'Billet Collision', ...
+                                'Options', {'Auto-Fit All', 'Adjust Manually', 'Cancel'}, ...
+                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                            if strcmp(sel, 'Adjust Manually')
+                                app.TabGroup.SelectedTab = app.TabBillet;
+                                return;
+                            elseif strcmp(sel, 'Cancel')
+                                app.TabGroup.SelectedTab = oldTab;
+                                return;
+                            else
+                                app.onAutoFitBillet();
+                                app.onAutoPositionModel();
+                                forceAuto = true;
+                            end
+                        end
+
+                        % --- CASE B: WASTE WARNING (AMBER) ---
+                    else
+                        t = app.getTheme();
+                        isWarning = isequal(app.BilletLeftPanel.BackgroundColor, t.statWarnBg);
+
+                        if isWarning && ~forceAuto
+                            sel = uiconfirm(app.UIFigure, ...
+                                sprintf('Billet Warning: %s\n\nAcknowledge and proceed anyway, or return to Billet tab to optimize?', app.TxtBilletStatus.Value{1}), ...
+                                'Billet Warning', ...
+                                'Options', {'Acknowledge & Continue', 'Optimize Billet', 'Cancel'}, ...
+                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                            if strcmp(sel, 'Optimize Billet')
+                                app.TabGroup.SelectedTab = app.TabBillet;
+                                return;
+                            elseif strcmp(sel, 'Cancel')
+                                app.TabGroup.SelectedTab = oldTab;
+                                return;
+                            end
+                            % If 'Acknowledge & Continue', we simply don't 'return',
+                            % allowing the tab change to proceed.
                         end
                     end
                 end
@@ -3312,47 +3339,57 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             tol = app.ModelContainmentTol;
             buf = app.ModelEdgeWarningBuffer;
+            wasteLimit = app.MaxWasteBuffer;
 
-            isOutside  = any(workMin < -tol) || any(workMax > bSize + tol);
-            isTooClose = (workMin(2) < buf - 1e-4) || (workMax(2) > bSize(2) - buf + 1e-4) || ...
-                (workMin(3) < buf - 1e-4) || (workMax(3) > bSize(3) - buf + 1e-4);
+            % Explicitly calculate gaps for logic clarity
+            gapNeg = workMin;           % [X Y Z] gaps at the start side
+            gapPos = bSize - workMax;   % [X Y Z] gaps at the end side
+            slack  = bSize - mDim;      % Total extra foam in each axis
 
-            wasteGap = 6.0;
-            gapY_Neg = workMin(2);
-            gapY_Pos = bSize(2) - workMax(2);
-            isWasteY = (gapY_Neg > wasteGap) && (gapY_Pos > wasteGap);
+            % 1. CRITICAL: Outside Bounds (Red)
+            isOutside = any(gapNeg < -tol) || any(gapPos < -tol);
 
-            gapZ_Neg = workMin(3);
-            gapZ_Pos = bSize(3) - workMax(3);
-            isWasteZ = (gapZ_Neg > wasteGap) && (gapZ_Pos > wasteGap);
+            % 2. WARNING: Too Close (Amber) - Only for Y and Z (X=0 is allowed)
+            isTooCloseYZ = any(gapNeg(2:3) < buf - 1e-4) || any(gapPos(2:3) < buf - 1e-4);
 
-            isWasteful = isWasteY || isWasteZ;
+            % 3. WARNING: Floating (Amber) - Both sides > buf (Y and Z)
+            % User should nudge model to at least one edge to save foam.
+            isFloatingY = (gapNeg(2) > buf + 1e-4) && (gapPos(2) > buf + 1e-4);
+            isFloatingZ = (gapNeg(3) > buf + 1e-4) && (gapPos(3) > buf + 1e-4);
 
-            t = app.getTheme(); % <--- Master Palette
+            % 4. WARNING: Foam Waste (Amber)
+            % X: Allowed to be 0, so waste triggers if total slack > wasteLimit
+            % Y/Z: Trigger if total slack > (required buffer + wasteLimit)
+            isWasteX = slack(1) > wasteLimit;
+            isWasteY = slack(2) > (buf + wasteLimit);
+            isWasteZ = slack(3) > (buf + wasteLimit);
+
+            t = app.getTheme();
 
             if isOutside
                 app.BilletLeftPanel.BackgroundColor = t.statErrBg;
-                app.TxtBilletStatus.Value = {'CRITICAL:', 'Model is outside stock!', 'Adjust billet size or model position.'};
+                app.TxtBilletStatus.Value = {'CRITICAL ERROR:', 'Model is outside stock!', 'Adjust billet size or model position.'};
                 app.TxtBilletStatus.FontColor = t.statErrTxt;
-                app.BtnBilletContinue.Enable = 'off';
                 isValid = false;
-            elseif isTooClose
+            elseif isTooCloseYZ
                 app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
-                app.TxtBilletStatus.Value = {sprintf('Warning: Model is very close (<%.0fmm) to billet edges.', buf), 'Check alignments.'};
+                app.TxtBilletStatus.Value = {sprintf('WARNING: Model is <%.0fmm from Y/Z edges.', buf), 'Check wire clearance.'};
                 app.TxtBilletStatus.FontColor = t.statWarnTxt;
-                app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
-            elseif isWasteful
+            elseif isFloatingY || isFloatingZ
                 app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
-                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Consider using a smaller billet.', sprintf('Only a %.0fmm gap is needed around the model in Y and Z.', buf)};
+                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Model is floating in the middle of the block.', 'Nudge model to one edge in Y/Z.'};
                 app.TxtBilletStatus.FontColor = t.statWarnTxt;
-                app.BtnBilletContinue.Enable = 'on';
+                isValid = true;
+            elseif isWasteX || isWasteY || isWasteZ
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
+                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Billet is significantly larger than model.', 'Consider using a smaller scrap block.'};
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
                 isValid = true;
             else
                 app.BilletLeftPanel.BackgroundColor = t.statPassBg;
                 app.TxtBilletStatus.Value = {'Billet configuration valid.'};
                 app.TxtBilletStatus.FontColor = t.statPassTxt;
-                app.BtnBilletContinue.Enable = 'on';
                 isValid = true;
             end
         end
