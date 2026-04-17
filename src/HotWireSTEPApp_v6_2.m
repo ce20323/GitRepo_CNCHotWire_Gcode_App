@@ -5829,16 +5829,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % 1. Rapid (Yellow)
+            % 1. Rapid (Yellow) - Path from Start to Entry Point
             curEnd = min(idx, idxRapidEnd);
             updateT('PostTowerRapidL', towerL, 1, curEnd);
             updateT('PostTowerRapidR', towerR, 1, curEnd);
             updateT('PostModelRapidL', pathL,  1, curEnd);
             updateT('PostModelRapidR', pathR,  1, curEnd);
 
-            % 2. Lead In (Orange)
+            % 2. Lead In (Orange) - Path from Entry Point to Profile Start
             if idx > idxRapidEnd
                 curEnd = min(idx, idxProfStart);
+                % We start drawing from RapidEnd (the Entry Point)
                 updateT('PostTowerLeadInL', towerL, idxRapidEnd, curEnd);
                 updateT('PostTowerLeadInR', towerR, idxRapidEnd, curEnd);
                 updateT('PostModelLeadInL', pathL,  idxRapidEnd, curEnd);
@@ -5901,24 +5902,23 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.PP_TowerPathL = zeros(0,3);
             app.PP_TowerPathR = zeros(0,3);
 
-            app.PP_RapidEndIndex     = app.SimRapidCutoffIndex;
-            app.PP_ProfileStartIndex = app.SimProfileStartIndex;
-            app.PP_ProfileEndIndex   = app.SimFeedEndIndex;
-            app.PP_LeadOutEndIndex   = app.SimLeadOutEndIndex;
-
             % 2. Prepare Settings
             feed  = round(app.SpinFeedRate.Value);
             power = round(app.SpinPower.Value);
+            lines = strings(0,1);
+            map = zeros(0,1);
+            pathIdx = 0;
 
-            % --- ALIGNMENT ---
+            % --- ALIGNMENT & HELPERS ---
             baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
             xM_L = baseX + app.NumLeftOffset.Value;
             xM_R = baseX + app.NumRightOffset.Value;
             xT_L = 0;
             xT_R = app.MachineSpanX;
 
-            mDim =[abs(xM_R - xM_L), app.ModelYMax - app.ModelYMin, app.ModelZMax - app.ModelZMin];
+            mDim = [abs(xM_R - xM_L), app.ModelYMax - app.ModelYMin, app.ModelZMax - app.ModelZMin];
 
+            % Nested Helper 1: Project Model YZ to Tower Coordinates
             function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
                 rL = (xT_L - xM_L) / (xM_R - xM_L);
                 tyL = yL + (yR - yL) * rL;
@@ -5929,6 +5929,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 tx = tyL; ty = tzL; tz = tyR; ta = tzR;
             end
 
+            % Nested Helper 2: Reverse Project for Verification Plotting
             function [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta)
                 ratioL = (xM_L - xT_L) / (xT_R - xT_L);
                 ratioR = (xM_R - xT_L) / (xT_R - xT_L);
@@ -5936,12 +5937,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 mxR = xM_R; myR = tx + (tz - tx) * ratioR; mzR = ty + (ta - ty) * ratioR;
             end
 
-            lines = strings(0,1);
-            map = zeros(0,1);
-            pathIdx = 0;
-
+            % Nested Helper 3: Add Line to G-Code list and map path
             function add(code, comment, tx, ty, tz, ta)
-                % Format the string safely, dropping empty comments
                 if nargin >= 2 && ~isempty(char(comment))
                     if startsWith(strtrim(comment), '(')
                         s = sprintf('%-35s %s', code, comment);
@@ -5952,29 +5949,50 @@ classdef HotWireSTEPApp_v6_2 < handle
                     s = code;
                 end
 
-                if nargin < 6
-                    % Command without movement
-                    lines(end+1) = s;
-                    map(end+1) = max(1, pathIdx);
-                else
-                    % Movement command
-                    lines(end+1) = s;
+                lines(end+1) = s;
+                
+                if nargin >= 6
+                    % Only increment index and record position if we have movement
                     pathIdx = pathIdx + 1;
-
-                    app.PP_TowerPathL(pathIdx,:) =[xT_L, tx, ty];
-                    app.PP_TowerPathR(pathIdx,:) =[xT_R, tz, ta];
-
-                    d1 = 0;
+                    app.PP_TowerPathL(pathIdx,:) = [xT_L, tx, ty];
+                    app.PP_TowerPathR(pathIdx,:) = [xT_R, tz, ta];
                     [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta);
-
-                    app.PP_PathL(pathIdx,:) =[mxL, myL, mzL];
+                    app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
                     app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
-                    map(end+1) = pathIdx;
+                end
+                
+                % Map this line of G-code to the last known path position
+                map(end+1) = max(1, pathIdx);
+            end
+
+            % Nested Helper 4: Dynamic Feed G1 Move
+            function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
+                [tx, ty, tz, ta] = project(targL(1), targL(2), tgtR(1), tgtR(2));
+                [px, py, pz, pa] = project(prevL(1), prevL(2), prevR(1), prevR(2));
+
+                if app.ChkDynamicFeed.Value
+                    distL_model = hypot(targL(1) - prevL(1), targL(2) - prevL(2));
+                    distR_model = hypot(tgtR(1) - prevR(1), tgtR(2) - prevR(2));
+                    dist_Model_Max = max(distL_model, distR_model);
+                    dist_Mach4 = sqrt((tx - px)^2 + (ty - py)^2 + (tz - pz)^2 + (ta - pa)^2);
+
+                    if dist_Model_Max > 1e-5
+                        dynF = feed * (dist_Mach4 / dist_Model_Max);
+                    else
+                        dynF = feed;
+                    end
+                    if dynF > 1500.0, dynF = 1500.0; end
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynF), commentStr, tx, ty, tz, ta);
+                else
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), commentStr, tx, ty, tz, ta);
                 end
             end
 
             % --- 4. G-CODE GENERATION ---
-            add('% ------------------------------------------');
+            pSyncL = app.ProfileSyncL;
+            pSyncR = app.ProfileSyncR;
+
+            add('%% ------------------------------------------');
             add(sprintf('%%     File: %s', app.FieldFilename.Value));
             add(sprintf('%%    Model: %s', app.CurrentModelName));
             add(sprintf('%%     Date: %s', string(datetime('now'))));
@@ -5986,63 +6004,45 @@ classdef HotWireSTEPApp_v6_2 < handle
             add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
 
             add('% ------------------------------------------');
-
-            % Insert placeholders to be replaced after paths are generated!
             add('%%EXTENTS_MIN%%');
             add('%%EXTENTS_MAX%%');
-
             add('% ------------------------------------------');
             add('G21','Metric');
             add('G90','Absolute');
             add('G94','Feed/min');
 
-            % --- START SEQUENCE (Split G53) ---
-            % 1. Retract Horizontals (X, Z) to 0
-            pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) =[xT_L, 0, 0];
-            app.PP_TowerPathR(pathIdx,:) =[xT_R, 0, 0];
-            app.PP_PathL(pathIdx,:) =[xM_L, 0, 0];
-            app.PP_PathR(pathIdx,:) =[xM_R, 0, 0];
-
-            lines(end+1) = 'G53 G0 X0 Z0 (Safe Start: Horizontals)';
-            map(end+1) = pathIdx;
-
-            % 2. Home Verticals (Y, A) to 0
-            lines(end+1) = 'G53 G0 Y0 A0 (Safe Start: Verticals)';
-            map(end+1) = pathIdx;
+            % --- START SEQUENCE ---
+            add('G53 G0 X0 Z0', 'Safe Start: Horizontals', 0, 0, 0, 0);
+            add('G53 G0 Y0 A0', 'Safe Start: Verticals', 0, 0, 0, 0);
 
             % --- PHASE 1: LOAD ---
             add('%% --- LOADING ---', '');
             add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', 10, 10, 10, 10);
-
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', bY, bZ, bY, bZ);
-
             add('M00', 'STOP: Load Block');
-
-            bY_Ret = bY - 10.0;
+            bY_Ret = bY - 4.0;
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', bY_Ret, bZ, bY_Ret, bZ);
 
-            % --- PHASE 2: APPROACH ---
+            % --- PHASE 2: APPROACH & LEAD-IN ---
             add('%% --- APPROACH ---', '');
-
-            e1L = app.EntryPointL;  e1R = app.EntryPointR;  % Lead In
-            e2L = app.EntryPoint2L; e2R = app.EntryPoint2R; % Link 1
-            e3L = app.EntryPoint3L; e3R = app.EntryPoint3R; % Link 2
-
-            % Order: Link 1 -> Link 2
+            e1L = app.EntryPointL;  e1R = app.EntryPointR;
+            e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
+            e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
 
             if ~isempty(e2L)
-                dummy2 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
             end
-
             if ~isempty(e3L)
-                dummy1 = 0; [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
             end
-
+            if ~isempty(e1L)
+                [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
+            end
             app.PP_RapidEndIndex = pathIdx;
 
             % Heat Sequence
@@ -6050,131 +6050,61 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('M301', 'Extraction ON > Wait 5s > Power ON');
             add(sprintf('F%d', feed), 'Set Cut Feedrate');
 
-            useDynamicFeed = app.ChkDynamicFeed.Value;
-
-            % --- NEW HELPER: Dynamic G1 Moves ---
-            function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
-                [tx, ty, tz, ta] = project(targL(1), targL(2), tgtR(1), tgtR(2));
-                [px, py, pz, pa] = project(prevL(1), prevL(2), prevR(1), prevR(2));
-
-                if useDynamicFeed
-                    distL_model = hypot(targL(1) - prevL(1), targL(2) - prevL(2));
-                    distR_model = hypot(tgtR(1) - prevR(1), tgtR(2) - prevR(2));
-                    dist_Model_Max = max(distL_model, distR_model);
-                    dist_Mach4 = sqrt((tx - px)^2 + (ty - py)^2 + (tz - pz)^2 + (ta - pa)^2);
-
-                    if dist_Model_Max > 1e-5
-                        dynF = feed * (dist_Mach4 / dist_Model_Max);
-                    else
-                        dynF = feed;
-                    end
-
-                    if dynF > 1500.0, dynF = 1500.0; end % Safety cap
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynF), commentStr, tx, ty, tz, ta);
-                else
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), commentStr, tx, ty, tz, ta);
-                end
-            end
-
-            pSyncL = app.ProfileSyncL;
-            pSyncR = app.ProfileSyncR;
-
-            % Lead In Move (Dynamic!)
+            % Lead-In Cut (The first orange move)
+            startL = pSyncL(1,:); startR = pSyncR(1,:);
             if ~isempty(e1L)
-                prevL = e2L; if isempty(prevL), prevL =[bY, bZ]; end
-                prevR = e2R; if isempty(prevR), prevR =[bY, bZ]; end
-                addDynamicG1(e1L, e1R, prevL, prevR, 'Lead In Point');
+                addDynamicG1(startL, startR, e1L, e1R, 'Lead-In Cut to Profile');
+            else
+                prevL = [bY_Ret, bZ]; prevR = [bY_Ret, bZ];
+                addDynamicG1(startL, startR, prevL, prevR, 'Approach Cut to Profile');
             end
+            app.PP_ProfileStartIndex = pathIdx;
 
             % --- PHASE 3: PROFILE ---
             add('%% --- PROFILE CUT ---', '');
-
-            % Start Point Move (Dynamic!)
-            startL = pSyncL(1,:); startR = pSyncR(1,:);
-            if ~isempty(e1L)
-                addDynamicG1(startL, startR, e1L, e1R, 'Start Point');
-            else
-                prevL = e2L; if isempty(prevL), prevL = [bY, bZ]; end
-                prevR = e2R; if isempty(prevR), prevR = [bY, bZ]; end
-                addDynamicG1(startL, startR, prevL, prevR, 'Start Point');
-            end
-
-            app.PP_ProfileStartIndex = pathIdx;
-
             for i = 2:size(pSyncL, 1)
                 addDynamicG1(pSyncL(i,:), pSyncR(i,:), pSyncL(i-1,:), pSyncR(i-1,:), '');
             end
-
             app.PP_ProfileEndIndex = pathIdx;
 
             % --- PHASE 4: EXIT ---
             add('%% --- EXIT SEQUENCE ---', '');
-
-            % Lead Out (Dynamic!)
             if ~isempty(e1L)
-                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead Out to Entry Point');
+                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead-Out Cut to Entry');
             end
-
             app.PP_LeadOutEndIndex = pathIdx;
-
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
 
-            % CORRECT ORDER FOR EXIT: Link 2 -> Link 1
+            % Correct Order for Retraction
             if ~isempty(e3L)
-                dummy7 = 0;[tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
             end
-
             if ~isempty(e2L)
-                dummy8 = 0;[tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
             end
 
-            % Retract Safety (Horizontal) before homing (matches Simulation pRetract exactly)
-            bY_Ret = app.MachineBilletPos(2) - 10.0;
-            bZ_Ret = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
-            dummy9 = 0; [tx, ty, tz, ta] = project(bY_Ret, bZ_Ret, bY_Ret, bZ_Ret);
+            bY_RetFinal = app.MachineBilletPos(2) - 10.0;
+            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
+            [tx, ty, tz, ta] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
 
             % --- FINAL RETURN (Split G53) ---
-            % Step 1: Retract Horizontals (X, Z) to 0 (Depth -> 0)
-            pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, bZ_Ret];
-            app.PP_TowerPathR(pathIdx,:) =[xT_R, 0, bZ_Ret];
+            % Step 1: Retract Horizontals (X, Z) to 0, keeping current Vertical height (bZ_RetFinal)
+            add('G53 G0 X0 Z0', 'Retract Horizontals', 0, bZ_RetFinal, 0, bZ_RetFinal);
 
-            dummy10 = 0;[mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, bZ_Ret, 0, bZ_Ret);
-
-            app.PP_PathL(pathIdx,:) =[mxL, myL, mzL];
-            app.PP_PathR(pathIdx,:) =[mxR, myR, mzR];
-
-            lines(end+1) = 'G53 G0 X0 Z0 (Retract Horizontals)';
-            map(end+1) = pathIdx;
-
-            % Step 2: Retract Verticals (Y, A) to 0 (Height -> 0)
-            pathIdx = pathIdx + 1;
-            app.PP_TowerPathL(pathIdx,:) = [xT_L, 0, 0];
-            app.PP_TowerPathR(pathIdx,:) = [xT_R, 0, 0];
-
-            dummy11 = 0; [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(0, 0, 0, 0);
-
-            app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
-            app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
-
-            lines(end+1) = 'G53 G0 Y0 A0 (Retract Verticals)';
-            map(end+1) = pathIdx;
+            % Step 2: Retract Verticals (Y, A) to 0
+            add('G53 G0 Y0 A0', 'Retract Verticals', 0, 0, 0, 0);
 
             add('M30', 'End Program');
 
             % --- FINALIZE ---
-
-            % Scan the generated arrays for Min/Max bounds!
-            % We slice (3:end-2) to safely ignore the first two and last two G53 Home moves.
             if pathIdx > 4
                 minX = min(app.PP_TowerPathL(3:end-2, 2));
                 maxX = max(app.PP_TowerPathL(3:end-2, 2));
                 minY = min(app.PP_TowerPathL(3:end-2, 3));
                 maxY = max(app.PP_TowerPathL(3:end-2, 3));
-
                 minZ = min(app.PP_TowerPathR(3:end-2, 2));
                 maxZ = max(app.PP_TowerPathR(3:end-2, 2));
                 minA = min(app.PP_TowerPathR(3:end-2, 3));
@@ -6182,8 +6112,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 minStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX, minY, minZ, minA);
                 maxStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX, maxY, maxZ, maxA);
-
-                % Swap the placeholders
                 lines = replace(lines, '%%EXTENTS_MIN%%', minStr);
                 lines = replace(lines, '%%EXTENTS_MAX%%', maxStr);
             end
@@ -6193,17 +6121,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-
             app.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1];
 
-            if isempty(app.AxSim.Children)
-                app.initSimulationPlot();
-            end
+            if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
-
-            % Trigger the status UI update
             app.updatePostStatus();
         end
 
