@@ -539,7 +539,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
             lbl3.Layout.Row = 5;
             statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).'};
-            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor',[ 0.2 0.2 0.2 ],'FontColor',[ 0.4 1 0.4 ]);
+            % Use theme-engine colors for the example box
+            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor', t.statPassBg,'FontColor', t.statPassTxt);
             txt3.Layout.Row = 6;
 
             lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
@@ -880,7 +881,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_M_Stat.Layout.Row = 14;
 
             app.TxtModelStatus = uitextarea(app.GLLeft, 'Editable','off', 'Value', {'No model loaded.'}, ...
-                'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
+                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
             app.TxtModelStatus.Layout.Row = 15;
 
             % 7. BUTTONS (Row 16)
@@ -1048,7 +1049,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_P_Stat.Layout.Row = 7;
 
             app.TxtProfileStatus = uitextarea(app.profilesLeft, 'Editable','off', 'Value', {''}, ...
-                'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
+                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
             app.TxtProfileStatus.Layout.Row = 8;
 
             % -- Continue (bottom, like Model tab buttons section)
@@ -1243,7 +1244,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblStat = uilabel(app.BilletLeftPanel, 'Text', 'Status', 'FontWeight', 'bold', 'FontColor', labelCol);
             lblStat.Layout.Row = 9;
 
-            app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', [0.2 0.2 0.2], 'FontColor', [1 0.8 0]);
+            app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
             app.TxtBilletStatus.Layout.Row = 10;
 
             % 9. Continue
@@ -1352,7 +1353,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_Mach_Stat = uilabel(app.MachineLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
             lbl_Mach_Stat.Layout.Row = 6;
 
-            app.TxtMachineStatus = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', [0.2 0.2 0.2], 'FontColor',[1 0.8 0]);
+            app.TxtMachineStatus = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
             app.TxtMachineStatus.Layout.Row = 7;
 
             % -- Continue --
@@ -1497,7 +1498,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_Cut_Stat = uilabel(app.CuttingLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
             lbl_Cut_Stat.Layout.Row = 7;
 
-            app.TxtCuttingStatus = uitextarea(app.CuttingLeftPanel, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', [0.2 0.2 0.2], 'FontColor',[0.4 1 0.4]);
+            app.TxtCuttingStatus = uitextarea(app.CuttingLeftPanel, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4]);
             app.TxtCuttingStatus.Layout.Row = 8;
 
             % -- Continue --
