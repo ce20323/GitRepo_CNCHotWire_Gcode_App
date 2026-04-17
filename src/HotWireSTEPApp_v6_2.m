@@ -80,8 +80,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         ModelContainmentTol = 0.0001; % [mm]
 
         % Buffer for "Too Close" Warning (Amber)
-        ModelEdgeWarningBuffer = 4.0; % [mm]
-
+        ModelEdgeWarningBuffer = 3.0; % [mm]
+        
+        % Allowable extra slack before "Waste" Warning (Amber)
+        % Total gap allowed = ModelEdgeWarningBuffer + MaxWasteBuffer
+        MaxWasteBuffer = 2.0; % [mm]
+        
         % Tiny buffer for X placement (Start just inside the block)
         ModelXPlacementBuffer = 0.001; % [mm]
 
