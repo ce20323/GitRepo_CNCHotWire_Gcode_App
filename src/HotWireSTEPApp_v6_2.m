@@ -3550,6 +3550,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onBilletShift(app, axisIdx, delta)
             app.moveModelInSpace(axisIdx, delta);
+            app.IsBilletUserModified = true;
         end
 
         function refreshBilletPlots(app)
@@ -5694,51 +5695,51 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePostStatus();
         end
 
-        function updatePostStatus(app)
-            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus)
-                return;
-            end
+        function updatePostStatus(app, isFreshPost)
+            if nargin < 2, isFreshPost = false; end % Default: assume parameter changed
+            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus), return; end
 
-            % 1. Invalidate stale G-Code if parameters changed
-            % This clears the internal lines and the UI listbox
-            if ~isempty(app.PP_GCodeLines)
+            t = app.getTheme();
+            feed = app.SpinFeedRate.Value;
+            power = app.SpinPower.Value;
+
+            % 1. Logic: If parameters changed (not a fresh post), invalidate old code
+            if ~isFreshPost && ~isempty(app.PP_GCodeLines)
                 app.PP_GCodeLines = strings(0);
                 app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
                 app.BtnSaveGCode.Enable = 'off';
                 app.BtnSaveGCode.BackgroundColor = [0.3 0.3 0.3];
             end
 
-            feed = app.SpinFeedRate.Value;
-            power = app.SpinPower.Value;
-            t = app.getTheme();
-
             msg = strings(0);
-            tCol = t.labelCol;
+            % Default to neutral theme background
+            panelBg = t.sideBg;
+            textCol = t.labelCol;
 
-            % 2. Safety Warnings
-            if power < 25 && feed > 80
-                msg(end+1) = "WARNING: Risk of wire drag/breakage.";
-                msg(end+1) = "Power is very low relative to feed rate.";
-                tCol = t.statWarnTxt;
-            elseif power > 80 && feed < 30
-                msg(end+1) = "WARNING: Risk of overheating/melting.";
-                msg(end+1) = "Power is very high relative to feed rate.";
-                tCol = t.statWarnTxt;
-            end
-
-            % 3. Final Message State
+            % 2. Check for Stale State (Red)
             if isempty(app.PP_GCodeLines)
-                if isempty(msg)
-                    msg =["Ready to generate G-Code.", ""];
-                end
+                panelBg = t.statErrBg;
+                textCol = t.statErrTxt;
+                msg = ["STALE G-CODE:", "Parameters have changed. Click Post-Process to update."];
             else
-                % This part is only reached immediately after onPostProcess calls this
-                msg =[sprintf("Success! Generated %d lines of G-Code.", numel(app.PP_GCodeLines)), "Verify paths and click Save."];
-                if ~isequal(tCol, t.statWarnTxt), tCol = t.statPassTxt; end
+                % 3. Safety Warnings (Amber)
+                if (power < 25 && feed > 80) || (power > 80 && feed < 30)
+                    panelBg = t.statWarnBg;
+                    textCol = t.statWarnTxt;
+                    msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
+                else
+                    % 4. Success State (Green)
+                    panelBg = t.statPassBg;
+                    textCol = t.statPassTxt;
+                    msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
+                end
+                msg(end+1) = "Verify paths and click Save.";
             end
 
+            % Apply to UI
+            app.PostLeftPanel.BackgroundColor = panelBg;
             app.TxtPostStatus.Value = msg;
-            app.TxtPostStatus.FontColor = tCol;
+            app.TxtPostStatus.FontColor = textCol;
         end
 
         function initPostPlot(app)
@@ -6142,7 +6143,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
-            app.updatePostStatus();
+            app.updatePostStatus(true); % Pass 'true' to signify this is a fresh post
         end
 
         function onPostLineSelected(app, src)
