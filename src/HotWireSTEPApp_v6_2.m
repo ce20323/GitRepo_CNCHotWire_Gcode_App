@@ -191,7 +191,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         IsDragging logical = false      % Flag for mouse drag state
         LastMousePos (1,2) double = [NaN NaN]  % Last mouse position
         AppState (1,1) double = 0       % 0=Model Only, 1=Active Cutting
-        IsBilletUserModified (1,1) logical = false
+        IsBilletUserModified (1,1) logical = false % For Billet Size
+        IsBilletPosUserModified (1,1) logical = false  % For Model Position
         BilletViewMode string = "Billet"
         IsMachineInit (1,1) logical = false % Tracks if user/auto has set Machine Pos
         IsCuttingInit (1,1) logical = false % Tracks if user/auto has set Entry Pts
@@ -1226,7 +1227,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblGuide.Layout.Row = 7;
 
             guideTxt = {
-                'REDUCE FOAM WASTE! >'
+                'REDUCE FOAM WASTE!'
                 'This tab identifies what size billet is needed and positions the model within the billet.'
                 'Find the smallest scrap block in the cupboard that is just large enough to fit the model before trimming on the manual hot wire cutters.'
                 'You only need to leave a 4mm boundary/gap around the model in Y and Z.'
@@ -2292,7 +2293,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Re-run planes + profiles under the new taper mode
             app.invalidateKerf();
-            app.IsBilletUserModified = false; % Allow auto-fit on next billet tab visit
             app.updatePlanes();
         end
 
@@ -2300,6 +2300,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         % TAB CHANGE HANDLER
         % ===========================================================
         function onTabChanged(app, ~, evt)
+            % DEBUG: Trace the lock state on every tab click
+            fprintf('--- TAB CHANGE: To %s | ManualLock is currently: %d ---\n', evt.NewValue.Title, app.IsBilletUserModified);
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
@@ -2378,34 +2380,37 @@ classdef HotWireSTEPApp_v6_2 < handle
             if needsBillet
                 isValidBillet = app.syncBilletUI();
 
-                if sum(app.BilletSize) == 0 || ~isValidBillet
+                % 1. Size Logic: Auto-fit if size is 0 OR if not modified and invalid
+                if sum(app.BilletSize) == 0 || (~isValidBillet && ~app.IsBilletUserModified)
+                    app.onAutoFitBillet();
+                    isValidBillet = app.syncBilletUI(); % Re-check validity
+                end
+                
+                % 2. Position Logic: Auto-position if lock is off and still invalid
+                if ~isValidBillet && ~app.IsBilletPosUserModified
+                    app.onAutoPositionModel();
+                    isValidBillet = app.syncBilletUI();
+                end
 
-                    if targetTab == app.TabBillet
-                        app.onAutoFitBillet();
-                        app.onAutoPositionModel();
-                        drawnow; pause(0.1);
-                    else
-                        if ~forceAuto
-                            sel = uiconfirm(app.UIFigure, ...
-                                sprintf('You skipped a step! The billet stock has not been configured correctly.\n\nIt is highly recommended to set this manually on the Billet tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
-                                'Step Skipped', ...
-                                'Options', {'Go to Billet Tab', 'Auto-Configure All', 'Cancel'}, ...
-                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                % 3. Safety Popup: Only if STILL invalid and trying to move forward
+                if ~isValidBillet && targetTab ~= app.TabBillet
+                    if ~forceAuto
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('The model is currently outside your manual billet bounds.\n\nWould you like to Auto-Fit the billet/position now, or return to adjust it manually?'), ...
+                            'Billet Collision', ...
+                            'Options', {'Auto-Fit All', 'Adjust Manually', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
 
-                            if strcmp(sel, 'Go to Billet Tab')
-                                app.TabGroup.SelectedTab = app.TabBillet;
-                                return;
-                            elseif strcmp(sel, 'Cancel')
-                                app.TabGroup.SelectedTab = oldTab;
-                                return;
-                            else
-                                forceAuto = true;
-                            end
-                        end
-                        if forceAuto
+                        if strcmp(sel, 'Adjust Manually')
+                            app.TabGroup.SelectedTab = app.TabBillet;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        else
                             app.onAutoFitBillet();
                             app.onAutoPositionModel();
-                            drawnow; pause(0.1);
+                            forceAuto = true;
                         end
                     end
                 end
@@ -2494,14 +2499,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow; pause(0.05);
 
             if targetTab == app.TabBillet
-                % SMART AUTO-FIT: 
-                % 1. If the user hasn't manually touched the spinners...
-                % 2. ...AND the model was rotated/moved (making the flag false)...
-                % 3. ...THEN auto-calculate the most efficient block.
+                % Landing on Billet tab: Handle Size and Position independently
                 if ~app.IsBilletUserModified
                     app.onAutoFitBillet();
+                end
+
+                if ~app.IsBilletPosUserModified
                     app.onAutoPositionModel();
                 end
+
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
@@ -2848,7 +2854,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             delete(findall(app.AxModel,'Type','light'));
             camlight(app.AxModel,'headlight');
             lighting(app.AxModel,'gouraud');
-
+            
+            % ONLY reset the manual lock on a brand new file import
+            app.IsBilletUserModified = false; 
             app.autoFitView();
             drawnow;
             app.captureHomeView();
@@ -3139,7 +3147,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Plane movement invalidates kerf
             app.invalidateKerf();
-            app.IsBilletUserModified = false; % Allow auto-fit on next billet tab visit
             app.updatePlanes();  % this will also call computeProfiles() in STATE 1
 
         end
@@ -3424,7 +3431,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.IsCuttingInit = false;
             end
 
-            app.IsBilletUserModified = false;
+            app.IsBilletPosUserModified = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3518,7 +3525,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.shiftEntryPoints(dY, dZ);
 
             app.IsCuttingInit = false;
-            app.IsBilletUserModified = true;
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3538,7 +3545,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.shiftEntryPoints(dY, dZ);
 
             app.IsCuttingInit = false;
-            app.IsBilletUserModified = true;
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3550,7 +3557,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onBilletShift(app, axisIdx, delta)
             app.moveModelInSpace(axisIdx, delta);
-            app.IsBilletUserModified = true;
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
         end
 
         function refreshBilletPlots(app)
