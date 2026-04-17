@@ -6399,58 +6399,72 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.editTxt     =[1.00 1.00 1.00];
                 th.readoutBg   =[0.70 0.70 0.70];
                 th.readoutTxt  =[0.20 0.20 0.20];
-                th.inputBg     =[1.00 1.00 1.00];
-                th.inputTxt    =[0.00 0.00 0.00];
 
-                th.btnBg       =[0.25 0.25 0.25];
-                th.btnTxt      =[1.00 1.00 1.00];
-                th.axBg        =[0.05 0.05 0.05];
+                % FIX: Standard inputs are now dark grey in dark mode!
+                th.inputBg     =[0.24 0.24 0.24];
+                th.inputTxt    =[1.00 1.00 1.00];
 
-                th.planeRed    =[0.96 0.06 0.06];
-                th.planeGreen  =[0.20 1.00 0.35];
-                th.planeRedTxt =[0.96 0.40 0.40];
-                th.planeGreenTxt =[0.40 1.00 0.50];
+                % FIX: The carefully chosen Billet Shift/Size accent background
+                th.shiftBg     = [0.70 0.70 0.80];
+                th.shiftTxt    = [0.00 0.00 0.00];
 
-                th.wireKerf    =[1.00 0.75 0.00];
-                th.wireNeutral =[0.80 0.80 0.80];
-                th.rawMeshCol  =[0.60 0.60 0.60];
-                th.wireLead    =[1.00 0.50 0.00];
+                th.btnBg       = [0.25 0.25 0.25];
+                th.btnTxt      = [1.00 1.00 1.00];
+                th.axBg        = [0.05 0.05 0.05];
 
-                % FIX: Status Box Colors (Red / Amber / Green)
+                th.planeRed    = [0.96 0.06 0.06];
+                th.planeGreen  = [0.20 1.00 0.35];
+                th.planeRedTxt = [0.96 0.40 0.40];
+                th.planeGreenTxt = [0.40 1.00 0.50];
+
+                th.wireKerf    = [1.00 0.75 0.00];
+                th.wireNeutral = [0.80 0.80 0.80];
+                th.rawMeshCol  = [0.60 0.60 0.60];
+                th.wireLead    = [1.00 0.50 0.00];
+
+                % Status Box Colors (Red / Amber / Green)
                 th.statErrBg   =[0.40 0.16 0.16];
                 th.statErrTxt  =[1.00 0.40 0.40];
                 th.statWarnBg  =[0.45 0.35 0.10];
-                th.statWarnTxt =[1.00 0.80 0.40]; % Amber
+                th.statWarnTxt =[1.00 0.80 0.40];
                 th.statPassBg  = th.panelBg;
-                th.statPassTxt = th.planeGreen;    % Matched to the vibrant green!
+                th.statPassTxt = th.planeGreen;
 
+                % 3D Plotting Elements
                 th.modelColor  =[0.50 0.50 0.60];
                 th.modelAlpha  = 0.40;
                 th.billetColor = [0.30 0.50 0.80];
                 th.billetAlpha = 0.20;
                 th.billetLine  = 'w';
 
-                th.bedCol      =[0.40 0.40 0.40];
-                th.bedEdge     =[0.20 0.20 0.20];
-                th.cageCol     =[0.60 0.60 0.60];
-                th.wireBaseCol =[0.50 0.50 0.50];
+                th.bedCol      = [0.40 0.40 0.40];
+                th.bedEdge     = [0.20 0.20 0.20];
+                th.cageCol     = [0.60 0.60 0.60];
+                th.wireBaseCol = [0.50 0.50 0.50];
 
+                % Ghost profiles (RGBA with 60% opacity)
                 th.ghostRed    = [th.planeRed, 0.6];
-                th.ghostGreen  = [th.planeGreen, 0.6];
-                th.ghostNeutral= [0.90 0.90 0.90, 0.7];
+                th.ghostGreen  =[th.planeGreen, 0.6];
+                th.ghostNeutral=[0.90 0.90 0.90, 0.7];
 
             else
                 % --- LIGHT THEME ---
-                th.sideBg      =[0.96 0.96 0.96];
-                th.panelBg     =[0.90 0.90 0.90];
-                th.labelCol    =[0.15 0.15 0.15];
-                th.accentBg    =[0.70 0.70 0.80];
+                th.sideBg      = [0.96 0.96 0.96];
+                th.panelBg     = [0.90 0.90 0.90];
+                th.labelCol    = [0.15 0.15 0.15];
+                th.accentBg    = [0.70 0.70 0.80];
                 th.editBg      =[1.00 1.00 1.00];
                 th.editTxt     =[0.00 0.00 0.00];
                 th.readoutBg   =[0.85 0.85 0.85];
                 th.readoutTxt  =[0.20 0.20 0.20];
-                th.inputBg     =[1.00 1.00 1.00];
-                th.inputTxt    =[0.00 0.00 0.00];
+
+                % Standard inputs are white in light mode
+                th.inputBg     = [1.00 1.00 1.00];
+                th.inputTxt    = [0.00 0.00 0.00];
+
+                % The carefully chosen Billet Shift/Size accent background
+                th.shiftBg     =[0.70 0.70 0.80];
+                th.shiftTxt    =[0.00 0.00 0.00];
 
                 th.btnBg       =[0.85 0.85 0.85];
                 th.btnTxt      =[0.00 0.00 0.00];
@@ -6466,17 +6480,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.rawMeshCol  =[0.40 0.40 0.40];
                 th.wireLead    =[0.85 0.35 0.00];
 
-                % FIX: Status Box Colors (Red / Amber / Green)
-                th.statErrBg   =[1.00 0.80 0.80];
-                th.statErrTxt  =[0.80 0.00 0.00];
-                th.statWarnBg  =[1.00 0.90 0.70];
-                th.statWarnTxt =[0.65 0.30 0.00]; % Darker, highly legible Amber
+                % Status Box Colors
+                th.statErrBg   = [1.00 0.80 0.80];
+                th.statErrTxt  = [0.80 0.00 0.00];
+                th.statWarnBg  = [1.00 0.90 0.70];
+                th.statWarnTxt = [0.65 0.30 0.00];
                 th.statPassBg  = th.panelBg;
-                th.statPassTxt = th.planeGreen;    % Matched to the vibrant green!
+                th.statPassTxt = th.planeGreen;
 
-                th.modelColor  = [0.50 0.50 0.60];
+                th.modelColor  =[0.50 0.50 0.60];
                 th.modelAlpha  = 0.30;
-                th.billetColor =[0.30 0.50 0.80];
+                th.billetColor = [0.30 0.50 0.80];
                 th.billetAlpha = 0.20;
                 th.billetLine  = 'k';
 
@@ -6486,7 +6500,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.wireBaseCol = [0.40 0.40 0.40];
 
                 th.ghostRed    = [th.planeRed, 0.6];
-                th.ghostGreen  =[th.planeGreen, 0.6];
+                th.ghostGreen  = [th.planeGreen, 0.6];
                 th.ghostNeutral=[0.20 0.20 0.20, 0.5];
             end
         end
@@ -6537,21 +6551,28 @@ classdef HotWireSTEPApp_v6_2 < handle
                         continue;
                     end
 
-                    % B. Sync Status Boxes Background but protect their Red/Amber/Green FontColor!
-                    isStatusBox = false;
-                    if isprop(app, 'TxtModelStatus') && obj == app.TxtModelStatus, isStatusBox = true; end
-                    if isprop(app, 'TxtProfileStatus') && obj == app.TxtProfileStatus, isStatusBox = true; end
-                    if isprop(app, 'TxtBilletStatus') && obj == app.TxtBilletStatus, isStatusBox = true; end
-                    if isprop(app, 'TxtMachineStatus') && obj == app.TxtMachineStatus, isStatusBox = true; end
-                    if isprop(app, 'TxtCuttingStatus') && obj == app.TxtCuttingStatus, isStatusBox = true; end
-                    if isprop(app, 'TxtPostStatus') && obj == app.TxtPostStatus, isStatusBox = true; end
-
-                    if isStatusBox
-                        obj.BackgroundColor = t.panelBg; % FIX: Matches the panel so text contrasts properly!
+                    % B. Update Status Boxes to match theme (formerly protected hardcoded dark)
+                    if isprop(obj, 'BackgroundColor') && isequal(obj.BackgroundColor, [0.2 0.2 0.2]) && isa(obj, 'matlab.ui.control.TextArea')
+                        if t.sideBg(1) < 0.5
+                            % Keep it dark for Dark Mode
+                            obj.BackgroundColor = [0.15 0.15 0.15];
+                        else
+                            % Make it very light for Light Mode to ensure text contrast
+                            obj.BackgroundColor = [0.98 0.98 0.98];
+                        end
                         continue;
                     end
 
-                    % C. Standard Component Styling
+                    % FIX C: Protect Billet Shift & Size Edit Fields
+                    isShiftField = false;
+                    if ~isempty(app.BilletSizeEdits) && any(obj == app.BilletSizeEdits)
+                        isShiftField = true;
+                    end
+                    if ~isempty(app.BilletCenterOffsetEdits) && any(obj == app.BilletCenterOffsetEdits)
+                        isShiftField = true;
+                    end
+
+                    % D. Standard Component Styling
                     if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
                         obj.BackgroundColor = t.sideBg;
                         if isprop(obj, 'ForegroundColor')
@@ -6563,8 +6584,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                         obj.BackgroundColor = t.sideBg;
                         obj.FontColor = t.labelCol;
                     elseif isa(obj, 'matlab.ui.control.NumericEditField') || isa(obj, 'matlab.ui.control.EditField') || isa(obj, 'matlab.ui.control.Spinner')
-                        obj.BackgroundColor = t.inputBg;
-                        obj.FontColor = t.inputTxt;
+                        % Apply the special accent color to the protected shift fields!
+                        if isShiftField
+                            obj.BackgroundColor = t.shiftBg;
+                            obj.FontColor       = t.shiftTxt;
+                        else
+                            obj.BackgroundColor = t.inputBg;
+                            obj.FontColor       = t.inputTxt;
+                        end
                     elseif isa(obj, 'matlab.ui.control.Button') || isa(obj, 'matlab.ui.control.StateButton')
                         % Safely theme standard buttons without touching Semantic (Green/Red) buttons
                         bg = obj.BackgroundColor;
