@@ -2292,6 +2292,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Re-run planes + profiles under the new taper mode
             app.invalidateKerf();
+            app.IsBilletUserModified = false; % Allow auto-fit on next billet tab visit
             app.updatePlanes();
         end
 
@@ -2302,6 +2303,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
+            isWelcome  = (targetTab == app.TabWelcome);
             isModel    = (targetTab == app.TabModel);
             isProfiles = (targetTab == app.TabProfiles);
             isBillet   = (targetTab == app.TabBillet);
@@ -2310,7 +2312,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             isSim      = (targetTab == app.TabSimulation);
             isPost     = (targetTab == app.TabPostProcess);
 
-            needsProfiles = ~isModel;
+            needsProfiles = ~isModel && ~isWelcome;
             needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
             needsBillet   = isBillet || isMachine || isCutting || isSim || isPost;
             needsMachine  = isMachine || isCutting || isSim || isPost;
@@ -2320,8 +2322,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 1: MODEL ---
             hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
+            % Fix: Only block if moving forward and model is missing
             if needsProfiles && ~hasModel
-                app.TabGroup.SelectedTab = app.TabModel;
+                app.TabGroup.SelectedTab = app.TabWelcome;
                 uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
                 return;
             end
@@ -2491,6 +2494,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow; pause(0.05);
 
             if targetTab == app.TabBillet
+                % SMART AUTO-FIT: 
+                % 1. If the user hasn't manually touched the spinners...
+                % 2. ...AND the model was rotated/moved (making the flag false)...
+                % 3. ...THEN auto-calculate the most efficient block.
+                if ~app.IsBilletUserModified
+                    app.onAutoFitBillet();
+                    app.onAutoPositionModel();
+                end
                 app.syncBilletUI();
                 app.refreshBilletPlots();
 
@@ -3128,7 +3139,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Plane movement invalidates kerf
             app.invalidateKerf();
-
+            app.IsBilletUserModified = false; % Allow auto-fit on next billet tab visit
             app.updatePlanes();  % this will also call computeProfiles() in STATE 1
 
         end
@@ -5688,14 +5699,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
+            % 1. Invalidate stale G-Code if parameters changed
+            % This clears the internal lines and the UI listbox
+            if ~isempty(app.PP_GCodeLines)
+                app.PP_GCodeLines = strings(0);
+                app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
+                app.BtnSaveGCode.Enable = 'off';
+                app.BtnSaveGCode.BackgroundColor = [0.3 0.3 0.3];
+            end
+
             feed = app.SpinFeedRate.Value;
             power = app.SpinPower.Value;
-            
-            t = app.getTheme(); % <--- Master Palette
+            t = app.getTheme();
 
             msg = strings(0);
-            tCol = t.labelCol; 
+            tCol = t.labelCol;
 
+            % 2. Safety Warnings
             if power < 25 && feed > 80
                 msg(end+1) = "WARNING: Risk of wire drag/breakage.";
                 msg(end+1) = "Power is very low relative to feed rate.";
@@ -5706,25 +5726,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 tCol = t.statWarnTxt;
             end
 
+            % 3. Final Message State
             if isempty(app.PP_GCodeLines)
                 if isempty(msg)
                     msg =["Ready to generate G-Code.", ""];
                 end
-                app.BtnSaveGCode.Enable = 'off';
             else
-                if isempty(msg)
-                    msg =[sprintf("Success! Generated %d lines of G-Code.", numel(app.PP_GCodeLines)), "Verify paths and click Save."];
-                    if sum(tCol == t.statWarnTxt) ~= 3 % If not Amber
-                        tCol = t.statPassTxt; 
-                    end
-                end
-                app.BtnSaveGCode.Enable = 'on';
+                % This part is only reached immediately after onPostProcess calls this
+                msg =[sprintf("Success! Generated %d lines of G-Code.", numel(app.PP_GCodeLines)), "Verify paths and click Save."];
+                if ~isequal(tCol, t.statWarnTxt), tCol = t.statPassTxt; end
             end
 
             app.TxtPostStatus.Value = msg;
             app.TxtPostStatus.FontColor = tCol;
         end
-        
+
         function initPostPlot(app)
             axP = app.AxPost;
             cla(axP); hold(axP,'on');
