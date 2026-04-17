@@ -836,7 +836,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             % [FIX] FontColor=[0 0 0] to ensure readability on colored background
             app.NumLeftOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
                 'ValueDisplayFormat','%.1f',...
-                'BackgroundColor',[0.96 0.86 0.86], 'FontColor', [0 0 0], ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
             app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
@@ -844,7 +843,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             lbl_M_OffR = uilabel(grid_M_Off,'Text','Right Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol); lbl_M_OffR.Layout.Row=2; lbl_M_OffR.Layout.Column=1;
             app.NumRightOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
                 'ValueDisplayFormat','%.1f',...
-                'BackgroundColor',[0.86 0.96 0.86], 'FontColor', [0 0 0], ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
 
@@ -6571,6 +6569,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                     if ~isempty(app.BilletCenterOffsetEdits) && any(obj == app.BilletCenterOffsetEdits)
                         isShiftField = true;
+                    end
+                    
+                    % --- Special Case: Plane Offset Spinners ---
+                    if obj == app.NumLeftOffset
+                        obj.FontColor = t.planeRedTxt;
+                        % Create a subtle tinted background (15% Red, 85% Theme Bg)
+                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
+                        continue; % Skip standard styling for this object
+                    elseif obj == app.NumRightOffset
+                        obj.FontColor = t.planeGreenTxt;
+                        % Create a subtle tinted background (15% Green, 85% Theme Bg)
+                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
+                        continue; % Skip standard styling for this object
                     end
 
                     % D. Standard Component Styling
