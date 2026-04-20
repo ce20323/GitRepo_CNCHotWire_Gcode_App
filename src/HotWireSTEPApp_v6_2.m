@@ -5442,25 +5442,30 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimTowerPathL = app.SimPathL + tL .* V;
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
-            % --- 1. CALCULATE TOWER BOUNDS (Source of Truth) ---
-            % Indices: 1:minY, 2:maxY, 3:minZ, 4:maxZ
-            app.TowerL_Bounds = [min(app.SimTowerPathL(:,2)), max(app.SimTowerPathL(:,2)), ...
-                min(app.SimTowerPathL(:,3)), max(app.SimTowerPathL(:,3))];
-            app.TowerR_Bounds = [min(app.SimTowerPathR(:,2)), max(app.SimTowerPathR(:,2)), ...
-                min(app.SimTowerPathR(:,3)), max(app.SimTowerPathR(:,3))];
+            % --- 1. CALCULATE PROGRAM BOUNDS (Ignore Homing/Return) ---
+            % We only look at points from the start of Lead-In to the end of Lead-Out
+            progIdx = (app.SimRapidCutoffIndex):app.SimLeadOutEndIndex;
+            
+            % Extract working paths
+            workL = app.SimTowerPathL(progIdx, :);
+            workR = app.SimTowerPathR(progIdx, :);
 
-            % --- 2. UPDATE SIM UI LABELS (Scalar access, no indices) ---
+            % Tower L (Visual X/Y in G-code)
+            app.TowerL_Bounds = [min(workL(:,2)), max(workL(:,2)), ...
+                                 min(workL(:,3)), max(workL(:,3))];
+            % Tower R (Visual Z/A in G-code)
+            app.TowerR_Bounds = [min(workR(:,2)), max(workR(:,2)), ...
+                                 min(workR(:,3)), max(workR(:,3))];
+
+            % --- 2. UPDATE SIM UI LABELS (G-Code Format) ---
             if isgraphics(app.LblSimExtMin)
-                % Line 1: Extents Min
                 app.LblSimExtMin.Text = sprintf('Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
                     app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
-
-                % Line 2: Extents Max
+                
                 app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
                     app.TowerL_Bounds(2), app.TowerL_Bounds(4), app.TowerR_Bounds(2), app.TowerR_Bounds(4));
-
-                % Line 3: Max Wire Extension
-                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm(Limit:%.0fmm)', ...
+                
+                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm(Limit:%.0f mm)', ...
                     app.MaxPathExtension, app.WireExt_Red);
             end
 
