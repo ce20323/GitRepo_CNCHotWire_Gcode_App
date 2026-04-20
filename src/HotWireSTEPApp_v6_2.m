@@ -84,7 +84,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         
         % Allowable extra slack before "Waste" Warning (Amber)
         % Total gap allowed = ModelEdgeWarningBuffer + MaxWasteBuffer
-        MaxWasteBuffer = 23.0; % [mm]
+        MaxWasteBuffer = 24.0; % [mm]
         
         % Tiny buffer for X placement (Start just inside the block)
         ModelXPlacementBuffer = 0.001; % [mm]
@@ -202,8 +202,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         IsBilletUserModified (1,1) logical = false % For Billet Size
         IsBilletPosUserModified (1,1) logical = false  % For Model Position
         BilletViewMode string = "Billet"
-        IsMachineInit (1,1) logical = false % Tracks if user/auto has set Machine Pos
-        IsCuttingInit (1,1) logical = false % Tracks if user/auto has set Entry Pts
+        % Status Tracking Flags
+        IsMachineInit (1,1) logical = false       % Has the machine tab been set up at least once?
+        IsMachineUserModified (1,1) logical = false % Is the machine position manually locked by user?
+        
+        IsCuttingInit (1,1) logical = false       % Has the cutting strategy been set up at least once?
+        IsCuttingUserModified (1,1) logical = false % Is the cutting strategy manually locked by user?
 
         % ---------- Orientation Controls ----------
         RotGrid                         % Layout for rotation controls
@@ -2531,80 +2535,78 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
-            % --- LEVEL 4: MACHINE ---
+            % --- LEVEL 4: MACHINE GATEKEEPER ---
             if needsMachine
-                % ... [existing auto-position checks] ...
+                % 1. Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it (UserModified=0)
+                if ~app.IsMachineInit || ~app.IsMachineUserModified
+                    app.onResetMachineBilletPosition();
+                end
 
-                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
-                
-                % Check the extension we just calculated in the plot refresh
+                [isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
                 isExtRed   = app.MaxPathExtension > app.WireExt_Red;
                 isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
 
-                % 1. BLOCK: Red Extension or Bed Collision
+                % Case A: CRITICAL ERROR (Red) - Block movement past Machine Tab
                 if ~isValidMach || isExtRed
-                    if targetTab ~= app.TabMachine
-                        reason = "Billet is outside safe limits.";
+                    if targetTab ~= app.TabMachine && ~isWelcome && ~isModel && ~isProfiles && ~isBillet
+                        reason = "Billet is outside machine limits.";
                         if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
-                        
-                        uialert(app.UIFigure, reason, 'Machine Limit Error', 'Icon', 'error');
+                        uialert(app.UIFigure, reason, 'Machine Safety Error');
                         app.TabGroup.SelectedTab = app.TabMachine;
                         return;
                     end
-                
-                % 2. SPEED BUMP: Amber Extension
-                elseif isExtAmber && targetTab ~= app.TabMachine && ~isModel && ~isProfiles && ~isBillet
+
+                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD
+                elseif isExtAmber && targetTab ~= app.TabMachine && ~isWelcome && ~isModel && ~isProfiles && ~isBillet
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
-                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical limit.\n\nProceed anyway, or return to Machine tab to center the billet?', app.MaxPathExtension), ...
+                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical pulley limit.\n\nProceed anyway, or return to Machine tab to optimize?', app.MaxPathExtension), ...
                             'Pulley Travel Warning', ...
                             'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
-                            'DefaultOption', 2, 'CancelOption', 3, 'Icon', 'warning');
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
 
-                        if ~strcmp(sel, 'Acknowledge & Continue')
+                        if strcmp(sel, 'Return to Machine Tab')
                             app.TabGroup.SelectedTab = app.TabMachine;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
                             return;
                         end
                     end
                 end
             end
 
-            % --- LEVEL 5: CUTTING STRATEGY ---
+            % --- LEVEL 5: CUTTING STRATEGY GATEKEEPER ---
             if needsCutting
-                if targetTab == app.TabCutting && ~app.IsCuttingInit
+                % 1. Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it (UserModified=0)
+                if ~app.IsCuttingInit || ~app.IsCuttingUserModified
                     app.onAutoStart(false);
                     app.onAutoEntry(false);
-                    drawnow; pause(0.1);
                 end
 
-                d2 = 0; % Anti-markdown bug
-                [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
+                [isValidCut, pColC, tColC, msgLinesC] = app.validateCuttingStrategy();
 
-                if ~app.IsCuttingInit || ~isValidCut
+                % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
+                if ~isValidCut && (targetTab == app.TabSimulation || isPost)
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
-                            sprintf('You skipped a step! The cutting strategy (entry/exit paths) has not been securely configured.\n\nIt is highly recommended to verify this manually on the Cutting Strategy tab.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
-                            'Step Skipped', ...
-                            'Options', {'Go to Cutting Tab', 'Auto-Configure All', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                            sprintf('The current cutting strategy (Lead-In/Entry) is invalid.\n\nWould you like to Auto-Calculate a safe path, or return to adjust it manually?'), ...
+                            'Strategy Error', ...
+                            'Options', {'Auto-Calculate', 'Adjust Manually', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'error');
 
-                        if strcmp(sel, 'Go to Cutting Tab')
+                        if strcmp(sel, 'Adjust Manually')
                             app.TabGroup.SelectedTab = app.TabCutting;
-                            app.CuttingLeftPanel.BackgroundColor = pColC;
-                            app.TxtCuttingStatus.Value = msgLinesC;
-                            app.TxtCuttingStatus.FontColor = tColC;
                             return;
                         elseif strcmp(sel, 'Cancel')
                             app.TabGroup.SelectedTab = oldTab;
                             return;
                         else
+                            % User chose 'Auto-Calculate'
+                            app.onAutoStart(false);
+                            app.onAutoEntry(false);
                             forceAuto = true;
                         end
-                    end
-                    if forceAuto
-                        app.onAutoStart(false);
-                        app.onAutoEntry(false);
-                        drawnow; pause(0.1);
                     end
                 end
             end
@@ -3517,8 +3519,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletSize = [bSizeX, bSizeY, bSizeZ];
             app.BilletShift =[0 0 0];
 
+            app.IsBilletUserModified = false; % Unlock Size auto-calculation
+            
+            % Mark downstream tabs as stale so they re-calculate if not locked
+            app.IsMachineInit = false;
             app.IsCuttingInit = false;
-            app.IsBilletUserModified = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3556,7 +3561,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.IsCuttingInit = false;
             end
 
-            app.IsBilletPosUserModified = false;
+            app.IsBilletPosUserModified = false; % Unlock Position auto-calculation
+            
+            % Mark downstream tabs as stale
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -3826,6 +3835,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BtnMachineContinue.Enable = 'off';
             end
 
+            app.IsMachineUserModified = true;
+            app.IsMachineInit = true;
             app.refreshMachinePlot();
         end
 
@@ -3949,6 +3960,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BtnMachineContinue.Enable = 'off';
             end
 
+            app.IsMachineUserModified = false;
+            app.IsMachineInit = true;
             app.refreshMachinePlot();
         end
 
@@ -4932,6 +4945,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % FIX: Tell the Gatekeeper the user has manually set up the tab!
+            app.IsCuttingUserModified = true;
             app.IsCuttingInit = true;
             app.updateCuttingPlots();
         end
@@ -4977,8 +4991,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % FIX: Tell the Gatekeeper Auto-Start succeeded!
+            app.IsCuttingUserModified = false;
             app.IsCuttingInit = true;
-
             if doPlot
                 app.updateCuttingPlots();
             end
@@ -5077,6 +5091,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % FIX: Tell the Gatekeeper Auto-Entry succeeded!
+            app.IsCuttingUserModified = false;
             app.IsCuttingInit = true;
 
             if doPlot
@@ -5459,13 +5474,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 2. UPDATE SIM UI LABELS (G-Code Format) ---
             if isgraphics(app.LblSimExtMin)
-                app.LblSimExtMin.Text = sprintf('Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
+                app.LblSimExtMin.Text = sprintf('Min: X=%.2f   Y=%.2f   Z=%.2f   A=%.2f', ...
                     app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
                 
                 app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
                     app.TowerL_Bounds(2), app.TowerL_Bounds(4), app.TowerR_Bounds(2), app.TowerR_Bounds(4));
                 
-                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm(Limit:%.0f mm)', ...
+                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm (Limit:%.0fmm)', ...
                     app.MaxPathExtension, app.WireExt_Red);
             end
 
