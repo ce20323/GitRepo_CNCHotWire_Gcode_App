@@ -1661,21 +1661,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 1. Fix display scale: Set MajorTicks to 5mm increments
             gaugeExt.MajorTicks = 0:5:(app.WireExt_Red * 1.2);
             
-            % 2. Styling: Use Theme Green (t.statPassTxt) instead of bright green
-            gaugeExt.ScaleColors = [t.statPassTxt; [1 0.8 0]; t.statErrTxt];
+            % 2. Styling: Muted Industrial Palette
+            % Green: [0.1 0.6 0.1] (Matches your 'Continue' button)
+            % Amber: [0.8 0.5 0.0] (Deeper Amber/Orange)
+            % Red:   [0.7 0.1 0.1] (Muted Signal Red)
+            gaugeExt.ScaleColors = [0.1 0.6 0.1; 0.8 0.5 0.0; 0.7 0.1 0.1];
+            
+            % Explicitly map the segments
             gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
                                          app.WireExt_Amber app.WireExt_Red; ...
                                          app.WireExt_Red app.WireExt_Red*1.2];
+                                         
             gaugeExt.Limits = [0, app.WireExt_Red * 1.2];
             gaugeExt.FontColor = labelCol;
             gaugeExt.FontSize = 8;
-            
+
             % 4. Tooltip explanation
-            gaugeExt.Tooltip = {sprintf('Shows additional wire length required for tapered cuts.'), ...
-                                sprintf('Green: Safe operation.'), ...
-                                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
-                                sprintf('Red (>%.0fmm): Critical mechanical limit!', app.WireExt_Red)};
-            
+            gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
+                sprintf('This dial shows the live extention reuqired during the simulation'), ...
+                sprintf('Green: Safe operation.'), ...
+                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
+                sprintf('Red (>%.0fmm): Critical mechanical limit, wire will break!', app.WireExt_Red)};
+
             app.SimGaugeExt = gaugeExt;
 
             % 5. Spacer & Continue
