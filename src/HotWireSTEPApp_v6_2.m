@@ -90,8 +90,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         ModelXPlacementBuffer = 0.001; % [mm]
 
         % --- Wire Extension Safety (Pulley Travel) ---
-        WireExt_Amber = 30.0; % [mm] Trigger warning
-        WireExt_Red   = 50.0; % [mm] Hardware limit / Block save
+        WireExt_Amber = 25.0; % [mm] Trigger warning
+        WireExt_Red   = 40.0; % [mm] Hardware limit / Block save
 
         % --- Cutting Strategy Safety ---
         MachineSafeHeight = 50.0; % [mm] Z-clearance above billet for Link points
@@ -343,6 +343,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         LblReadoutExt                     % Text readout
         SimGaugeExt                       % Linear gauge handle
         MaxPathExtension = 0              % Stores max extension for G-code
+        LblSimExtMin                      % Simulation Program Extents Labels
+        LblSimExtMax
+        LblSimExtWire
+        TowerL_Bounds = [0 0 0 0]         % Pre-calculated Path Bounds [MinY MaxY MinZ MaxZ]
+        TowerR_Bounds = [0 0 0 0]
 
         % --- Visual Data (Interpolated for Smoothness) ---
         SimPathL                          % Nx3 [x, y, z] Machine Coords (Left)
@@ -1608,8 +1613,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
             gridSCoord = uigridlayout(pnlSCoord, [5 5]);
             gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
-            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 35}; 
-            gridSCoord.Padding = [10 5 10 10];
+            % FIX: Increased Row 5 height from 35 to 50 to prevent label cropping
+            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 40}; 
+            % FIX: Added 15px right padding so the last number on the scale doesn't clip
+            gridSCoord.Padding = [10 10 10 10]; 
             gridSCoord.BackgroundColor = panelBg;
 
             lblSimHeadL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
@@ -1658,23 +1665,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             gaugeExt.Layout.Row = 5;
             gaugeExt.Layout.Column = [1 5];
             
-            % 1. Fix display scale: Set MajorTicks to 5mm increments
-            gaugeExt.MajorTicks = 0:5:(app.WireExt_Red * 1.2);
+            % Calculate a clean scale maximum (round up to nearest 10mm)
+            scaleMax = ceil((app.WireExt_Red * 1.2) / 10) * 10;
             
-            % 2. Styling: Muted Industrial Palette
-            % Green: [0.1 0.6 0.1] (Matches your 'Continue' button)
-            % Amber: [0.8 0.5 0.0] (Deeper Amber/Orange)
-            % Red:   [0.7 0.1 0.1] (Muted Signal Red)
+            gaugeExt.MajorTicks = 0:5:scaleMax;
+            gaugeExt.Limits = [0, scaleMax];
+            
+            % Styling: Muted Industrial Palette
             gaugeExt.ScaleColors = [0.1 0.6 0.1; 0.8 0.5 0.0; 0.7 0.1 0.1];
-            
-            % Explicitly map the segments
             gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
                                          app.WireExt_Amber app.WireExt_Red; ...
-                                         app.WireExt_Red app.WireExt_Red*1.2];
+                                         app.WireExt_Red scaleMax];
                                          
-            gaugeExt.Limits = [0, app.WireExt_Red * 1.2];
             gaugeExt.FontColor = labelCol;
             gaugeExt.FontSize = 8;
+            gaugeExt.BackgroundColor = panelBg;
 
             % 4. Tooltip explanation
             gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
@@ -1685,13 +1690,43 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.SimGaugeExt = gaugeExt;
 
-            % 5. Spacer & Continue
+            % --- VISIBILITY FIX FOR GAUGE ---
+            gaugeExt.BackgroundColor = panelBg; % Forces contrast recalculation
+            gaugeExt.FontColor = labelCol;
+
+            % --- 5. Program Extents Panel ---
+            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlBounds.Layout.Row = 5;
+
+            gridBounds = uigridlayout(pnlBounds, [3 1]); % 3 Rows, 1 Column for text lines
+            gridBounds.RowHeight = {'fit', 'fit', 'fit'};
+            gridBounds.Padding = [10 5 10 5];
+            gridBounds.RowSpacing = 5;
+            gridBounds.BackgroundColor = panelBg;
+
+            % Line 1: Min Extents
+            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMin.Layout.Row = 1;
+
+            % Line 2: Max Extents
+            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMax.Layout.Row = 2;
+
+            % Line 3: Max Wire Extension
+            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',t.wireKerf);
+            app.LblSimExtWire.Layout.Row = 3;
+
+            % --- 6. Layout Fix: Pin Continue Button to Bottom ---
+            % We add a spacer row (Row 6) set to '1x' to push the button down
             lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lblSimSpacer.Layout.Row = 5;
+            lblSimSpacer.Layout.Row = 6;
 
             app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnSimContinue.Layout.Row = 6;
+            app.BtnSimContinue.Layout.Row = 7;
+            
+            % Set the parent grid row heights: R1-5 fit, R6 takes all space, R7 fits button
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
 
             % --- Right Panel: 3D Sim Plot ---
             app.AxSim = uiaxes(app.GLSimulation);
@@ -5407,6 +5442,28 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimTowerPathL = app.SimPathL + tL .* V;
             app.SimTowerPathR = app.SimPathL + tR .* V;
 
+            % --- 1. CALCULATE TOWER BOUNDS (Source of Truth) ---
+            % Indices: 1:minY, 2:maxY, 3:minZ, 4:maxZ
+            app.TowerL_Bounds = [min(app.SimTowerPathL(:,2)), max(app.SimTowerPathL(:,2)), ...
+                min(app.SimTowerPathL(:,3)), max(app.SimTowerPathL(:,3))];
+            app.TowerR_Bounds = [min(app.SimTowerPathR(:,2)), max(app.SimTowerPathR(:,2)), ...
+                min(app.SimTowerPathR(:,3)), max(app.SimTowerPathR(:,3))];
+
+            % --- 2. UPDATE SIM UI LABELS (Scalar access, no indices) ---
+            if isgraphics(app.LblSimExtMin)
+                % Line 1: Extents Min
+                app.LblSimExtMin.Text = sprintf('Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
+                    app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
+
+                % Line 2: Extents Max
+                app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
+                    app.TowerL_Bounds(2), app.TowerL_Bounds(4), app.TowerR_Bounds(2), app.TowerR_Bounds(4));
+
+                % Line 3: Max Wire Extension
+                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm(Limit:%.0fmm)', ...
+                    app.MaxPathExtension, app.WireExt_Red);
+            end
+
             nPoints = size(app.SimPathL, 1);
             app.SimSlider.Limits =[1, max(1, nPoints)];
             app.SimSlider.Value = 1;
@@ -6250,25 +6307,24 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('M30', 'End Program');
 
             % --- FINALIZE ---
-            if pathIdx > 4
-                minX = min(app.PP_TowerPathL(3:end-2, 2));
-                maxX = max(app.PP_TowerPathL(3:end-2, 2));
-                minY = min(app.PP_TowerPathL(3:end-2, 3));
-                maxY = max(app.PP_TowerPathL(3:end-2, 3));
-                minZ = min(app.PP_TowerPathR(3:end-2, 2));
-                maxZ = max(app.PP_TowerPathR(3:end-2, 2));
-                minA = min(app.PP_TowerPathR(3:end-2, 3));
-                maxA = max(app.PP_TowerPathR(3:end-2, 3));
+            % 1. Extract values from pre-calculated TowerL_Bounds [minY, maxY, minZ, maxZ]
+            minX_v = app.TowerL_Bounds(1); maxX_v = app.TowerL_Bounds(2);
+            minY_v = app.TowerL_Bounds(3); maxY_v = app.TowerL_Bounds(4);
+            
+            minZ_v = app.TowerR_Bounds(1); maxZ_v = app.TowerR_Bounds(2);
+            minA_v = app.TowerR_Bounds(3); maxA_v = app.TowerR_Bounds(4);
 
-                minStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX, minY, minZ, minA);
-                maxStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX, maxY, maxZ, maxA);
-                maxExtStr = sprintf('%% Max Wire Extension: %.2f mm (Limit: %.0f mm)', app.MaxPathExtension, app.WireExt_Red);
-                
-                lines = replace(lines, '%%EXTENTS_MIN%%', minStr);
-                lines = replace(lines, '%%EXTENTS_MAX%%', maxStr);
-                lines = replace(lines, '%%WIRE_EXTENSION_MAX%%', [maxStr newline maxExtStr]);
-            end
+            % 2. Create formatted G-code comment strings
+            mStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX_v, minY_v, minZ_v, minA_v);
+            MStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX_v, maxY_v, maxZ_v, maxA_v);
+            EStr = sprintf('%% Max Wire Extension: %.2f mm (Limit: %.0f mm)', app.MaxPathExtension, app.WireExt_Red);
 
+            % 3. Swap the placeholders in the 'lines' string array
+            lines = replace(lines, '%%EXTENTS_MIN%%', mStr);
+            lines = replace(lines, '%%EXTENTS_MAX%%', MStr);
+            lines = replace(lines, '%%WIRE_EXTENSION_MAX%%', EStr);
+
+            % 4. Update UI
             app.PP_GCodeLines = lines;
             app.PP_LineToPathIndex = map;
             app.ListGCode.Items = cellstr(lines);
