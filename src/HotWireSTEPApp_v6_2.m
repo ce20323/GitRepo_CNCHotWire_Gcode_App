@@ -1,422 +1,312 @@
 classdef HotWireSTEPApp_v6_2 < handle
     % ===========================================================
-    % HOTWIRE STEP APP (v6.2 baseline, split into main + helpers)
-    % University of Bristol — Hot Wire CNC Project
+    % HOTWIRE CNC G-CODE GENERATOR (v6.2)
+    % University of Bristol — Rapid Prototyping Workshop
     %
-    % - Imports STEP (via FreeCAD) or STL files
-    % - Visualises the 3D model in a uiaxes
-    % - Orientation controls (±90° + numeric fields)
-    % - Left / Right plane offsets (in machine X)
-    % - Planes always remain Y–Z aligned; model rotates
-    % - Plane offsets are defined relative to the model's left face:
-    %       * left plane: offset = 0 at left face
-    %       * right plane: default offset = model width (right face)
-    % - Uses helper class HotWireSTEPApp_v6_helpers for STEP import
+    % A comprehensive 4-axis CAM application for hot wire foam cutting.
+    % This software provides an end-to-end workflow from 3D CAD to Mach4 G-code.
     %
-    % This is intentionally conservative and mirrors your last
-    % working single-file baseline, but with the STEP-import function
-    % moved into a separate helpers class.
+    % CORE FEATURES:
+    % - Import & Orient: Load STEP (via FreeCAD) or STL models. Rotate and
+    %   align models, and define custom Left/Right cutting planes.
+    % - Profile Extraction: Slice meshes to extract 2D profiles. Supports both
+    %   straight (prismatic) and tapered (independent) cuts.
+    % - Kerf & Sync: Apply coupled or independent kerf compensation. Automatically
+    %   synchronizes L/R profile point counts for smooth 4-axis kinematics.
+    % - Billet & Machine Setup: Auto-fit and auto-position stock material.
+    %   Features independent manual locks for size and position. Validates
+    %   placement against physical machine limits and bed dimensions.
+    % - Cutting Strategy: Auto-calculate or manually pick Start, Lead-In, and
+    %   Link points. Includes collision detection (gouging/rapid through stock).
+    % - Kinematic Simulation: 3D visualizer with timeline scrubbing, live
+    %   coordinate readouts, and wire extension (pulley travel) safety monitoring.
+    % - Post-Processing: Generates Mach4-compatible G-code. Features dynamic
+    %   feed rate scaling for tapered cuts and an interactive G-code viewer.
+    %
+    % ARCHITECTURE:
+    % - Main App: HotWireSTEPApp_v6_2 (UI, State Machine, Plotting)
+    % - Helpers: HotWireSTEPApp_v6_helpers (STEP Import, Geometry Math)
     % ===========================================================
 
     properties (Constant)
-        % ===========================================================
-        % CONSTANTS & DEFAULTS
-        % ===========================================================
+        %% --- PHYSICAL MACHINE LIMITS ---
+        MachineSpanX   (1,1) double = 1180;            % [mm] Fixed distance between left and right towers
+        MachineLimitY  (1,1) double = 750;             % [mm] Total Y-axis travel (0 to 750)
+        MachineLimitZ  (1,1) double = 500;             % [mm] Total Z-axis travel (0 to 500)
+        MachineBedPos  (1,3) double = [48, 50, -20];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
+        MachineBedSize (1,3) double = [1088, 700, 20]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
 
-        % -------- Profile sampling defaults --------
-        DefaultProfileTolerance (1,1) double = 0.04;   % [mm] Max error for resampling
-        MinProfileTolerance     (1,1) double = 0.01;  % [mm] Highest precision
-        MaxProfileTolerance     (1,1) double = 4.0;   % [mm] Lowest precision
+        %% --- SAFETY THRESHOLDS ---
+        SafetyBuffer_BedEdge   (1,1) double = 50.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
+        BilletRoundingY        (1,1) double = 10.0;   % [mm] Rounding grid increment for billet auto-placement
+        BilletMinYBuffer       (1,1) double = 50.0;   % [mm] Min billet Y position (match distance from home to front of sacrificial bed)
+        ModelContainmentTol    (1,1) double = 0.0001; % [mm] Max allowable numerical rounding error for 'Red' collision checks
+        ModelEdgeWarningBuffer (1,1) double = 3.0;    % [mm] Buffer for model "Too Close" to billet edge Warning (Amber)
+        MaxWasteBuffer         (1,1) double = 24.0;   % [mm] Allowable extra slack before "Waste" Warning on billet size
+        ModelXPlacementBuffer  (1,1) double = 0.001;  % [mm] Tiny offset used in Auto-Position to avoid mathematical edge-case errors
+        WireExt_Amber          (1,1) double = 25.0;   % [mm] Trigger warning for pulley travel extension
+        WireExt_Red            (1,1) double = 200.0;  % [mm] Hardware limit for pulley extension / Block save
+        MachineSafeHeight      (1,1) double = 50.0;   % [mm] Z-clearance above billet for auto rapid Link points
 
-        % -------- Kerf / wire offset defaults --------
-        DefaultKerf (1,1) double = 1.0;   % [mm] Default wire thickness compensation
-        MinKerf     (1,1) double = -4.0;   % [mm] No kerf
-        MaxKerf     (1,1) double = 4.0;   % [mm] Maximum allowed kerf
+        %% --- ALGORITHM SETTINGS ---
+        DefaultProfileTolerance (1,1) double = 0.04;  % [mm] Max error for profile resampling
+        MinProfileTolerance     (1,1) double = 0.01;  % [mm] Highest precision allowed for resampling
+        MaxProfileTolerance     (1,1) double = 4.0;   % [mm] Lowest precision allowed for resampling
+        DefaultKerf             (1,1) double = 1.0;   % [mm] Default wire thickness compensation
+        MinKerf                 (1,1) double = -4.0;  % [mm] Minimum allowed kerf (negative allows expansion)
+        MaxKerf                 (1,1) double = 4.0;   % [mm] Maximum allowed kerf
+        SimFramesPerSecond      (1,1) double = 20.0;  % [Hz] Redraw rate for the 3D simulation plot
+        SimSpatialResolution    (1,1) double = 0.5;   % [mm] Distance between interpolated path points in simulation
 
-        % -------- View / plane padding factors --------
-        AutoFitPaddingFactor (1,1) double = 0.35;  % Padding around model in 3D view
-        PlanePaddingFactor   (1,1) double = 0.20;  % Padding for cutting planes
-
-        % --- Billet UI Increments ---
-        BilletSizeStep  (1,1) double = 1.0;  % [mm] Step size for Billet Size +/- buttons
-        BilletShiftStep (1,1) double = 0.5;  % [mm] Step size for Position +/- buttons
-
-
-        % ===========================================================
-        % MACHINE CONFIGURATION (Physical Limits)
-        % ===========================================================
-
-        % Distance between the Left and Right tower cutting planes.
-        MachineSpanX   = 1180;            % [mm] Fixed distance between towers
-
-        % Travel Limits (Scalars for Max Travel)
-        MachineLimitY  = 750;             % [mm] Total Y travel (0 to 750)
-        MachineLimitZ  = 500;             % [mm] Total Z travel (0 to 500)
-
-        % Physical Bed Definition
-        % Z=-20 implies the bed top surface is at Z=0 (Home).
-        MachineBedPos    = [48, 50, -20];   % [mm] Bed origin [X, Y, Z]
-        MachineBedSize   = [1088, 700, 20]; % [mm] Physical dimensions [L, W, H]
-
-
-        % ===========================================================
-        % SAFETY & PLACEMENT RULES
-        % ===========================================================
-
-        % --- Machine Tab Safety ---
-
-        % Distance from bed edge to trigger Amber warning (Machine Tab)
-        SafetyBuffer_BedEdge = 50.0; % [mm]
-
-        % Rounding grid for auto-placement of Billet (Machine Tab)
-        BilletRoundingY  = 10.0; % [mm]
-
-        % Min buffer from Front Home for default placement logic
-        BilletMinYBuffer = 50.0; % [mm]
-
-        % --- Billet Tab Safety (Model inside Stock) ---
-
-        % Tolerance for "Outside" Error (Red)
-        ModelContainmentTol = 0.0001; % [mm]
-
-        % Buffer for "Too Close" Warning (Amber)
-        ModelEdgeWarningBuffer = 3.0; % [mm]
-        
-        % Allowable extra slack before "Waste" Warning (Amber)
-        % Total gap allowed = ModelEdgeWarningBuffer + MaxWasteBuffer
-        MaxWasteBuffer = 24.0; % [mm]
-        
-        % Tiny buffer for X placement (Start just inside the block)
-        ModelXPlacementBuffer = 0.001; % [mm]
-
-        % --- Wire Extension Safety (Pulley Travel) ---
-        WireExt_Amber = 25.0; % [mm] Trigger warning
-        WireExt_Red   = 200.0; % [mm] Hardware limit / Block save
-
-        % --- Cutting Strategy Safety ---
-        MachineSafeHeight = 50.0; % [mm] Z-clearance above billet for Link points
-
-        % --- Post-Process Defaults ---
-        DefaultFeedRate = 40.0; % [mm/min] Baseline feed
-        DefaultPower    = 35.0; % [%] Baseline power for standard blocks
-
-        % --- Simulation Settings ---
-        SimFramesPerSecond   (1,1) double = 20.0; % [Hz] Redraw rate for the 3D plot
-        SimSpatialResolution (1,1) double = 1.0;  % [mm] Distance between interpolated path points
-
+        %% --- UI DEFAULTS ---
+        AutoFitPaddingFactor (1,1) double = 0.35; % Padding factor around model in 3D view
+        PlanePaddingFactor   (1,1) double = 0.20; % Padding factor for cutting planes visualization
+        BilletSizeStep       (1,1) double = 1.0;  % [mm] Step size for Billet Size +/- buttons
+        BilletShiftStep      (1,1) double = 0.5;  % [mm] Step size for Position +/- buttons
+        DefaultFeedRate      (1,1) double = 40.0; % [mm/min] Baseline feed rate for standard foam
+        DefaultPower         (1,1) double = 35.0; % [%] Baseline power for standard foam
     end
 
     properties
-        % ===========================================================
-        % DYNAMIC APP STATE
-        % ===========================================================
+        %% --- UI HANDLES: GLOBAL ---
+        UIFigure  % Main application window figure
+        TabGroup  % Main tab group container holding all workflow tabs
 
-        % ---------- UI Containers (Tabs) ----------
-        UIFigure                        % Main application window
-        TabGroup                        % Tabbed container
-        TabWelcome                      % Welcome tab
-        TabModel                        % Model import & orient tab
-        TabProfiles                     % Profiles tab
-        TabBillet                       % Billet tab
-        TabMachine                      % Machine tab
-        TabCutting                      % Cutting Strategy tab
-        TabSimulation                   % Simulation tab
-        TabPostProcess                  % Post-Process tab
+        %% --- UI HANDLES: WELCOME TAB ---
+        TabWelcome       % Welcome tab container
+        GLWelcome        % Grid layout for Welcome tab
+        FieldFreeCADPath % Edit field for FreeCAD executable path
+        BtnBrowseFreeCAD % Button to browse for FreeCAD executable
+        ThemeSwitch      % Switch to toggle between Light and Dark themes
+        ImgWelcomeLogo   % Image component for the application logo
 
-        % ---------- Layout Containers (Grids/Panels) ----------
-        GLWelcome                       % Welcome tab layout
-        FieldFreeCADPath
-        TxtWelcomeIntro                 % Welcome Intro Text
-        TxtWelcomeInstruct              % Welcome Instructions Text
-        BtnBrowseFreeCAD                % Browse Button
-        ThemeSwitch                     % Theme Toggle
-        ImgWelcomeLogo                  % Logo handle for dynamic swapping
-        GLModel                         % Model tab layout
-        GLLeft                          % Model tab left panel
-        GLProfiles                      % Profiles tab layout
-        profilesLeft                    % Profiles tab left panel
-        GLBillet                        % Billet tab layout
-        BilletLeftPanel                 % Billet tab left panel
-        BilletRightPanel                % Billet tab right panel
-        GLMachine                       % Machine tab layout
-        MachineLeftPanel                % Machine tab left panel
-        GLCutting                       % Cutting tab layout
-        CuttingLeftPanel                % Cutting tab left panel
-        GLSimulation                    % Simulation tab layout
-        SimLeftPanel                    % Simulation tab left panel
-        GLPostProcess                   % Post Process tab layout
-        PostLeftPanel                   % Post Process tab left panel
+        %% --- UI HANDLES: MODEL TAB ---
+        TabModel            % Model import and orientation tab container
+        GLModel             % Grid layout for Model tab
+        GLLeft              % Left control panel grid for Model tab
+        AxModel             % 3D axes for visualizing the imported model
+        BtnImportSTEP       % Button to import STEP files
+        BtnImportSTL        % Button to import STL files
+        FileLabel           % Label displaying the currently loaded filename
+        TaperToggle         % Switch to toggle between Straight and Tapered cut modes
+        RotGrid             % Grid layout for rotation controls
+        RotEdit = gobjects(1,3) % Array of 3 edit fields for X, Y, Z rotation angles
+        BtnResetOrientation % Button to reset model rotation to original state
+        BtnResetPlot        % Button to reset the 3D plot camera view
+        NumLeftOffset       % Spinner for left cutting plane offset
+        NumRightOffset      % Spinner for right cutting plane offset
+        BtnResetPlanes      % Button to reset cutting planes to model extents
+        TxtModelGuide       % Text area for Model tab user guidance
+        TxtModelStatus      % Text area for Model tab status feedback
+        BtnGenerateProfiles % Button to execute profile extraction
+        BtnContinue         % Button to proceed to the Profiles tab
 
-        % Tab Feedback
-        TxtModelStatus    % Text area for validation messages
-        TxtModelGuide     % Text area for instructions
-        TxtProfileStatus
-        TxtProfileGuide
-        TxtBilletStatus
-        TxtBilletGuide
-        TxtMachineStatus
-        TxtMachineGuide
-        TxtCuttingStatus
-        TxtCuttingGuide
-        TxtPostStatus
-        TxtPostGuide
+        %% --- UI HANDLES: PROFILES TAB ---
+        TabProfiles            % Profiles tab container
+        GLProfiles             % Grid layout for Profiles tab
+        profilesLeft           % Left control panel grid for Profiles tab
+        AxLeftProfile          % 2D axes for left profile visualization
+        AxRightProfile         % 2D axes for right profile visualization
+        ProfileTolSpinner      % Spinner for profile resampling tolerance
+        ProfilePointCountLabel % Label displaying the number of points in extracted profiles
+        BtnResetProfileTol     % Button to reset tolerance to default
+        BtnResetProfilesView   % Button to reset 2D profile plot views
+        KerfModeSwitch         % Switch to toggle Coupled/Independent kerf modes
+        KerfLeftSpinner        % Spinner for left profile kerf value
+        KerfRightSpinner       % Spinner for right profile kerf value
+        KerfPointCountLabel    % Label displaying point count after kerf application
+        BtnApplyKerf           % Button to apply kerf offset to profiles
+        TxtProfileGuide        % Text area for Profiles tab user guidance
+        TxtProfileStatus       % Text area for Profiles tab status feedback
+        BtnProfilesContinue    % Button to proceed to the Billet tab
 
-        % Background panels
-        cutPanel; cutGrid               % Toggle switch containers
+        %% --- UI HANDLES: BILLET TAB ---
+        TabBillet               % Billet tab container
+        GLBillet                % Grid layout for Billet tab
+        BilletLeftPanel         % Left control panel grid for Billet tab
+        BilletRightPanel        % Right panel grid holding the 4 Billet views
+        AxBilletTop             % 2D axes for Billet Top view (X/Y)
+        AxBilletFront           % 2D axes for Billet Front view (X/Z)
+        AxBilletRight           % 2D axes for Billet Right view (Y/Z)
+        AxBilletIso             % 3D axes for Billet Isometric view
+        BtnAutoFitBillet        % Button to automatically size billet to model
+        BtnAutoPositionModel    % Button to automatically position model within billet
+        BtnResetPosition        % Button to reset model position to origin
+        BilletSizeEdits         = gobjects(1,3) % Array of 3 edit fields for Billet dimensions (X,Y,Z)
+        BilletSizeMinusBtns     = gobjects(1,3) % Array of 3 buttons to decrease Billet dimensions
+        BilletSizePlusBtns      = gobjects(1,3) % Array of 3 buttons to increase Billet dimensions
+        BilletModelDimLabels    = gobjects(1,3) % Array of 3 labels showing model dimensions
+        BilletNegOffsetEdits    = gobjects(1,3) % Array of 3 edit fields for negative gap offsets
+        BilletCenterOffsetEdits = gobjects(1,3) % Array of 3 edit fields for center shift offsets
+        BilletPosOffsetEdits    = gobjects(1,3) % Array of 3 edit fields for positive gap offsets
+        TxtBilletGuide          % Text area for Billet tab user guidance
+        TxtBilletStatus         % Text area for Billet tab status feedback
+        BtnBilletContinue       % Button to proceed to the Machine tab
 
-        % ---------- Axes Handles ----------
-        AxModel                         % 3D Model View
-        AxLeftProfile                   % 2D Left Profile View
-        AxRightProfile                  % 2D Right Profile View
-        AxBilletTop                     % Billet Top View
-        AxBilletFront                   % Billet Front View
-        AxBilletRight                   % Billet Right View
-        AxBilletIso                     % Billet Iso View (Added)
-        AxMachine                       % 3D Machine Placement View
-        AxCutLeft                       % 2D Cut Strategy View (Left)
-        AxCutRight                      % 2D Cut Strategy View (Right)
-        AxSim                           % 3D Simulation View
-        AxPost                          % 3D Post-Process Verification View
+        %% --- UI HANDLES: MACHINE TAB ---
+        TabMachine         % Machine tab container
+        GLMachine          % Grid layout for Machine tab
+        MachineLeftPanel   % Left control panel grid for Machine tab
+        AxMachine          % 3D axes for visualizing machine bed and towers
+        MachinePosSpinners = gobjects(1,3) % Array of 3 spinners for Billet position on machine bed
+        TxtMachineGuide    % Text area for Machine tab user guidance
+        TxtMachineStatus   % Text area for Machine tab status feedback
+        BtnMachineContinue % Button to proceed to the Cutting Strategy tab
 
-        % ---------- Model Import & State ----------
-        BtnImportSTEP                   % Import STEP button
-        BtnImportSTL                    % Import STL button
-        FileLabel                       % Label showing current filename
-        ModelPatch                      % Patch object for the 3D model
-        ModelVerticesOriginal           % Original vertices of the model (for resets)
-        ModelF                          % Faces of the current model
-        CurrentModelName string = ""    % Name of the current model file
-        FreeCADExe = "" %"C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe" % Path to FreeCAD
-        GitHubLink string = "https://github.com/YourUsername/HotWireSTEPApp" % <-- ADD YOUR LINK HERE
+        %% --- UI HANDLES: CUTTING STRATEGY TAB ---
+        TabCutting         % Cutting Strategy tab container
+        GLCutting          % Grid layout for Cutting Strategy tab
+        CuttingLeftPanel   % Left control panel grid for Cutting Strategy tab
+        AxCutLeft          % 2D axes for left cut path visualization
+        AxCutRight         % 2D axes for right cut path visualization
+        SwitchCutDir       % Switch to toggle cut direction (CW/CCW)
+        SwitchSyncStart    % Switch to toggle Coupled/Independent start points
+        SwitchSyncEntry    % Switch to toggle Coupled/Independent entry points
+        BtnPickStart       % Toggle button to pick start point on plot
+        BtnPickEntry       % Toggle button to pick lead-in point on plot
+        BtnPickEntry2      % Toggle button to pick first link point on plot
+        BtnPickEntry3      % Toggle button to pick second link point on plot
+        btnAutoStart       % Button to auto-calculate start points
+        btnAutoEntry       % Button to auto-calculate entry points
+        TxtCuttingGuide    % Text area for Cutting Strategy tab user guidance
+        TxtCuttingStatus   % Text area for Cutting Strategy tab status feedback
+        BtnCuttingContinue % Button to proceed to the Simulation tab
 
-        % --- Home View State ---
-        DefaultXLim; DefaultYLim; DefaultZLim
-        DefaultDataAspectRatio; DefaultPlotBoxAspectRatio
-        DefaultCameraPosition; DefaultCameraTarget
-        DefaultCameraUpVector; DefaultCameraViewAngle
+        %% --- UI HANDLES: SIMULATION TAB ---
+        TabSimulation   % Simulation tab container
+        GLSimulation    % Grid layout for Simulation tab
+        SimLeftPanel    % Left control panel grid for Simulation tab
+        AxSim           % 3D axes for kinematics simulation
+        SimPlayBtn      % Button to play simulation
+        SimStopBtn      % Button to stop/reset simulation
+        SimSlider       % Slider to scrub through simulation timeline
+        SimIndexSpinner % Spinner to select specific simulation index
+        SimSpeedSpinner % Spinner to adjust simulation playback speed multiplier
+        LblBaseFeed     % Label displaying the base feed rate
+        LblReadoutX     % Label displaying live X coordinate
+        LblReadoutY     % Label displaying live Y coordinate
+        LblReadoutZ     % Label displaying live Z coordinate
+        LblReadoutA     % Label displaying live A coordinate
+        SimGaugeExt     % Gauge displaying live wire extension
+        LblSimExtMin  = gobjects(1,1) % Label displaying minimum program extents
+        LblSimExtMax  = gobjects(1,1) % Label displaying maximum program extents
+        LblSimExtWire = gobjects(1,1) % Label displaying maximum wire extension
+        BtnSimContinue  % Button to proceed to the Post-Process tab
 
-        % --- Mouse Interaction ---
-        IsDragging logical = false      % Flag for mouse drag state
-        LastMousePos (1,2) double = [NaN NaN]  % Last mouse position
-        AppState (1,1) double = 0       % 0=Model Only, 1=Active Cutting
-        IsBilletUserModified (1,1) logical = false % For Billet Size
-        IsBilletPosUserModified (1,1) logical = false  % For Model Position
-        BilletViewMode string = "Billet"
-        % Status Tracking Flags
-        IsMachineInit (1,1) logical = false       % Has the machine tab been set up at least once?
-        IsMachineUserModified (1,1) logical = false % Is the machine position manually locked by user?
-        
-        IsCuttingInit (1,1) logical = false       % Has the cutting strategy been set up at least once?
-        IsCuttingUserModified (1,1) logical = false % Is the cutting strategy manually locked by user?
+        %% --- UI HANDLES: POST-PROCESS TAB ---
+        TabPostProcess % Post-Process tab container
+        GLPostProcess  % Grid layout for Post-Process tab
+        PostLeftPanel  % Left control panel grid for Post-Process tab
+        AxPost         % 3D axes for G-code verification visualization
+        ChkDynamicFeed % Checkbox to enable dynamic feed rate scaling
+        SpinFeedRate   % Spinner to set base feed rate
+        SpinPower      % Spinner to set hot wire power percentage
+        FieldFilename  % Edit field for output G-code filename
+        BtnPostProcess % Button to generate G-code
+        PanelGCode     % Panel containing the G-code viewer
+        GridGCode      % Grid layout for G-code viewer
+        ListGCode      % Listbox displaying generated G-code lines
+        BtnGCodePrev   % Button to step to previous G-code line
+        BtnGCodeNext   % Button to step to next G-code line
+        TxtPostGuide   % Text area for Post-Process tab user guidance
+        TxtPostStatus  % Text area for Post-Process tab status feedback
+        BtnSaveGCode   % Button to save generated G-code to file
 
-        % ---------- Orientation Controls ----------
-        RotGrid                         % Layout for rotation controls
-        RotEdit                         % Edit fields for rotation angles
-        RotAngles double = [0 0 0]      % Rotation angles [X Y Z]
-        BtnResetOrientation             % Button to reset model orientation
-        BtnResetPlot                    % Button to reset plot view
-        TaperToggle                     % Toggle switch for taper mode
+        %% --- GEOMETRIC STATE: MODEL & PROFILES ---
+        CurrentModelName string = "" % Filename of the currently loaded model
+        FreeCADExe       string = "" % Path to the FreeCAD executable
+        GitHubLink       string = "https://github.com/YourUsername/HotWireSTEPApp" % Link to project repository
 
-        % ---------- Plane Offsets ----------
-        NumLeftOffset                   % Numeric edit field for left plane offset
-        NumRightOffset                  % Numeric edit field for right plane offset
-        BtnResetPlanes                  % Button to reset plane offsets
+        ModelPatch            % Patch object representing the 3D model mesh
+        ModelVerticesOriginal % Original vertices of the model (used for resets)
+        ModelF                % Faces array of the current model
+        RotAngles double = [0 0 0] % Current rotation angles [X, Y, Z]
 
-        % --- Model Bounding Box ---
-        ModelXMin; ModelXMax            % Model X bounds
-        ModelYMin; ModelYMax            % Model Y bounds
-        ModelZMin; ModelZMax            % Model Z bounds
+        ModelXMin double; ModelXMax double % Model bounding box X limits
+        ModelYMin double; ModelYMax double % Model bounding box Y limits
+        ModelZMin double; ModelZMax double % Model bounding box Z limits
 
-        % --- Plane Graphics ---
-        LeftPlanePatch; RightPlanePatch  % Patch objects for the cutting planes
-        LeftPlaneText; RightPlaneText    % Text labels for the cutting planes
+        LeftPlanePatch; RightPlanePatch % Patch objects for the 3D cutting planes
+        LeftPlaneText;  RightPlaneText  % Text labels for the 3D cutting planes
 
-        % ---------- Profile Extraction ----------
-        BtnGenerateProfiles             % Button to generate profiles
-        BtnContinue                     % Continue button (Model -> Profiles)
-        BtnProfilesContinue             % Continue button (Profiles -> Billet)
+        ProfileTolerance  (1,1) double = 0.2 % Current tolerance for profile resampling
+        ProfileAxesLocked (1,1) logical = false % Flag to prevent auto-zooming on Profile tab
 
-        ProfileTolerance (1,1) double = 0.2   % [mm] Target segment size
-        ProfileTolSpinner                     % UI handle for tolerance control
-        ProfileAxesLocked (1,1) logical = false % Prevent auto zoom on Profile tab
-        BtnResetProfileTol                % Button to reset profile tolerance
-        BtnResetProfilesView              % Button to reset profiles view
-        ProfilePointCountLabel            % Read-only label for profile point count
+        LeftProfileLine3D;  RightProfileLine3D % 3D line objects for extracted profiles
+        LeftProfilePoints;  RightProfilePoints % Nx3 array of extracted profile points[X, Y, Z]
+        LeftProfileRawYZ;   RightProfileRawYZ  % Raw mesh slice data before loop reconstruction
 
-        % --- Profile Data ---
-        LeftProfileLine3D; RightProfileLine3D % 3D line objects for the profiles
-        LeftProfilePoints; RightProfilePoints   % Nx3 [X Y Z] (Model relative)
-        LeftProfileRawYZ; RightProfileRawYZ     % Raw mesh slices
+        LeftProfile2DLine;     RightProfile2DLine     % 2D line objects for resampled profiles
+        LeftProfile2DMeshLine; RightProfile2DMeshLine % 2D line objects for raw mesh slices
 
-        % --- 2D Plot Handles ---
-        LeftProfile2DLine; RightProfile2DLine   % 2D line objects for the profiles
-        LeftProfile2DMeshLine; RightProfile2DMeshLine  % Faint raw mesh slices
+        KerfEnabled    (1,1) logical = false % Flag indicating if kerf is currently applied
+        KerfValue      (1,1) double = 0.5    % Global kerf value (used when coupled)
+        KerfLeftValue  (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf % Independent left kerf value
+        KerfRightValue (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf % Independent right kerf value
+        LeftKerf2DLine; RightKerf2DLine      % 2D line objects for kerf-offset paths
 
-        % --- Kerf ---
-        KerfValue (1,1) double = 0.5          % [mm] Positive = shrink profile
-        KerfSpinner                           % UI handle for kerf control
-        KerfPointCountLabel                   % New label for kerf stats
-        BtnApplyKerf                          % Button to apply kerf offset
-        BtnResetKerf                          % Button to reset kerf
-        KerfEnabled (1,1) logical = false     % Only draw kerf when true
-        LeftKerf2DLine; RightKerf2DLine       % 2D kerf path lines
-        % --- Kerf separate L/R ---
-        KerfLeftValue  (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
-        KerfRightValue (1,1) double = HotWireSTEPApp_v6_2.DefaultKerf
-        KerfModeSwitch                  % UI Switch (Coupled/Independent)
-        KerfLeftSpinner
-        KerfRightSpinner
+        %% --- MACHINE & BILLET STATE ---
+        BilletSize  double =[0 0 0] % Current billet dimensions [Length, Width, Height]
+        BilletShift double =[0 0 0] % Current model shift within the billet [dX, dY, dZ]
+        BilletRefXMin double; BilletRefYMin double; BilletRefZMin double % Reference bounds for import position
 
-        % ---------- Billet Configuration ----------
-        BtnAutoFitBillet                    % Button to auto-fit the billet
-        BtnResetPosition                    % Button to reset billet position
-        BilletModelDimLabels                % Labels for displaying model dimensions
-        BtnBilletContinue                   % Button to continue from Billet tab
+        MachineBilletPos double = [100, 50, 0] % Billet origin relative to machine zero [X, Y, Z]
 
-        % --- Billet Geometry State ---
-        BilletSize  = [0 0 0]              % [Length X, Width Y, Height Z]
-        BilletShift = [0 0 0]              % [dX, dY, dZ] Machining Offset
+        SelectedStartIdxL double = 1 % Index of the selected start point on the left profile
+        SelectedStartIdxR double = 1 % Index of the selected start point on the right profile
+        EntryPointL;  EntryPointR    % Coordinates of the Lead-In points
+        EntryPoint2L; EntryPoint2R   % Coordinates of the first Link points
+        EntryPoint3L; EntryPoint3R   % Coordinates of the second Link points
 
-        % --- Reference Bounds ---
-        BilletRefXMin; BilletRefYMin; BilletRefZMin   % Reference bounds for import position
-        BilletXMin; BilletXMax; BilletYMin; BilletYMax; BilletZMin; BilletZMax % Billet bounds
+        MaxPathExtension double = 0 % Maximum calculated wire extension during cut
+        TowerL_Bounds double = [0 0 0 0] % Left tower path bounds[MinY, MaxY, MinZ, MaxZ]
+        TowerR_Bounds double =[0 0 0 0] % Right tower path bounds [MinY, MaxY, MinZ, MaxZ]
 
-        % --- Billet UI Controls ---
-        BilletSizeEdits; BilletSizeMinusBtns; BilletSizePlusBtns  % Size edit fields and buttons
-        BtnAutoPositionModel                % Button to auto-position the model in the billet
-        BilletNegOffsetEdits; BilletCenterOffsetEdits; BilletPosOffsetEdits % Offset edit fields
-        BilletShiftMinusBtns; BilletShiftPlusBtns    % Shift buttons
+        SimPathL; SimPathR           % Interpolated simulation paths in machine coordinates
+        SimTowerPathL; SimTowerPathR % Interpolated simulation paths projected to towers
+        SimArcLenL; SimArcLenR       % Cumulative arc lengths for simulation timing
+        SimTotalLength double        % Total length of the longest simulation path
+        SimPlayDist double = 0       % Current playback distance along the path
+        SimStepDist double = 0.5     % Base distance step per simulation tick
+        SimTimer                     % Timer object for simulation playback
 
-        % ---------- Machine Setup ----------
-        MachinePosSpinners       % 1x3 handles for the spinners
-        MachineBilletPos = [100, 50, 0]   % Billet origin relative to machine 0,0,0
-        BtnResetMachineBillet
-        BtnResetMachinePlot
-        BtnMachineContinue
-        MachineMessageLabel
+        ProfileSyncL; ProfileSyncR   % Final synchronized profile points (Truth data)
+        SimRapidCutoffIndex double   % Index where rapid moves end and lead-in begins
+        SimProfileStartIndex double  % Index where lead-in ends and profile cut begins
+        SimFeedEndIndex double       % Index where profile cut ends and lead-out begins
+        SimLeadOutEndIndex double    % Index where lead-out ends and return begins
 
-        % ---------- Cutting Strategy ----------
-        % Note: Tab and Layout handles are defined in "UI Containers" above
+        PP_GCodeLines string = string.empty(0,1) % Array of generated G-code strings
+        PP_LineToPathIndex double =[]           % Mapping from G-code line to simulation path index
+        PP_SelectedLine (1,1) double = 1         % Currently selected line in the G-code viewer
+        PP_PathL; PP_PathR                       % Post-process verification paths (Model)
+        PP_TowerPathL; PP_TowerPathR             % Post-process verification paths (Towers)
+        PP_RapidEndIndex double                  % Post-process index for rapid end
+        PP_ProfileStartIndex double              % Post-process index for profile start
+        PP_ProfileEndIndex double                % Post-process index for profile end
+        PP_LeadOutEndIndex double                % Post-process index for lead-out end
 
-        % --- Interaction Controls ---
-        SwitchCutDir           % Toggle: Top-First (CW) vs Bottom-First (CCW)
-        BtnInteractionGroup    % Button Group for mouse mode
+        %% --- PERSISTENCE & TRACKING FLAGS ---
+        AppState (1,1) double = 0              % Current app state (0=Model Only, 1=Active Cutting)
+        IsDragging logical = false             % Flag indicating if 3D view is being dragged
+        LastMousePos (1,2) double = [NaN NaN]  % Last recorded mouse position during drag
 
-        BtnPickStart           % Button: "Set Start Point"
-        BtnPickEntry           % Button: "Set Entry Point" (Future)
-        BtnPickEntry2          % New Button
-        BtnPickEntry3
-        BtnClearEntries        % Helper to reset points
+        IsBilletUserModified    (1,1) logical = false % Flag if user manually locked billet size
+        IsBilletPosUserModified (1,1) logical = false % Flag if user manually locked billet position
+        BilletViewMode          string = "Billet"     % Current view mode on Billet tab ("Billet" or "Model")
 
-        % --- Cutting Tab Properties ---
-        SyncStartPoints (1,1) logical = true % Default to sync
+        IsMachineInit         (1,1) logical = false % Flag if machine tab has been initialized
+        IsMachineUserModified (1,1) logical = false % Flag if user manually locked machine position
 
-        % --- Entry Points ---
-        EntryPointL = []; EntryPointR = [];   % Lead-In (Orange)
-        EntryPoint2L = []; EntryPoint2R = []; % Link 1 (Yellow)
-        EntryPoint3L = []; EntryPoint3R = []; % Link 2 (Yellow)
+        IsCuttingInit         (1,1) logical = false % Flag if cutting strategy has been initialized
+        IsCuttingUserModified (1,1) logical = false % Flag if user manually locked cutting strategy
 
-        % --- UI Elements ---
-        SwitchSyncStart  % Toggle: Coupled / Independent
-        SwitchSyncEntry  % UI Switch for Entry Coupling
-        btnAutoStart
-        btnAutoEntry
-        BtnCuttingContinue
-
-        % --- Strategy State ---
-        SelectedStartIdxL = 1  % Index in the profile array
-        SelectedStartIdxR = 1
-        CutDirection = 'CW'    % 'CW' or 'CCW'
-
-        % ---------- Simulation Tab ----------
-        BtnSimContinue
-
-        % --- Controls ---
-        SimSlider                         % Slider for timeline control
-        SimIndexSpinner                   % NEW: Direct index input
-        SimPlayBtn                        % Play button
-        SimStopBtn                        % Stop button
-        SimSpeedSpinner                   % Playback speed control
-
-        % --- Readouts ---
-        LblReadoutX                       % X Coord
-        LblReadoutY                       % Y Coord
-        LblReadoutZ                       % Z Coord
-        LblReadoutA                       % A Coord
-        LblBaseFeed                       % Base Feed Set on Post Tab
-        LblReadoutExt                     % Text readout
-        SimGaugeExt                       % Linear gauge handle
-        MaxPathExtension = 0              % Stores max extension for G-code
-        LblSimExtMin                      % Simulation Program Extents Labels
-        LblSimExtMax
-        LblSimExtWire
-        TowerL_Bounds = [0 0 0 0]         % Pre-calculated Path Bounds [MinY MaxY MinZ MaxZ]
-        TowerR_Bounds = [0 0 0 0]
-
-        % --- Visual Data (Interpolated for Smoothness) ---
-        SimPathL                          % Nx3 [x, y, z] Machine Coords (Left)
-        SimPathR                          % Nx3 [x, y, z] Machine Coords (Right)
-        SimTowerPathL                     % Nx3 Projected to Left Tower
-        SimTowerPathR                     % Nx3 Projected to Right Tower
-
-        % --- Physics / Time-Stepping ---
-        SimArcLenL                          % Nx1 Cumulative length (mm)
-        SimArcLenR                          % Nx1 Cumulative length (mm)
-        SimTotalLength                      % Scalar (Total cut length mm)
-        SimPlayDist = 0                     % Current playback head (mm)
-        SimStepDist = 2.0                   % Base speed (mm per tick)
-        SimTimer                            % Timer object
-
-        % --- Semantic Data (Raw Segments for G-Code) ---
-        % These preserve the "Truth" geometry for the Post-Processor
-        SimRawRapidL                        % [y z] semantic points for Rapid-In (Left)
-        SimRawRapidR                        % [y z] semantic points for Rapid-In (Right)
-        SimRawLeadInL                       % [y z] semantic points for Lead-In  (Left)
-        SimRawLeadInR                       % [y z] semantic points for Lead-In  (Right)
-        SimRawLeadOutL                      % [y z] semantic points for Lead-Out (Left)
-        SimRawLeadOutR                      % [y z] semantic points for Lead-Out (Right)
-        SimRawReturnL                       % [y z] semantic points for Return (Left)
-        SimRawReturnR                       % [y z] semantic points for Return (Right)
-
-        % --- Truth Profiles (Synced) ---
-        ProfileSyncL                        % Nx2 [Y Z] (After syncPointCounts)
-        ProfileSyncR                        % Nx2 [Y Z] (After syncPointCounts)
-
-        % --- Segment Indices (For coloring the plot) ---
-        SimRapidCutoffIndex               % Index where rapid ends
-        SimProfileStartIndex              % Index where profile starts
-        SimFeedEndIndex                   % Index where feed ends
-        SimLeadOutEndIndex                % Index where lead-out ends
-
-        % ---------- Post-Process Tab ----------
-        SpinFeedRate
-        ChkDynamicFeed
-        SpinPower
-        FieldFilename
-        BtnPostProcess
-        BtnGCodePrev; BtnGCodeNext; BtnSaveGCode
-
-        % --- G-Code Viewer ---
-        PanelGCode; GridGCode; ListGCode
-
-        % --- Post-Processor State ---
-        PP_GCodeLines string = string.empty(0,1)   % full text, one line per row
-        PP_LineToPathIndex double = []            % maps gcode line -> motion path index
-        PP_PathXYZA double = []                   % Nx4 [X Y Z A] cumulative path
-        PP_SelectedLine (1,1) double = 1          % Current selected line number
-
-        % --- Post Verification Paths (Truth-based) ---
-        PP_PathL                                  % Left cutting path
-        PP_PathR                                  % Right cutting path
-        PP_TowerPathL                             % Left Tower path
-        PP_TowerPathR                             % Right Tower path
-
-        PP_RapidEndIndex                          % Index where rapid ends
-        PP_ProfileStartIndex                        % Index where profile starts
-        PP_ProfileEndIndex                          % Index where feed ends
-        PP_LeadOutEndIndex                        % Index where lead-out ends
+        DefaultXLim; DefaultYLim; DefaultZLim             % Stored default X/Y/Z limits for 3D view reset
+        DefaultDataAspectRatio; DefaultPlotBoxAspectRatio % Stored default aspect ratios for 3D view reset
+        DefaultCameraPosition; DefaultCameraTarget        % Stored default camera position/target for 3D view reset
+        DefaultCameraUpVector; DefaultCameraViewAngle     % Stored default camera up vector/angle for 3D view reset
     end
-
+    
     methods
 
         function app = HotWireSTEPApp_v6_2()
