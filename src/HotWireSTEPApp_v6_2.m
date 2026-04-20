@@ -89,6 +89,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Tiny buffer for X placement (Start just inside the block)
         ModelXPlacementBuffer = 0.001; % [mm]
 
+        % --- Wire Extension Safety (Pulley Travel) ---
+        WireExt_Amber = 30.0; % [mm] Trigger warning
+        WireExt_Red   = 50.0; % [mm] Hardware limit / Block save
+
         % --- Cutting Strategy Safety ---
         MachineSafeHeight = 50.0; % [mm] Z-clearance above billet for Link points
 
@@ -336,6 +340,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         LblReadoutZ                       % Z Coord
         LblReadoutA                       % A Coord
         LblBaseFeed                       % Base Feed Set on Post Tab
+        LblReadoutExt                     % Text readout
+        SimGaugeExt                       % Linear gauge handle
+        MaxPathExtension = 0              % Stores max extension for G-code
 
         % --- Visual Data (Interpolated for Smoothness) ---
         SimPathL                          % Nx3 [x, y, z] Machine Coords (Left)
@@ -1598,9 +1605,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSCoord.Layout.Row = 4;
 
-            gridSCoord = uigridlayout(pnlSCoord, [3 5]);
+            gridSCoord = uigridlayout(pnlSCoord, [4 5]);
             gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
-            gridSCoord.RowHeight = {'fit','fit','fit'};
+            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 30}; % Height for row 4
             gridSCoord.Padding = [5 5 5 5];
             gridSCoord.BackgroundColor = panelBg;
 
@@ -1635,6 +1642,31 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
             app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
+
+            % --- Row 4: Wire Extension Gauge ---
+            % Label for the gauge
+            lblGaugeInfo = uilabel(gridSCoord);
+            lblGaugeInfo.Layout.Row = 4;
+            lblGaugeInfo.Layout.Column = [1 2];
+            lblGaugeInfo.Text = 'Wire Extension [mm]:';
+            lblGaugeInfo.FontWeight = 'bold';
+            lblGaugeInfo.FontColor = labelCol;
+            lblGaugeInfo.HorizontalAlignment = 'right';
+
+            % The Gauge component
+            gaugeExt = uigauge(gridSCoord, 'linear');
+            gaugeExt.Layout.Row = 4;
+            gaugeExt.Layout.Column = [3 5];
+            gaugeExt.ScaleColors = [t.planeGreen; [1 0.8 0]; t.planeRed];
+            gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
+                                         app.WireExt_Amber app.WireExt_Red; ...
+                                         app.WireExt_Red app.WireExt_Red*1.2];
+            gaugeExt.Limits = [0, app.WireExt_Red * 1.2];
+            gaugeExt.FontColor = labelCol;
+            gaugeExt.FontSize = 9;
+            
+            % Assign to the property for access in logic
+            app.SimGaugeExt = gaugeExt;
 
             % 5. Spacer & Continue
             lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
@@ -2449,38 +2481,38 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 4: MACHINE ---
             if needsMachine
-                if targetTab == app.TabMachine && ~app.IsMachineInit
-                    app.onResetMachineBilletPosition();
-                    drawnow; pause(0.1);
-                end
+                % ... [existing auto-position checks] ...
 
-                d1 = 0;
                 [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+                
+                % Check the extension we just calculated in the plot refresh
+                isExtRed   = app.MaxPathExtension > app.WireExt_Red;
+                isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
 
-                if ~app.IsMachineInit || ~isValidMach
+                % 1. BLOCK: Red Extension or Bed Collision
+                if ~isValidMach || isExtRed
+                    if targetTab ~= app.TabMachine
+                        reason = "Billet is outside safe limits.";
+                        if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
+                        
+                        uialert(app.UIFigure, reason, 'Machine Limit Error', 'Icon', 'error');
+                        app.TabGroup.SelectedTab = app.TabMachine;
+                        return;
+                    end
+                
+                % 2. SPEED BUMP: Amber Extension
+                elseif isExtAmber && targetTab ~= app.TabMachine && ~isModel && ~isProfiles && ~isBillet
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
-                            sprintf('You skipped a step! The billet has not been safely positioned on the machine bed.\n\nIt is highly recommended to click the "Auto-Position Billet" button on the Machine tab, and manually adjust if needed.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', targetTab.Title), ...
-                            'Step Skipped', ...
-                            'Options', {'Go to Machine Tab', 'Auto-Configure All', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical limit.\n\nProceed anyway, or return to Machine tab to center the billet?', app.MaxPathExtension), ...
+                            'Pulley Travel Warning', ...
+                            'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
+                            'DefaultOption', 2, 'CancelOption', 3, 'Icon', 'warning');
 
-                        if strcmp(sel, 'Go to Machine Tab')
+                        if ~strcmp(sel, 'Acknowledge & Continue')
                             app.TabGroup.SelectedTab = app.TabMachine;
-                            app.MachineLeftPanel.BackgroundColor = pCol;
-                            app.TxtMachineStatus.Value = msgLines;
-                            app.TxtMachineStatus.FontColor = tCol;
                             return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        else
-                            forceAuto = true;
                         end
-                    end
-                    if forceAuto
-                        app.onResetMachineBilletPosition();
-                        drawnow; pause(0.1);
                     end
                 end
             end
@@ -4103,6 +4135,32 @@ classdef HotWireSTEPApp_v6_2 < handle
                 txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
             end
 
+            % --- WIRE EXTENSION SAFETY CHECK ---
+            if ~isempty(tL) && ~isempty(tR)
+                dy_ext = tL.y - tR.y;
+                dz_ext = tL.z - tR.z;
+                ext_all = hypot(app.MachineSpanX, hypot(dy_ext, dz_ext)) - app.MachineSpanX;
+                app.MaxPathExtension = max(ext_all);
+
+                if app.MaxPathExtension > app.WireExt_Red
+                    isValid = false; % Hard Block
+                    pCol = t.statErrBg;
+                    tCol = t.statErrTxt;
+                    txtLines = ["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
+                        sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
+                        sprintf("Exceeds Hardware Limit (%.0f mm)!", app.WireExt_Red)];
+                elseif app.MaxPathExtension > app.WireExt_Amber
+                    % Warning - only apply if not already in a Red error state
+                    if isValid
+                        pCol = t.statWarnBg;
+                        tCol = t.statWarnTxt;
+                        txtLines = ["WARNING: WIRE EXTENSION", ...
+                            sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
+                            "Pulley travel is nearly exhausted."];
+                    end
+                end
+            end
+
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
@@ -5493,6 +5551,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Readouts
             app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); app.LblReadoutY.Text = sprintf('%.2f', pTL(3));
             app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); app.LblReadoutA.Text = sprintf('%.2f', pTR(3));
+        
+            % Calculate extension: dL = sqrt(Span^2 + dy^2 + dz^2) - Span
+            dy = pTL(2) - pTR(2);
+            dz = pTL(3) - pTR(3);
+            ext = hypot(app.MachineSpanX, hypot(dy, dz)) - app.MachineSpanX;
+            
+            % Update Gauge
+            app.SimGaugeExt.Value = min(ext, app.SimGaugeExt.Limits(2));
+        
         end
 
         % --- Interaction Handlers ---
@@ -6071,6 +6138,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('% ------------------------------------------');
             add('%%EXTENTS_MIN%%');
             add('%%EXTENTS_MAX%%');
+            add('%%WIRE_EXTENSION_MAX%%');
             add('% ------------------------------------------');
             add('G21','Metric');
             add('G90','Absolute');
@@ -6177,8 +6245,11 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 minStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX, minY, minZ, minA);
                 maxStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX, maxY, maxZ, maxA);
+                maxExtStr = sprintf('%% Max Wire Extension: %.2f mm (Limit: %.0f mm)', app.MaxPathExtension, app.WireExt_Red);
+                
                 lines = replace(lines, '%%EXTENTS_MIN%%', minStr);
                 lines = replace(lines, '%%EXTENTS_MAX%%', maxStr);
+                lines = replace(lines, '%%WIRE_EXTENSION_MAX%%', [maxStr newline maxExtStr]);
             end
 
             app.PP_GCodeLines = lines;
