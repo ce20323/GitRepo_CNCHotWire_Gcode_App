@@ -1601,14 +1601,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
             app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
 
-            % 4. Live Coordinates
-            pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live Coordinates', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            % --- 4. Live Coordinates & Safety Info ---
+            pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSCoord.Layout.Row = 4;
 
-            gridSCoord = uigridlayout(pnlSCoord, [4 5]);
+            % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
+            gridSCoord = uigridlayout(pnlSCoord, [5 5]);
             gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
-            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 30}; % Height for row 4
-            gridSCoord.Padding = [5 5 5 5];
+            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 35}; 
+            gridSCoord.Padding = [10 5 10 10];
             gridSCoord.BackgroundColor = panelBg;
 
             lblSimHeadL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
@@ -1643,29 +1644,38 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
             app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
-            % --- Row 4: Wire Extension Gauge ---
-            % Label for the gauge
-            lblGaugeInfo = uilabel(gridSCoord);
-            lblGaugeInfo.Layout.Row = 4;
-            lblGaugeInfo.Layout.Column = [1 2];
-            lblGaugeInfo.Text = 'Wire Extension [mm]:';
-            lblGaugeInfo.FontWeight = 'bold';
-            lblGaugeInfo.FontColor = labelCol;
-            lblGaugeInfo.HorizontalAlignment = 'right';
+            % --- Row 4: Extension Label ---
+            lblGaugeTitle = uilabel(gridSCoord);
+            lblGaugeTitle.Layout.Row = 4;
+            lblGaugeTitle.Layout.Column = [1 5];
+            lblGaugeTitle.Text = 'Wire Extension (Pulley Travel) [mm]';
+            lblGaugeTitle.FontWeight = 'bold';
+            lblGaugeTitle.FontColor = labelCol;
+            lblGaugeTitle.HorizontalAlignment = 'center';
 
-            % The Gauge component
+            % --- Row 5: Linear Gauge ---
             gaugeExt = uigauge(gridSCoord, 'linear');
-            gaugeExt.Layout.Row = 4;
-            gaugeExt.Layout.Column = [3 5];
-            gaugeExt.ScaleColors = [t.planeGreen; [1 0.8 0]; t.planeRed];
+            gaugeExt.Layout.Row = 5;
+            gaugeExt.Layout.Column = [1 5];
+            
+            % 1. Fix display scale: Set MajorTicks to 5mm increments
+            gaugeExt.MajorTicks = 0:5:(app.WireExt_Red * 1.2);
+            
+            % 2. Styling: Use Theme Green (t.statPassTxt) instead of bright green
+            gaugeExt.ScaleColors = [t.statPassTxt; [1 0.8 0]; t.statErrTxt];
             gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
                                          app.WireExt_Amber app.WireExt_Red; ...
                                          app.WireExt_Red app.WireExt_Red*1.2];
             gaugeExt.Limits = [0, app.WireExt_Red * 1.2];
             gaugeExt.FontColor = labelCol;
-            gaugeExt.FontSize = 9;
+            gaugeExt.FontSize = 8;
             
-            % Assign to the property for access in logic
+            % 4. Tooltip explanation
+            gaugeExt.Tooltip = {sprintf('Shows additional wire length required for tapered cuts.'), ...
+                                sprintf('Green: Safe operation.'), ...
+                                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
+                                sprintf('Red (>%.0fmm): Critical mechanical limit!', app.WireExt_Red)};
+            
             app.SimGaugeExt = gaugeExt;
 
             % 5. Spacer & Continue
