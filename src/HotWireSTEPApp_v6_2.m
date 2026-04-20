@@ -5925,27 +5925,55 @@ classdef HotWireSTEPApp_v6_2 < handle
             panelBg = t.sideBg;
             textCol = t.labelCol;
 
-            % 2. Check for Stale State (Red)
+            % --- 2. DETERMINE STATUS STATE & COLOR ---
+            msg = strings(0);
+            
+            % Default to Success (Green) if G-code exists, else Stale (Red)
             if isempty(app.PP_GCodeLines)
                 panelBg = t.statErrBg;
                 textCol = t.statErrTxt;
-                msg = ["STALE G-CODE:", "Parameters have changed. Click Post-Process to update."];
+                msg = ["STALE G-CODE:", "Parameters changed. Re-run Post-Process."];
             else
-                % 3. Safety Warnings (Amber)
-                if (power < 25 && feed > 80) || (power > 80 && feed < 30)
+                panelBg = t.statPassBg;
+                textCol = t.statPassTxt;
+                msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
+            end
+
+            % --- 3. APPLY SAFETY OVERRIDES (Priority: Red > Amber) ---
+            
+            % Check A: Wire Extension (Mechanical Limit)
+            isExtRed   = app.MaxPathExtension > app.WireExt_Red;
+            isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
+
+            if isExtRed
+                panelBg = t.statErrBg;
+                textCol = t.statErrTxt;
+                msg(end+1) = "CRITICAL: Wire Extension exceeds pulley travel!";
+            elseif isExtAmber
+                % Only upgrade to Amber if we aren't already Red
+                if ~isequal(panelBg, t.statErrBg)
                     panelBg = t.statWarnBg;
                     textCol = t.statWarnTxt;
-                    msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
-                else
-                    % 4. Success State (Green)
-                    panelBg = t.statPassBg;
-                    textCol = t.statPassTxt;
-                    msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
                 end
+                msg(end+1) = "WARNING: Approaching mechanical pulley limit.";
+            end
+
+            % Check B: Feed/Power Balance
+            if (power < 25 && feed > 80) || (power > 80 && feed < 30)
+                % Only upgrade to Amber if we aren't already Red
+                if ~isequal(panelBg, t.statErrBg)
+                    panelBg = t.statWarnBg;
+                    textCol = t.statWarnTxt;
+                end
+                msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
+            end
+
+            % Final instruction line
+            if ~isempty(app.PP_GCodeLines)
                 msg(end+1) = "Verify paths and click Save.";
             end
 
-            % Apply to UI
+            % --- 4. APPLY TO UI ---
             app.PostLeftPanel.BackgroundColor = panelBg;
             app.TxtPostStatus.Value = msg;
             app.TxtPostStatus.FontColor = textCol;
