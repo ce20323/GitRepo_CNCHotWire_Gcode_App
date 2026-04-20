@@ -91,7 +91,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % --- Wire Extension Safety (Pulley Travel) ---
         WireExt_Amber = 25.0; % [mm] Trigger warning
-        WireExt_Red   = 40.0; % [mm] Hardware limit / Block save
+        WireExt_Red   = 200.0; % [mm] Hardware limit / Block save
 
         % --- Cutting Strategy Safety ---
         MachineSafeHeight = 50.0; % [mm] Z-clearance above billet for Link points
@@ -5474,7 +5474,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 2. UPDATE SIM UI LABELS (G-Code Format) ---
             if isgraphics(app.LblSimExtMin)
-                app.LblSimExtMin.Text = sprintf('Min: X=%.2f   Y=%.2f   Z=%.2f   A=%.2f', ...
+                app.LblSimExtMin.Text = sprintf('Min: X=%.2f  Y=%.2f  Z=%.2f  A=%.2f', ...
                     app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
                 
                 app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
