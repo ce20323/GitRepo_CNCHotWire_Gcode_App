@@ -402,215 +402,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.createWelcomeTab();     % TAB 0: WELCOME & DASHBOARD
             app.createModelTab();       % TAB 1: MODEL IMPORT & ORIENTATION
             app.createProfilesTab();    % TAB 2: PROFILES
-            
+            app.createBilletTab();   % TAB 3: BILLET CONFIGURATION
+
+
             %%
-
-            % ===========================================================
-            % TAB 3: BILLET CONFIGURATION
-            % ===========================================================
-            app.TabBillet = uitab(app.TabGroup, 'Title', 'Billet');
-
-            app.GLBillet = uigridlayout(app.TabBillet, [1 2]);
-            app.GLBillet.ColumnWidth = {320, '1x'};
-            app.GLBillet.Padding =[10 10 10 10];
-
-            % --- Left Control Panel (11 Rows) ---
-            app.BilletLeftPanel = uigridlayout(app.GLBillet, [11 1]);
-            app.BilletLeftPanel.Layout.Column = 1;
-            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
-            app.BilletLeftPanel.Padding = [10 10 10 10];
-            app.BilletLeftPanel.BackgroundColor = sideBg;
-
-            % 1. VIEW CONTROLS
-            pnlBView = uipanel(app.BilletLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlBView.Layout.Row = 1;
-
-            gridBView = uigridlayout(pnlBView,[1 2]); gridBView.Padding=[5 5 5 5]; gridBView.BackgroundColor=panelBg;
-            btnBVM = uibutton(gridBView, 'Text','Model View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
-            btnBVB = uibutton(gridBView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
-
-            % 2. Auto Fit
-            app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
-            app.BtnAutoFitBillet.Layout.Row = 2;
-            app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
-
-            % 3. Size Controls
-            pnlBSize = uipanel(app.BilletLeftPanel, 'Title', 'Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
-            pnlBSize.Layout.Row = 3;
-
-            gridBSizeOuter = uigridlayout(pnlBSize, [1 1]);
-            gridBSizeOuter.Padding = [5 5 5 5];
-
-            gridBSize = uigridlayout(gridBSizeOuter, [4 6]);
-            gridBSize.ColumnWidth = {35, 65, 20, 65, 20, 65};
-            gridBSize.Padding = [4 4 4 4];
-            gridBSize.ColumnSpacing = 4;
-
-            uilabel(gridBSize, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-
-            lblStkH = uilabel(gridBSize, 'Text', 'Stock [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-            lblStkH.Layout.Column = [3 5];
-
-            lblModH = uilabel(gridBSize, 'Text', 'Model', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-            lblModH.Layout.Column = 6;
-
-            axisLabels = {'X','Y','Z'};
-            sizeTooltips = {'Length (Span)', 'Depth (Y)', 'Height (Z)'};
-
-            app.BilletSizeEdits = gobjects(1,3);
-            app.BilletSizeMinusBtns = gobjects(1,3);
-            app.BilletSizePlusBtns = gobjects(1,3);
-            app.BilletModelDimLabels = gobjects(1,3);
-
-            for i = 1:3
-                r = i + 1;
-                % Row Label
-                txtLabel = uilabel(gridBSize, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol);
-                txtLabel.Layout.Row = r;
-
-                % Minus Button
-                app.BilletSizeMinusBtns(i) = uibutton(gridBSize, 'Text', '-', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
-                app.BilletSizeMinusBtns(i).Layout.Row = r;
-                app.BilletSizeMinusBtns(i).Layout.Column = 3;
-
-                % Edit Field
-                app.BilletSizeEdits(i) = uieditfield(gridBSize, 'numeric', ...
-                    'Value', 100, ...
-                    'HorizontalAlignment', 'center', ...
-                    'ValueDisplayFormat', '%.2f', ...
-                    'BackgroundColor',[0.7 0.7 0.8], 'FontColor', [0 0 0], ...
-                    'Tooltip', sizeTooltips{i}, ...
-                    'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
-                app.BilletSizeEdits(i).Layout.Row = r;
-                app.BilletSizeEdits(i).Layout.Column = 4;
-
-                % Plus Button
-                app.BilletSizePlusBtns(i) = uibutton(gridBSize, 'Text', '+', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
-                app.BilletSizePlusBtns(i).Layout.Row = r;
-                app.BilletSizePlusBtns(i).Layout.Column = 5;
-
-                % Model Dim Readout
-                app.BilletModelDimLabels(i) = uilabel(gridBSize, 'Text', '(---)', 'HorizontalAlignment', 'center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
-                app.BilletModelDimLabels(i).Layout.Row = r;
-                app.BilletModelDimLabels(i).Layout.Column = 6;
-            end
-
-            % 4. Auto Position
-            app.BtnAutoPositionModel = uibutton(app.BilletLeftPanel, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
-            app.BtnAutoPositionModel.Layout.Row = 4;
-            app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
-
-            % 5. Reset Position
-            app.BtnResetPosition = uibutton(app.BilletLeftPanel, 'Text', 'Reset Position', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onResetPosition());
-            app.BtnResetPosition.Layout.Row = 5;
-
-            % 6. Position Controls
-            pnlBPos = uipanel(app.BilletLeftPanel, 'Title', 'Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
-            pnlBPos.Layout.Row = 6;
-
-            gridBPos = uigridlayout(pnlBPos, [4 6]);
-            gridBPos.ColumnWidth = {35, 65, 20, 65, 20, 65};
-            gridBPos.Padding = [4 4 4 4];
-            gridBPos.ColumnSpacing = 4;
-
-            uilabel(gridBPos, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-
-            lblNegH = uilabel(gridBPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-            lblNegH.Layout.Column = 2;
-
-            lblShftH = uilabel(gridBPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-            lblShftH.Layout.Column = [3 5];
-
-            lblPosH = uilabel(gridBPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
-            lblPosH.Layout.Column = 6;
-
-            app.BilletNegOffsetEdits = gobjects(1,3);
-            app.BilletCenterOffsetEdits = gobjects(1,3);
-            app.BilletPosOffsetEdits = gobjects(1,3);
-
-            for k = 1:3
-                rk = k + 1;
-                txtLabelP = uilabel(gridBPos, 'Text', axisLabels{k}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol);
-                txtLabelP.Layout.Row = rk;
-
-                app.BilletNegOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"neg",src));
-                app.BilletNegOffsetEdits(k).Layout.Row = rk;
-                app.BilletNegOffsetEdits(k).Layout.Column = 2;
-                app.BilletNegOffsetEdits(k).Tooltip = 'Axis offset between model and billet edge (min axes value)';
-
-                btnMinP = uibutton(gridBPos, 'Text', '-', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,-0.5));
-                btnMinP.Layout.Row = rk;
-                btnMinP.Layout.Column = 3;
-
-                app.BilletCenterOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', [0.7 0.7 0.8], 'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"center",src));
-                app.BilletCenterOffsetEdits(k).Layout.Row = rk;
-                app.BilletCenterOffsetEdits(k).Layout.Column = 4;
-                app.BilletCenterOffsetEdits(k).Tooltip = 'Offset in axis relative to imported model origin';
-
-                btnPlusP = uibutton(gridBPos, 'Text', '+', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(k,+0.5));
-                btnPlusP.Layout.Row = rk;
-                btnPlusP.Layout.Column = 5;
-
-                app.BilletPosOffsetEdits(k) = uieditfield(gridBPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(k,"pos",src));
-                app.BilletPosOffsetEdits(k).Layout.Row = rk;
-                app.BilletPosOffsetEdits(k).Layout.Column = 6;
-                app.BilletPosOffsetEdits(k).Tooltip = 'Axis offset between model and billet edge (max axes value)';
-            end
-
-            % 7. GUIDANCE
-            lblGuide = uilabel(app.BilletLeftPanel, 'Text', 'Guidance', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblGuide.Layout.Row = 7;
-
-            guideTxt = {
-                'REDUCE FOAM WASTE!'
-                'This tab identifies what size billet is needed and positions the model within the billet.'
-                'Find the smallest scrap block in the cupboard that is just large enough to fit the model before trimming on the manual hot wire cutters.'
-                'You only need to leave a 4mm boundary/gap around the model in Y and Z.'
-                ''
-                '1. Use the auto-fit billet and position buttons!'
-                ''
-                '2. Adjust using the control blocks if needed.'
-                };
-            app.TxtBilletGuide = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtBilletGuide.Layout.Row = 8;
-
-            % 8. STATUS
-            lblStat = uilabel(app.BilletLeftPanel, 'Text', 'Status', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblStat.Layout.Row = 9;
-
-            app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
-            app.TxtBilletStatus.Layout.Row = 10;
-
-            % 9. Continue
-            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text', 'Continue', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
-            app.BtnBilletContinue.Layout.Row = 11;
-            % --- Right Panel: 4 Views (Ortho + Iso) ---
-            app.BilletRightPanel = uigridlayout(app.GLBillet, [2 2]);
-            app.BilletRightPanel.Layout.Column = 2;
-            app.BilletRightPanel.RowHeight = {'1x', '1x'};
-            app.BilletRightPanel.ColumnWidth = {'1x', '1x'};
-            app.BilletRightPanel.BackgroundColor = panelBg;
-
-            % Top Left
-            app.AxBilletTop = uiaxes(app.BilletRightPanel);
-            app.AxBilletTop.Layout.Row = 1; app.AxBilletTop.Layout.Column = 1;
-            app.AxBilletTop.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletTop, 'Top View (X/Y)');
-
-            % Top Right (ISO)
-            app.AxBilletIso = uiaxes(app.BilletRightPanel);
-            app.AxBilletIso.Layout.Row = 1; app.AxBilletIso.Layout.Column = 2;
-            app.AxBilletIso.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletIso, 'Iso View');
-            view(app.AxBilletIso, 3); grid(app.AxBilletIso, 'on');
-
-            % Bottom Left
-            app.AxBilletFront = uiaxes(app.BilletRightPanel);
-            app.AxBilletFront.Layout.Row = 2; app.AxBilletFront.Layout.Column = 1;
-            app.AxBilletFront.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletFront, 'Front View (X/Z)');
-
-            % Bottom Right
-            app.AxBilletRight = uiaxes(app.BilletRightPanel);
-            app.AxBilletRight.Layout.Row = 2; app.AxBilletRight.Layout.Column = 2;
-            app.AxBilletRight.BackgroundColor = [0.11 0.11 0.11]; title(app.AxBilletRight, 'Right View (Y/Z)');
 
             % ===========================================================
             % TAB 4: MACHINE SETUP
@@ -5198,7 +4993,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % POST-PROCESS TAB LOGIC
         % ===========================================================
-
         function updatePostProcessUI(app)
             % Updates the Filename field based on loaded model
             rawName = "Output";
@@ -6464,7 +6258,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % TAB 1 (MODEL)
-        function createModelTab(app)
+        function createModelTab(app) 
             % Purpose: Builds the Model Import & Orientation tab UI components.
             % Inputs:  app (HotWireSTEPApp_v6_2 instance)
             % Dependencies: app.getTheme()
@@ -6825,6 +6619,233 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxRightProfile,'Right Profile');
             grid(app.AxRightProfile,'on');
             axis(app.AxRightProfile,'equal');
+        end
+
+        % TAB 3 (BILLET)
+        function createBilletTab(app)
+            % Purpose: Builds the Billet sizing and positioning tab UI components.
+            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
+            % Dependencies: app.getTheme()
+
+            % Fetch Theme Colors locally
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+            inputBg  = t.inputBg;
+            inputTxt = t.inputTxt;
+
+            app.TabBillet = uitab(app.TabGroup, 'Title', 'Billet');
+
+            app.GLBillet = uigridlayout(app.TabBillet,[1 2]);
+            app.GLBillet.ColumnWidth = {320, '1x'};
+            app.GLBillet.Padding =[10 10 10 10];
+
+            %% --- LEFT CONTROL PANEL ---
+            app.BilletLeftPanel = uigridlayout(app.GLBillet, [11 1]);
+            app.BilletLeftPanel.Layout.Column = 1;
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.BilletLeftPanel.Padding =[10 10 10 10];
+            app.BilletLeftPanel.BackgroundColor = sideBg;
+
+            %% --- VIEW CONTROLS ---
+            pnlView = uipanel(app.BilletLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlView.Layout.Row = 1;
+
+            gridView = uigridlayout(pnlView,[1 2]); 
+            gridView.Padding=[5 5 5 5]; 
+            gridView.BackgroundColor=panelBg;
+            
+            btnViewModel = uibutton(gridView, 'Text','Model View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
+
+            %% --- AUTO FIT ---
+            app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
+            app.BtnAutoFitBillet.Layout.Row = 2;
+            app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
+
+            %% --- SIZE CONTROLS ---
+            pnlSize = uipanel(app.BilletLeftPanel, 'Title', 'Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
+            pnlSize.Layout.Row = 3;
+
+            gridSizeOuter = uigridlayout(pnlSize, [1 1]);
+            gridSizeOuter.Padding = [5 5 5 5];
+
+            gridSize = uigridlayout(gridSizeOuter, [4 6]);
+            gridSize.ColumnWidth = {35, 65, 20, 65, 20, 65};
+            gridSize.Padding = [4 4 4 4];
+            gridSize.ColumnSpacing = 4;
+
+            uilabel(gridSize, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+
+            lblStockHeader = uilabel(gridSize, 'Text', 'Stock [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblStockHeader.Layout.Column = [3 5];
+
+            lblModelHeader = uilabel(gridSize, 'Text', 'Model', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblModelHeader.Layout.Column = 6;
+
+            axisLabels = {'X','Y','Z'};
+            sizeTooltips = {'Length (Span)', 'Depth (Y)', 'Height (Z)'};
+
+            app.BilletSizeEdits = gobjects(1,3);
+            app.BilletSizeMinusBtns = gobjects(1,3);
+            app.BilletSizePlusBtns = gobjects(1,3);
+            app.BilletModelDimLabels = gobjects(1,3);
+
+            for i = 1:3
+                r = i + 1;
+                % Row Label
+                txtLabel = uilabel(gridSize, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol);
+                txtLabel.Layout.Row = r;
+
+                % Minus Button
+                app.BilletSizeMinusBtns(i) = uibutton(gridSize, 'Text', '-', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
+                app.BilletSizeMinusBtns(i).Layout.Row = r;
+                app.BilletSizeMinusBtns(i).Layout.Column = 3;
+
+                % Edit Field
+                app.BilletSizeEdits(i) = uieditfield(gridSize, 'numeric', ...
+                    'Value', 100, ...
+                    'HorizontalAlignment', 'center', ...
+                    'ValueDisplayFormat', '%.2f', ...
+                    'BackgroundColor',[0.7 0.7 0.8], 'FontColor', [0 0 0], ...
+                    'Tooltip', sizeTooltips{i}, ...
+                    'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
+                app.BilletSizeEdits(i).Layout.Row = r;
+                app.BilletSizeEdits(i).Layout.Column = 4;
+
+                % Plus Button
+                app.BilletSizePlusBtns(i) = uibutton(gridSize, 'Text', '+', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
+                app.BilletSizePlusBtns(i).Layout.Row = r;
+                app.BilletSizePlusBtns(i).Layout.Column = 5;
+
+                % Model Dim Readout
+                app.BilletModelDimLabels(i) = uilabel(gridSize, 'Text', '(---)', 'HorizontalAlignment', 'center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+                app.BilletModelDimLabels(i).Layout.Row = r;
+                app.BilletModelDimLabels(i).Layout.Column = 6;
+            end
+
+            %% --- AUTO POSITION ---
+            app.BtnAutoPositionModel = uibutton(app.BilletLeftPanel, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
+            app.BtnAutoPositionModel.Layout.Row = 4;
+            app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
+
+            %% --- RESET POSITION ---
+            app.BtnResetPosition = uibutton(app.BilletLeftPanel, 'Text', 'Reset Position', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onResetPosition());
+            app.BtnResetPosition.Layout.Row = 5;
+
+            %% --- POSITION CONTROLS ---
+            pnlPos = uipanel(app.BilletLeftPanel, 'Title', 'Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
+            pnlPos.Layout.Row = 6;
+
+            gridPos = uigridlayout(pnlPos, [4 6]);
+            gridPos.ColumnWidth = {35, 65, 20, 65, 20, 65};
+            gridPos.Padding = [4 4 4 4];
+            gridPos.ColumnSpacing = 4;
+
+            uilabel(gridPos, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+
+            lblNegHeader = uilabel(gridPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblNegHeader.Layout.Column = 2;
+
+            lblShiftHeader = uilabel(gridPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblShiftHeader.Layout.Column =[3 5];
+
+            lblPosHeader = uilabel(gridPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
+            lblPosHeader.Layout.Column = 6;
+
+            app.BilletNegOffsetEdits = gobjects(1,3);
+            app.BilletCenterOffsetEdits = gobjects(1,3);
+            app.BilletPosOffsetEdits = gobjects(1,3);
+
+            for i = 1:3
+                r = i + 1;
+                txtLabelP = uilabel(gridPos, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol);
+                txtLabelP.Layout.Row = r;
+
+                app.BilletNegOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"neg",src));
+                app.BilletNegOffsetEdits(i).Layout.Row = r;
+                app.BilletNegOffsetEdits(i).Layout.Column = 2;
+                app.BilletNegOffsetEdits(i).Tooltip = 'Axis offset between model and billet edge (min axes value)';
+
+                btnMinus = uibutton(gridPos, 'Text', '-', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,-0.5));
+                btnMinus.Layout.Row = r;
+                btnMinus.Layout.Column = 3;
+
+                app.BilletCenterOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', [0.7 0.7 0.8], 'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"center",src));
+                app.BilletCenterOffsetEdits(i).Layout.Row = r;
+                app.BilletCenterOffsetEdits(i).Layout.Column = 4;
+                app.BilletCenterOffsetEdits(i).Tooltip = 'Offset in axis relative to imported model origin';
+
+                btnPlus = uibutton(gridPos, 'Text', '+', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,+0.5));
+                btnPlus.Layout.Row = r;
+                btnPlus.Layout.Column = 5;
+
+                app.BilletPosOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"pos",src));
+                app.BilletPosOffsetEdits(i).Layout.Row = r;
+                app.BilletPosOffsetEdits(i).Layout.Column = 6;
+                app.BilletPosOffsetEdits(i).Tooltip = 'Axis offset between model and billet edge (max axes value)';
+            end
+
+            %% --- GUIDANCE ---
+            lblGuide = uilabel(app.BilletLeftPanel, 'Text', 'Guidance', 'FontWeight', 'bold', 'FontColor', labelCol);
+            lblGuide.Layout.Row = 7;
+
+            guideTxt = {
+                'REDUCE FOAM WASTE!'
+                'This tab identifies what size billet is needed and positions the model within the billet.'
+                'Find the smallest scrap block in the cupboard that is just large enough to fit the model before trimming on the manual hot wire cutters.'
+                'You only need to leave a 4mm boundary/gap around the model in Y and Z.'
+                ''
+                '1. Use the auto-fit billet and position buttons!'
+                ''
+                '2. Adjust using the control blocks if needed.'
+                };
+            app.TxtBilletGuide = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtBilletGuide.Layout.Row = 8;
+
+            %% --- STATUS ---
+            lblStatus = uilabel(app.BilletLeftPanel, 'Text', 'Status', 'FontWeight', 'bold', 'FontColor', labelCol);
+            lblStatus.Layout.Row = 9;
+
+            app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
+            app.TxtBilletStatus.Layout.Row = 10;
+
+            %% --- ACTION BUTTONS ---
+            app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text', 'Continue', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            app.BtnBilletContinue.Layout.Row = 11;
+            
+            %% --- RIGHT PANEL: 4 VIEWS ---
+            app.BilletRightPanel = uigridlayout(app.GLBillet, [2 2]);
+            app.BilletRightPanel.Layout.Column = 2;
+            app.BilletRightPanel.RowHeight = {'1x', '1x'};
+            app.BilletRightPanel.ColumnWidth = {'1x', '1x'};
+            app.BilletRightPanel.BackgroundColor = panelBg;
+
+            % Top Left
+            app.AxBilletTop = uiaxes(app.BilletRightPanel);
+            app.AxBilletTop.Layout.Row = 1; app.AxBilletTop.Layout.Column = 1;
+            app.AxBilletTop.BackgroundColor =[0.11 0.11 0.11]; 
+            title(app.AxBilletTop, 'Top View (X/Y)');
+
+            % Top Right (ISO)
+            app.AxBilletIso = uiaxes(app.BilletRightPanel);
+            app.AxBilletIso.Layout.Row = 1; app.AxBilletIso.Layout.Column = 2;
+            app.AxBilletIso.BackgroundColor =[0.11 0.11 0.11]; 
+            title(app.AxBilletIso, 'Iso View');
+            view(app.AxBilletIso, 3); grid(app.AxBilletIso, 'on');
+
+            % Bottom Left
+            app.AxBilletFront = uiaxes(app.BilletRightPanel);
+            app.AxBilletFront.Layout.Row = 2; app.AxBilletFront.Layout.Column = 1;
+            app.AxBilletFront.BackgroundColor =[0.11 0.11 0.11]; 
+            title(app.AxBilletFront, 'Front View (X/Z)');
+
+            % Bottom Right
+            app.AxBilletRight = uiaxes(app.BilletRightPanel);
+            app.AxBilletRight.Layout.Row = 2; app.AxBilletRight.Layout.Column = 2;
+            app.AxBilletRight.BackgroundColor = [0.11 0.11 0.11]; 
+            title(app.AxBilletRight, 'Right View (Y/Z)');
         end
 
     end
