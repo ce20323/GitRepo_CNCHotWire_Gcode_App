@@ -405,215 +405,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.createBilletTab();   % TAB 3: BILLET CONFIGURATION
             app.createMachineTab();  % TAB 4: MACHINE SETUP
             app.createCuttingTab();  % TAB 5: CUTTING STRATEGY
+            app.createSimulationTab(); % TAB 6: SIMULATION
 
             %%
-
-            % ===========================================================
-            % TAB 6: SIMULATION
-            % ===========================================================
-            app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
-
-            app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
-            app.GLSimulation.ColumnWidth = {320, '1x'};
-            app.GLSimulation.Padding = [10 10 10 10];
-
-            % --- Left Control Panel ---
-            app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
-            app.SimLeftPanel.Padding = [10 10 10 10];
-            app.SimLeftPanel.BackgroundColor = sideBg;
-
-            % 1. View Controls
-            pnlSView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlSView.Layout.Row = 1;
-
-            gridSView = uigridlayout(pnlSView, [1 2]);
-            gridSView.Padding=[5 5 5 5];
-            gridSView.BackgroundColor=panelBg;
-
-            btnSimViewMach = uibutton(gridSView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
-            btnSimViewBill = uibutton(gridSView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
-
-            % 2. Playback Controls
-            pnlSPlay = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlSPlay.Layout.Row = 2;
-
-            gridSPlay = uigridlayout(pnlSPlay, [2 3]);
-            gridSPlay.ColumnWidth={'1x','1x','1x'};
-            gridSPlay.RowHeight={'fit','fit'};
-            gridSPlay.Padding=[5 5 5 5];
-            gridSPlay.BackgroundColor=panelBg;
-
-            % Row 1: Buttons
-            app.SimPlayBtn = uibutton(gridSPlay, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
-
-            btnSimPause = uibutton(gridSPlay, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
-
-            app.SimStopBtn = uibutton(gridSPlay, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
-
-            % Row 2: Slider + Spinner
-            app.SimSlider = uislider(gridSPlay, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
-            app.SimSlider.Layout.Row = 2;
-            app.SimSlider.Layout.Column = [1 2];
-
-            app.SimIndexSpinner = uispinner(gridSPlay, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
-            app.SimIndexSpinner.Layout.Row = 2;
-            app.SimIndexSpinner.Layout.Column = 3;
-
-            % 3. Settings
-            pnlSSet = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlSSet.Layout.Row = 3;
-
-            % 2 Rows, 2 Columns
-            gridSSet = uigridlayout(pnlSSet, [2 2]);
-            gridSSet.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
-            gridSSet.RowHeight={'fit', 'fit'};
-            gridSSet.Padding=[5 5 5 5];
-            gridSSet.BackgroundColor=panelBg;
-
-            % Row 1: Sim Speed
-            lblSimSpeed = uilabel(gridSSet, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'HorizontalAlignment','right');
-            lblSimSpeed.Layout.Row=1; lblSimSpeed.Layout.Column=1;
-
-            app.SimSpeedSpinner = uispinner(gridSSet, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'Tooltip', 'Simulation speed as multiple of set feed rate');
-            app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
-
-            % Row 2: Read-only Base Feed
-            lblBaseFeed = uilabel(gridSSet, 'Text','Base Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
-            lblBaseFeed.Layout.Row=2; lblBaseFeed.Layout.Column=1;
-
-            app.LblBaseFeed = uilabel(gridSSet, 'Text', sprintf('%.0f', HotWireSTEPApp_v6_2.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
-                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
-            app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
-
-            % --- 4. Live Coordinates & Safety Info ---
-            pnlSCoord = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlSCoord.Layout.Row = 4;
-
-            % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
-            gridSCoord = uigridlayout(pnlSCoord, [5 5]);
-            gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
-            % FIX: Increased Row 5 height from 35 to 50 to prevent label cropping
-            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 40};
-            % FIX: Added 15px right padding so the last number on the scale doesn't clip
-            gridSCoord.Padding = [10 10 10 10];
-            gridSCoord.BackgroundColor = panelBg;
-
-            lblSimHeadL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lblSimHeadL.Layout.Column = [1 2];
-
-            lblSimHeadR = uilabel(gridSCoord, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
-            lblSimHeadR.Layout.Column = [4 5];
-
-            % Row 2: X/Z
-            lblSimX = uilabel(gridSCoord, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblSimX.Layout.Row=2;
-
-            app.LblReadoutX = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
-            app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
-
-            lblSimZ = uilabel(gridSCoord, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblSimZ.Layout.Row=2; lblSimZ.Layout.Column=4;
-
-            app.LblReadoutZ = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
-            app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
-
-            % Row 3: Y/A
-            lblSimY = uilabel(gridSCoord, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblSimY.Layout.Row=3;
-
-            app.LblReadoutY = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
-            app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
-
-            lblSimA = uilabel(gridSCoord, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
-            lblSimA.Layout.Row=3; lblSimA.Layout.Column=4;
-
-            app.LblReadoutA = uilabel(gridSCoord, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
-            app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
-
-            % --- Row 4: Extension Label ---
-            lblGaugeTitle = uilabel(gridSCoord);
-            lblGaugeTitle.Layout.Row = 4;
-            lblGaugeTitle.Layout.Column = [1 5];
-            lblGaugeTitle.Text = 'Wire Extension (Pulley Travel) [mm]';
-            lblGaugeTitle.FontWeight = 'bold';
-            lblGaugeTitle.FontColor = labelCol;
-            lblGaugeTitle.HorizontalAlignment = 'center';
-
-            % --- Row 5: Linear Gauge ---
-            gaugeExt = uigauge(gridSCoord, 'linear');
-            gaugeExt.Layout.Row = 5;
-            gaugeExt.Layout.Column = [1 5];
-
-            % Calculate a clean scale maximum (round up to nearest 10mm)
-            scaleMax = ceil((app.WireExt_Red * 1.2) / 10) * 10;
-
-            gaugeExt.MajorTicks = 0:5:scaleMax;
-            gaugeExt.Limits = [0, scaleMax];
-
-            % Styling: Muted Industrial Palette
-            gaugeExt.ScaleColors = [0.1 0.6 0.1; 0.8 0.5 0.0; 0.7 0.1 0.1];
-            gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
-                app.WireExt_Amber app.WireExt_Red; ...
-                app.WireExt_Red scaleMax];
-
-            gaugeExt.FontColor = labelCol;
-            gaugeExt.FontSize = 8;
-            gaugeExt.BackgroundColor = panelBg;
-
-            % 4. Tooltip explanation
-            gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
-                sprintf('This dial shows the live extention reuqired during the simulation'), ...
-                sprintf('Green: Safe operation.'), ...
-                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
-                sprintf('Red (>%.0fmm): Critical mechanical limit, wire will break!', app.WireExt_Red)};
-
-            app.SimGaugeExt = gaugeExt;
-
-            % --- VISIBILITY FIX FOR GAUGE ---
-            gaugeExt.BackgroundColor = panelBg; % Forces contrast recalculation
-            gaugeExt.FontColor = labelCol;
-
-            % --- 5. Program Extents Panel ---
-            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlBounds.Layout.Row = 5;
-
-            gridBounds = uigridlayout(pnlBounds, [3 1]); % 3 Rows, 1 Column for text lines
-            gridBounds.RowHeight = {'fit', 'fit', 'fit'};
-            gridBounds.Padding = [10 5 10 5];
-            gridBounds.RowSpacing = 5;
-            gridBounds.BackgroundColor = panelBg;
-
-            % Line 1: Min Extents
-            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
-            app.LblSimExtMin.Layout.Row = 1;
-
-            % Line 2: Max Extents
-            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
-            app.LblSimExtMax.Layout.Row = 2;
-
-            % Line 3: Max Wire Extension
-            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',t.wireKerf);
-            app.LblSimExtWire.Layout.Row = 3;
-
-            % --- 6. Layout Fix: Pin Continue Button to Bottom ---
-            % We add a spacer row (Row 6) set to '1x' to push the button down
-            lblSimSpacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lblSimSpacer.Layout.Row = 6;
-
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnSimContinue.Layout.Row = 7;
-
-            % Set the parent grid row heights: R1-5 fit, R6 takes all space, R7 fits button
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
-
-            % --- Right Panel: 3D Sim Plot ---
-            app.AxSim = uiaxes(app.GLSimulation);
-            app.AxSim.Layout.Column = 2;
-            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
-            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
-            grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
 
             % ===========================================================
             % 7. POST-PROCESSOR TAB
@@ -6914,7 +6708,206 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxCutRight,'Right Profile Cut Path');
         end
 
+        % TAB 6 (SIMULATION)
+        function createSimulationTab(app)
+            % Purpose: Builds the Kinematics Simulation tab UI components.
+            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
+            % Dependencies: app.getTheme()
 
+            % Fetch Theme Colors locally
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+
+            app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
+
+            app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
+            app.GLSimulation.ColumnWidth = {320, '1x'};
+            app.GLSimulation.Padding =[10 10 10 10];
+
+            %% --- LEFT CONTROL PANEL ---
+            app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
+            app.SimLeftPanel.Padding = [10 10 10 10];
+            app.SimLeftPanel.BackgroundColor = sideBg;
+
+            %% --- VIEW CONTROLS ---
+            pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlView.Layout.Row = 1;
+
+            gridView = uigridlayout(pnlView, [1 2]);
+            gridView.Padding=[5 5 5 5];
+            gridView.BackgroundColor=panelBg;
+
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
+
+            %% --- PLAYBACK CONTROLS ---
+            pnlPlayback = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlPlayback.Layout.Row = 2;
+
+            gridPlayback = uigridlayout(pnlPlayback,[2 3]);
+            gridPlayback.ColumnWidth={'1x','1x','1x'};
+            gridPlayback.RowHeight={'fit','fit'};
+            gridPlayback.Padding=[5 5 5 5];
+            gridPlayback.BackgroundColor=panelBg;
+
+            % Row 1: Buttons
+            app.SimPlayBtn = uibutton(gridPlayback, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
+            btnPause = uibutton(gridPlayback, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+            app.SimStopBtn = uibutton(gridPlayback, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
+
+            % Row 2: Slider + Spinner
+            app.SimSlider = uislider(gridPlayback, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
+            app.SimSlider.Layout.Row = 2;
+            app.SimSlider.Layout.Column = [1 2];
+
+            app.SimIndexSpinner = uispinner(gridPlayback, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
+            app.SimIndexSpinner.Layout.Row = 2;
+            app.SimIndexSpinner.Layout.Column = 3;
+
+            %% --- SETTINGS ---
+            pnlSettings = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSettings.Layout.Row = 3;
+
+            gridSettings = uigridlayout(pnlSettings, [2 2]);
+            gridSettings.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
+            gridSettings.RowHeight={'fit', 'fit'};
+            gridSettings.Padding=[5 5 5 5];
+            gridSettings.BackgroundColor=panelBg;
+
+            lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSpeed.Layout.Row=1; lblSpeed.Layout.Column=1;
+
+            app.SimSpeedSpinner = uispinner(gridSettings, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'Tooltip', 'Simulation speed as multiple of set feed rate');
+            app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
+
+            lblBaseFeed = uilabel(gridSettings, 'Text','Base Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblBaseFeed.Layout.Row=2; lblBaseFeed.Layout.Column=1;
+
+            app.LblBaseFeed = uilabel(gridSettings, 'Text', sprintf('%.0f', HotWireSTEPApp_v6_2.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
+                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+            app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
+
+            %% --- LIVE SYSTEM STATUS ---
+            pnlStatus = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlStatus.Layout.Row = 4;
+
+            % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
+            gridStatus = uigridlayout(pnlStatus,[5 5]);
+            gridStatus.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
+            gridStatus.RowHeight = {'fit', 'fit', 'fit', 'fit', 50};
+            gridStatus.Padding =[10 10 10 10];
+            gridStatus.BackgroundColor = panelBg;
+
+            lblHeadL = uilabel(gridStatus, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblHeadL.Layout.Column = [1 2];
+
+            lblHeadR = uilabel(gridStatus, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblHeadR.Layout.Column = [4 5];
+
+            % Row 2: X/Z
+            lblX = uilabel(gridStatus, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblX.Layout.Row=2;
+
+            app.LblReadoutX = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
+
+            lblZ = uilabel(gridStatus, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblZ.Layout.Row=2; lblZ.Layout.Column=4;
+
+            app.LblReadoutZ = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
+
+            % Row 3: Y/A
+            lblY = uilabel(gridStatus, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblY.Layout.Row=3;
+
+            app.LblReadoutY = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
+
+            lblA = uilabel(gridStatus, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblA.Layout.Row=3; lblA.Layout.Column=4;
+
+            app.LblReadoutA = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
+
+            % Row 4: Extension Label
+            lblGaugeTitle = uilabel(gridStatus);
+            lblGaugeTitle.Layout.Row = 4;
+            lblGaugeTitle.Layout.Column = [1 5];
+            lblGaugeTitle.Text = 'Wire Extension (Pulley Travel) [mm]';
+            lblGaugeTitle.FontWeight = 'bold';
+            lblGaugeTitle.FontColor = labelCol;
+            lblGaugeTitle.HorizontalAlignment = 'center';
+
+            % Row 5: Linear Gauge
+            gaugeExt = uigauge(gridStatus, 'linear');
+            gaugeExt.Layout.Row = 5;
+            gaugeExt.Layout.Column = [1 5];
+
+            % Calculate a clean scale maximum (round up to nearest 10mm)
+            scaleMax = ceil((app.WireExt_Red * 1.2) / 10) * 10;
+
+            gaugeExt.MajorTicks = 0:5:scaleMax;
+            gaugeExt.Limits = [0, scaleMax];
+
+            % Styling: Muted Industrial Palette
+            gaugeExt.ScaleColors =[0.1 0.6 0.1; 0.8 0.5 0.0; 0.7 0.1 0.1];
+            gaugeExt.ScaleColorLimits =[0 app.WireExt_Amber; ...
+                app.WireExt_Amber app.WireExt_Red; ...
+                app.WireExt_Red scaleMax];
+
+            gaugeExt.FontColor = labelCol;
+            gaugeExt.FontSize = 8;
+            gaugeExt.BackgroundColor = panelBg;
+
+            gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
+                sprintf('This dial shows the live extention reuqired during the simulation'), ...
+                sprintf('Green: Safe operation.'), ...
+                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
+                sprintf('Red (>%.0fmm): Critical mechanical limit, wire will break!', app.WireExt_Red)};
+
+            app.SimGaugeExt = gaugeExt;
+
+            %% --- PROGRAM EXTENTS ---
+            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlBounds.Layout.Row = 5;
+
+            gridBounds = uigridlayout(pnlBounds, [3 1]);
+            gridBounds.RowHeight = {'fit', 'fit', 'fit'};
+            gridBounds.Padding =[10 5 10 5];
+            gridBounds.RowSpacing = 5;
+            gridBounds.BackgroundColor = panelBg;
+
+            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMin.Layout.Row = 1;
+
+            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMax.Layout.Row = 2;
+
+            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',t.wireKerf);
+            app.LblSimExtWire.Layout.Row = 3;
+
+            %% --- ACTION BUTTONS ---
+            % Spacer to push button to bottom
+            lblSpacer = uilabel(app.SimLeftPanel, 'Text', '');
+            lblSpacer.Layout.Row = 6;
+
+            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            app.BtnSimContinue.Layout.Row = 7;
+
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
+
+            %% --- RIGHT PANEL: 3D SIM PLOT ---
+            app.AxSim = uiaxes(app.GLSimulation);
+            app.AxSim.Layout.Column = 2;
+            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
+            xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
+            grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
+        end
 
     
     end
