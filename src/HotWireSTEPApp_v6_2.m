@@ -45,7 +45,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MaxWasteBuffer         (1,1) double = 24.0;   % [mm] Allowable extra slack before "Waste" Warning on billet size
         ModelXPlacementBuffer  (1,1) double = 0.001;  % [mm] Tiny offset used in Auto-Position to avoid mathematical edge-case errors
         WireExt_Amber          (1,1) double = 25.0;   % [mm] Trigger warning for pulley travel extension
-        WireExt_Red            (1,1) double = 40.0;  % [mm] Hardware limit for pulley extension / Block save
+        WireExt_Red            (1,1) double = 40.0;   % [mm] Hardware limit for pulley extension / Block save
         MachineSafeHeight      (1,1) double = 50.0;   % [mm] Z-clearance above billet for auto rapid Link points
 
         %% --- ALGORITHM SETTINGS ---
@@ -55,7 +55,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultKerf             (1,1) double = 1.0;   % [mm] Default wire thickness compensation
         MinKerf                 (1,1) double = -4.0;  % [mm] Minimum allowed kerf (negative allows expansion)
         MaxKerf                 (1,1) double = 4.0;   % [mm] Maximum allowed kerf
-        SimFramesPerSecond      (1,1) double = 20.0;  % [Hz] Redraw rate for the 3D simulation plot
+        SimFramesPerSecond      (1,1) double = 25.0;  % [Hz] Redraw rate for the 3D simulation plot
         SimSpatialResolution    (1,1) double = 0.5;   % [mm] Distance between interpolated path points in simulation
 
         %% --- UI DEFAULTS ---
@@ -63,8 +63,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         PlanePaddingFactor   (1,1) double = 0.20; % Padding factor for cutting planes visualization
         BilletSizeStep       (1,1) double = 1.0;  % [mm] Step size for Billet Size +/- buttons
         BilletShiftStep      (1,1) double = 0.5;  % [mm] Step size for Position +/- buttons
-        DefaultFeedRate      (1,1) double = 40.0; % [mm/min] Baseline feed rate for standard foam
-        DefaultPower         (1,1) double = 35.0; % [%] Baseline power for standard foam
+        DefaultFeedRate      (1,1) double = 40.0; % [mm/min] Default feed rate
+        DefaultPower         (1,1) double = 35.0; % [%] Default power as % for PWM machine output.
     end
 
     properties
@@ -277,7 +277,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         SimLeadOutEndIndex double    % Index where lead-out ends and return begins
 
         PP_GCodeLines string = string.empty(0,1) % Array of generated G-code strings
-        PP_LineToPathIndex double =[]           % Mapping from G-code line to simulation path index
+        PP_LineToPathIndex double =[]            % Mapping from G-code line to simulation path index
         PP_SelectedLine (1,1) double = 1         % Currently selected line in the G-code viewer
         PP_PathL; PP_PathR                       % Post-process verification paths (Model)
         PP_TowerPathL; PP_TowerPathR             % Post-process verification paths (Towers)
