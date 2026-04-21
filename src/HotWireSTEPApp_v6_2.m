@@ -45,7 +45,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MaxWasteBuffer         (1,1) double = 24.0;   % [mm] Allowable extra slack before "Waste" Warning on billet size
         ModelXPlacementBuffer  (1,1) double = 0.001;  % [mm] Tiny offset used in Auto-Position to avoid mathematical edge-case errors
         WireExt_Amber          (1,1) double = 25.0;   % [mm] Trigger warning for pulley travel extension
-        WireExt_Red            (1,1) double = 200.0;  % [mm] Hardware limit for pulley extension / Block save
+        WireExt_Red            (1,1) double = 40.0;  % [mm] Hardware limit for pulley extension / Block save
         MachineSafeHeight      (1,1) double = 50.0;   % [mm] Z-clearance above billet for auto rapid Link points
 
         %% --- ALGORITHM SETTINGS ---
