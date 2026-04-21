@@ -306,7 +306,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultCameraPosition; DefaultCameraTarget        % Stored default camera position/target for 3D view reset
         DefaultCameraUpVector; DefaultCameraViewAngle     % Stored default camera up vector/angle for 3D view reset
     end
-    
+
     methods
 
         function app = HotWireSTEPApp_v6_2()
@@ -367,17 +367,22 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % ===========================================================
-        % BUILD UI (Fixed Spacing & Alignments)
+        % BUILD UI (Modular Construction)
         % ===========================================================
         function buildUI(app)
+            % Purpose: Main entry point for constructing the user interface.
+            % Note: To prevent this function from becoming a monolithic, unreadable 
+            % block of code, the actual construction of each tab is delegated to 
+            % private methods located at the bottom of this class (e.g., createWelcomeTab).
+            % This prevents variable shadowing and allows code folding.
 
-            % --- 1. Main Window Setup ---
+            %% --- MAIN WINDOW SETUP ---
             app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
             app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event); %key press on post tab to scroll code
 
-            % --- 2. Theme & Colors ---
+            % --- Theme & Colors ---
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
@@ -387,598 +392,18 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.UIFigure.Color = sideBg;
 
-            % --- 3. Tab Group Container ---
+            %% --- Tab Group Container ---
             app.TabGroup = uitabgroup(app.UIFigure, ...
                 'Units','normalized', ...
                 'Position',[0 0 1 1], ...
                 'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt));
 
-            % ===========================================================
-            % TAB 0: WELCOME & DASHBOARD
-            % ===========================================================
-            app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome');
-
-            app.GLWelcome = uigridlayout(app.TabWelcome, [ 1 2 ]);
-            app.GLWelcome.ColumnWidth = {320, '1x'};
-            app.GLWelcome.Padding =[ 10 10 10 10 ];
-            app.GLWelcome.ColumnSpacing = 10;
-
-            % -----------------------------------------------------------
-            % LEFT PANEL: UI Anatomy Guide
-            % -----------------------------------------------------------
-            pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
-            pnlAnatomy.Layout.Column = 1;
-
-            % 5 Rows to accommodate the new switch
-            glAnat = uigridlayout(pnlAnatomy,[ 5 1 ]);
-            glAnat.RowHeight = {'fit', '1x', '2x', 'fit', 'fit'};
-            glAnat.Padding =[ 10 10 10 10 ];
-            glAnat.BackgroundColor = sideBg;
-
-            uilabel(glAnat, 'Text', 'Understanding the Interface', 'FontWeight', 'bold', 'FontSize', 16, 'FontColor', labelCol);
-
-            uiTxt = {
-                'This application is designed to be read from Top to Bottom, and from Left to Right.';
-                '';
-                'Each tab has a left panel like this one with inputs, guidance, and status blocks,'
-                'and large right pnael with interactive plots for visualisation and user input';
-                '';
-                'Move through the tabs at the top of the window one by one, left to right'
-                '';
-                'You need to read and action the required setup instructions in the right panel of this tab before first use.'
-                };
-            uitextarea(glAnat, 'Value', uiTxt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-
-            % The "Mock UI" Explainer Box
-            pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
-
-            glMock = uigridlayout(pnlMock,[ 8 1 ]);
-            glMock.RowHeight = {'fit','fit', 'fit','fit', 'fit','fit', 'fit','fit'};
-            glMock.RowSpacing = 2; % Tight gap between labels and text
-            glMock.BackgroundColor = panelBg;
-
-            lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl1.Layout.Row = 1;
-            txt1 = uitextarea(glMock, 'Value', {'For each tab, the top of the left panel will contain buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt1.Layout.Row = 2;
-
-            lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl2.Layout.Row = 3;
-            txt2 = uitextarea(glMock, 'Value', {'Below the user inputs, there will be a guidance block, with basic step by step instructions on what to do and check for that tab.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt2.Layout.Row = 4;
-
-            lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl3.Layout.Row = 5;
-            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).'};
-            % Use theme-engine colors for the example box
-            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor', t.statPassBg,'FontColor', t.statPassTxt);
-            txt3.Layout.Row = 6;
-
-            lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl4.Layout.Row = 7;
-            txt4 = uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt4.Layout.Row = 8;
-
-            % --- NEW: Theme Toggle ---
-            glTheme = uigridlayout(glAnat, [ 1 2 ]);
-            glTheme.RowHeight = {'fit'};
-            glTheme.ColumnWidth = {'fit', 'fit'};
-            glTheme.Padding =[ 0 0 0 0 ];
-            glTheme.BackgroundColor = sideBg;
-            glTheme.Layout.Row = 4;
-
-            lblTheme = uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblTheme.Layout.Column = 1;
-
-            % Read the saved preference to set the switch's initial state
-            if ispref('HotWireSTEPApp', 'Theme')
-                currentTheme = getpref('HotWireSTEPApp', 'Theme');
-            else
-                currentTheme = 'Dark';
-            end
-
-            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme);
-            app.ThemeSwitch.FontColor = labelCol;
-            app.ThemeSwitch.ValueChangedFcn = @(src,evt)app.onThemeToggleChanged(src);
-            app.ThemeSwitch.Layout.Column = 2;
-
-            % Continue Button
-            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            btnWelcomeCont.Layout.Row = 5;
-
-            % -----------------------------------------------------------
-            % RIGHT PANEL: Main Content & Setup
-            % -----------------------------------------------------------
-            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
-            rightScroll.Layout.Column = 2;
-
-            glRight = uigridlayout(rightScroll,[ 4 1 ]);
-
-            % 70px Header, 1x About, 1.2x FreeCAD (more room), 'fit' Footer (shrinks to content)
-            glRight.RowHeight = {120, '1.2x', '1x', 'fit'};
-            glRight.BackgroundColor = panelBg;
-
-            % Padding is [Left Bottom Right Top]. 10px Top pushes the header up!
-            glRight.Padding =[ 20 0 20 0 ];
-            glRight.RowSpacing = 15;
-
-            % --- Header Area ---
-            glHead = uigridlayout(glRight,[ 1 2 ]);
-
-            % Text stretches on left, Logo gets a generous 280px on the right
-            glHead.ColumnWidth = {'1x', 280};
-            glHead.RowHeight = {'1x'};
-            glHead.Padding =[ 0 0 0 0 ];
-            glHead.BackgroundColor = panelBg;
-
-            isDark = app.UIFigure.Color(1) < 0.5;
-
-            if isDark
-                logoName = 'Science_engineering_WHITE.png';
-            else
-                logoName = 'Science_engineering_BLACK.png';
-            end
-
-            appDir = fileparts(mfilename('fullpath'));
-            pathOption1 = fullfile(appDir, logoName);
-            pathOption2 = fullfile(appDir, 'src', logoName);
-
-            % Title on the Left
-            lblTitle = uilabel(glHead, 'Text', 'CNC Hot Wire G-Code Generator', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
-            lblTitle.Layout.Row = 1; lblTitle.Layout.Column = 1;
-
-            % Logo on the Right
-            if isfile(pathOption1)
-                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption1);
-            elseif isfile(pathOption2)
-                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption2);
-            else
-                app.ImgWelcomeLogo = uiimage(glHead); % Blank placeholder
-            end
-            app.ImgWelcomeLogo.Layout.Row = 1; app.ImgWelcomeLogo.Layout.Column = 2;
-
-            % --- About Section ---
-            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            pnlAbout.Layout.Row = 2;
-
-            glAbout = uigridlayout(pnlAbout,[ 1 1 ]);
-            glAbout.Padding =[ 5 5 5 5 ];
-            glAbout.RowHeight = {'1x'};
-            glAbout.BackgroundColor = sideBg;
-
-            txtAbout = {
-                'Welcome to the Rapid Prototyping Workshops 4-axis CNC Hot Wire Toolpath and G-code Generator.';
-                'This software provides a complete, end-to-end workflow to take you form CAD model to G-code for CNC hot wire foam cutting';
-                'Most steps offer auto or manual configuration';
-                '';
-                'Workflow:';
-                '- Import and orient 3D CAD models (STEP/STL).';
-                '- Slice models, extract and sync 2D profiles.';
-                '- Apply kerf compensation to preserve dimensional accuracy.';
-                '- Size and position your model and billet.';
-                '- Create collision-free lead-in and exit paths.';
-                '- Visually simulate the 4-axis kinematics to verify the cut.';
-                '- Post-process and export Mach4-compatible G-code.'
-                };
-            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
-
-            % --- FreeCAD Setup Section ---
-            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            pnlFC.Layout.Row = 3;
-
-            glFC = uigridlayout(pnlFC, [ 1 2 ]);
-            glFC.ColumnWidth = {'1x', 300}; % 300px for the right side controls
-            glFC.RowHeight = {'1x'};
-            glFC.Padding =[ 5 5 5 5 ];
-            glFC.BackgroundColor = sideBg;
-
-            fcInstruct = {
-                'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files.';
-                'You only need to set this up once on your computer!';
-                '';
-                '1. Click "Download FreeCAD" to get the standard Windows Installer.';
-                '';
-                '2. Run the installer and install it to the default directory.';
-                '';
-                '3. Click "Browse..." and locate the file "freecadcmd.exe".';
-                '   (Typically: C:\Program Files\FreeCAD 1.0\bin\)'
-                };
-            txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            txtFC.Layout.Row = 1; txtFC.Layout.Column = 1;
-
-            % 4 Rows. Download button pinned top, Path field pinned bottom.
-            glFCRight = uigridlayout(glFC,[ 3 1 ]);
-            glFCRight.RowHeight = {'fit', 'fit', 'fit'};
-            glFCRight.Padding =[ 0 0 0 0 ];
-            glFCRight.BackgroundColor = sideBg;
-            glFCRight.Layout.Row = 1; glFCRight.Layout.Column = 2;
-
-            btnDownloadFC = uibutton(glFCRight, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[ 0.2 0.5 0.8 ], 'FontColor', [ 1 1 1 ], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
-            btnDownloadFC.Layout.Row = 1; btnDownloadFC.Layout.Column = 1;
-
-            lblFC = uilabel(glFCRight, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
-            lblFC.Layout.Row = 2; lblFC.Layout.Column = 1;
-
-            if ispref('HotWireSTEPApp', 'FreeCADPath')
-                app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
-            else
-                app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
-            end
-
-            % Combine Field and Browse into a sub-grid
-            glFCBrowse = uigridlayout(glFCRight,[ 2 1 ]);
-            glFCBrowse.ColumnWidth = {'1x'};
-            glFCBrowse.RowHeight = {'fit','fit'};
-            glFCBrowse.Padding =[ 0 0 0 0 ];
-            glFCBrowse.BackgroundColor = sideBg;
-            glFCBrowse.Layout.Row = 3; glFCBrowse.Layout.Column = 1;
-
-            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe);
-            app.FieldFreeCADPath.BackgroundColor = inputBg;
-            app.FieldFreeCADPath.FontColor = inputTxt;
-            app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
-            app.FieldFreeCADPath.Layout.Row = 1;
-
-            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
-            btnBrowseFC.Layout.Row = 2; btnBrowseFC.Layout.Column = 1;
-
-            % --- 3 Separate Footer Panels (Contact, License, Source) ---
-            glFooter = uigridlayout(glRight, [1 3]);
-            glFooter.Layout.Row = 4;
-            glFooter.ColumnWidth = {'1x', '1x', 305};
-            glFooter.RowHeight = {80};
-            glFooter.Padding = [0 0 0 0];
-            glFooter.ColumnSpacing = 5;
-            glFooter.BackgroundColor = panelBg;
-
-            % 1. Contact Panel
-            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glContact = uigridlayout(pnlContact,[1 1]);
-            glContact.RowHeight = {'fit'}; % Locked inner height for exactly 2 lines
-            glContact.Padding = [0 0 0 0];
-            glContact.BackgroundColor = sideBg;
-            txtAuthor = {'Author: Matthew Richardson'; 'Email:  matthew.richardson@bristol.ac.uk'};
-            uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-
-            % 2. License Panel
-            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glLicense = uigridlayout(pnlLicense,[1 1]);
-            glLicense.RowHeight = {'fit'}; % Matched to keep boxes physically level
-            glLicense.Padding =[0 0 0 0];
-            glLicense.BackgroundColor = sideBg;
-            txtLicense = {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'};
-            uitextarea(glLicense, 'Value', txtLicense, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-
-            % 3. Source Panel
-            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glSource = uigridlayout(pnlSource,[1 1]);
-            glSource.RowHeight = {'fit'}; % Matched
-            glSource.Padding =[5 5 5 5];
-            glSource.BackgroundColor = sideBg;
-            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
-
-            % ===========================================================
-            % TAB 1: MODEL IMPORT & ORIENTATION
-            % ===========================================================
-
-            app.TabModel = uitab(app.TabGroup,'Title','Model');
-            app.GLModel = uigridlayout(app.TabModel,[1 2]);
-            app.GLModel.ColumnWidth   = {320,'1x'};
-            app.GLModel.Padding       = [10 10 10 10];
-            app.GLModel.ColumnSpacing = 10;
-
-            % --- Left Control Panel ---
-            app.GLLeft = uigridlayout(app.GLModel,[16 1]);
-            app.GLLeft.Layout.Column = 1; app.GLLeft.BackgroundColor = sideBg;
-
-            % Rows: 1-11 Controls, 12 Label, 13 Guide(1x), 14 Label, 15 Status, 16 Buttons
-            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
-            app.GLLeft.Padding = [10 10 10 10];
-
-            % 1. File Import
-            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', ...
-                'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
-                'ButtonPushedFcn',@(~,~)app.onImportSTEP());
-            app.BtnImportSTEP.Layout.Row = 1;
-
-            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', ...
-                'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
-                'ButtonPushedFcn',@(~,~)app.onImportSTL());
-            app.BtnImportSTL.Layout.Row = 2;
-
-            app.FileLabel = uilabel(app.GLLeft, 'Text','Current File: ---', 'FontWeight','bold', 'FontColor',labelCol);
-            app.FileLabel.Layout.Row = 3;
-
-            % 2. Taper
-            pnl_M_Cut = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
-            pnl_M_Cut.Layout.Row = 5;
-            grid_M_Cut = uigridlayout(pnl_M_Cut,[1 3]); grid_M_Cut.ColumnWidth = {'1x','fit','1x'}; grid_M_Cut.Padding=[10 0 10 0]; grid_M_Cut.BackgroundColor = sideBg;
-            lbl_M_Sp1 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp1.Layout.Column=1;
-
-            app.TaperToggle = uiswitch(grid_M_Cut,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
-                'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
-                'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
-            app.TaperToggle.Layout.Column = 2;
-            lbl_M_Sp2 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp2.Layout.Column=3;
-
-            % 3. Orientation (Centered)
-            pnl_M_Rot = uipanel(app.GLLeft, 'Title','Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'ForegroundColor',labelCol);
-            pnl_M_Rot.Layout.Row = 7;
-
-            % Outer grid to force centering
-            outer_M_Rot = uigridlayout(pnl_M_Rot,[1 3]);
-            outer_M_Rot.ColumnWidth={'1x','fit','1x'};
-            outer_M_Rot.Padding=[5 5 5 5]; outer_M_Rot.BackgroundColor=panelBg;
-
-            % Inner controls
-            app.RotGrid = uigridlayout(outer_M_Rot,[3 4]);
-            app.RotGrid.Layout.Column = 2; % Center column
-            app.RotGrid.ColumnWidth={'fit','fit',70,'fit'}; app.RotGrid.RowHeight={'fit','fit','fit'};
-            app.RotGrid.Padding=[0 0 0 0]; app.RotGrid.BackgroundColor=panelBg;
-
-            axesLabels = {'X','Y','Z'};
-            app.RotEdit = gobjects(1,3);
-            for i = 1:3
-                lbl_M_Rot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol); lbl_M_Rot.Layout.Row=i;
-                btn_M_Neg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm'])); btn_M_Neg.Layout.Row=i;
-
-                app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
-                    'Tooltip', ['Rotate model around the ' axesLabels{i} ' axis.'], ...
-                    'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
-                app.RotEdit(i).Layout.Row=i;
-
-                btn_M_Pos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p'])); btn_M_Pos.Layout.Row=i;
-            end
-
-            % Reset Controls
-            btnMResO = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            btnMResO.Layout.Row = 8;
-            btnMResP = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
-            btnMResP.Layout.Row = 9;
-
-            % 4. Offsets
-            pnl_M_Off = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
-            pnl_M_Off.Layout.Row = 11;
-            grid_M_Off = uigridlayout(pnl_M_Off,[3 2]); grid_M_Off.ColumnWidth={'1x',90}; grid_M_Off.RowHeight={'fit','fit','fit'};
-
-            lbl_M_OffL = uilabel(grid_M_Off,'Text','Left Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol); lbl_M_OffL.Layout.Row=1; lbl_M_OffL.Layout.Column=1;
-
-            % [FIX] FontColor=[0 0 0] to ensure readability on colored background
-            app.NumLeftOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f',...
-                'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
-                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
-
-            lbl_M_OffR = uilabel(grid_M_Off,'Text','Right Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol); lbl_M_OffR.Layout.Row=2; lbl_M_OffR.Layout.Column=1;
-            app.NumRightOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f',...
-                'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
-                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-
-            app.NumRightOffset.Layout.Row=2; app.NumRightOffset.Layout.Column=2;
-
-            btn_M_ResPlane = uibutton(grid_M_Off, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
-            btn_M_ResPlane.Layout.Row=3; btn_M_ResPlane.Layout.Column=[1 2];
-
-            % 5. GUIDANCE (Row 13, Expanded 1x)
-            lbl_M_Guide = uilabel(app.GLLeft, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_Guide.Layout.Row = 12;
-
-            guideText = {
-                '1. Import your model by clicking Import STEP or STL';
-                '';
-                '2. Select straight for prismatic, or tapered for independant profiles.';
-                '';
-                '3. Rotate Model: Align cut profile to Y-Z plane.';
-                '';
-                '4. (Optional) Move the left/right planes if you want to cut a section of your model';
-                '';
-                '5. Click generate profiles, check the profiles look correct, then click continue';
-                '';
-                'TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
-                'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
-                'Rotate the model so this point is toward the front of the machine (Ymin)';
-                };
-            app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
-                'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtModelGuide.Layout.Row = 13;
-
-            % 6. STATUS (Row 15, Fixed Fit)
-            lbl_M_Stat = uilabel(app.GLLeft, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_Stat.Layout.Row = 14;
-
-            app.TxtModelStatus = uitextarea(app.GLLeft, 'Editable','off', 'Value', {'No model loaded.'}, ...
-                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
-            app.TxtModelStatus.Layout.Row = 15;
-
-            % 7. BUTTONS (Row 16)
-            pnl_M_Btn = uipanel(app.GLLeft, 'BackgroundColor',sideBg, 'BorderType','none');
-            pnl_M_Btn.Layout.Row = 16;
-            grid_M_Btn = uigridlayout(pnl_M_Btn,[1 2]); grid_M_Btn.Padding=[0 0 0 0]; grid_M_Btn.BackgroundColor=sideBg;
-
-            app.BtnGenerateProfiles = uibutton(grid_M_Btn, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
-                'Tooltip', 'Slice model at the defined planes.', ...
-                'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
-
-            app.BtnContinue = uibutton(grid_M_Btn, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
-                'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
-
-            % --- Right Panel: 3D Model Axis ---
-            app.AxModel = uiaxes(app.GLModel);
-            app.AxModel.Layout.Column = 2; app.AxModel.BackgroundColor = [0.11 0.11 0.11];
-            xlabel(app.AxModel,'X (mm)'); ylabel(app.AxModel,'Y (mm)'); zlabel(app.AxModel,'Z (mm)');
-            grid(app.AxModel,'on'); view(app.AxModel,3);
-            hold(app.AxModel,'on');
-
-
-            % ===========================================================
-            % TAB 2: PROFILES
-            % ===========================================================
-            app.TabProfiles = uitab(app.TabGroup,'Title','Profiles');
-
-            app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
-            app.GLProfiles.ColumnWidth = {320,'1x'};
-            app.GLProfiles.Padding = [10 10 10 10];
-
-            % --- Left Control Panel ---
-            app.profilesLeft = uigridlayout(app.GLProfiles,[9 1]);
-            app.profilesLeft.Layout.Column = 1;
-            % Rows: Controls, Guide label, Guide(1x), Status label, Status box, Continue
-            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','fit','1x','fit','fit','fit'};
-            app.profilesLeft.Padding = [10 10 10 10];
-            app.profilesLeft.BackgroundColor = sideBg;
-
-            % -- Tolerance --
-            pnlTol = uipanel(app.profilesLeft, 'Title','Profile Sampling', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlTol.Layout.Row = 1;
-
-            gridTol = uigridlayout(pnlTol,[2 2]);
-            gridTol.ColumnWidth = {'1x',90};
-            gridTol.Padding = [10 5 10 5];
-
-            lblTol = uilabel(gridTol, 'Text','Profile Tolerance [mm]:', ...
-                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
-
-            app.ProfileTolSpinner = uispinner(gridTol, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
-                'Step',0.01, ...
-                'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ...
-                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
-            app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
-
-            app.ProfilePointCountLabel = uilabel(gridTol, ...
-                'Text','Number of Points (L/R): -- / --', ...
-                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
-            app.ProfilePointCountLabel.Layout.Row = 2;
-            app.ProfilePointCountLabel.Layout.Column = [1 2];
-
-            % -- Reset Buttons --
-            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
-            app.BtnResetProfileTol.Layout.Row = 2;
-
-            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
-            app.BtnResetProfilesView.Layout.Row = 3;
-
-            % -- Kerf --
-            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlKerf.Layout.Row = 4;
-
-            % 5 Rows: Switch, Left, Right, Points, Apply
-            gridKerf = uigridlayout(pnlKerf,[5 2]);
-            % FIX: Use Fixed Width for Labels, '1x' (Spring) for Controls
-            % This ensures the Switch has enough room to display "Independent"
-            gridKerf.ColumnWidth = {95, '1x'};
-            gridKerf.RowHeight = {'fit','fit','fit','fit','fit'};
-            gridKerf.Padding = [5 5 5 5];
-
-            % 1. Mode Switch (Coupled / Independent)
-            lblKMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol);
-            lblKMode.Layout.Row = 1; lblKMode.Layout.Column = 1;
-
-            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, ...
-                'Value', 'Coupled', ...
-                'FontColor', labelCol, ... % Ensure visibility immediately
-                'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
-            app.KerfModeSwitch.Layout.Row = 1;
-            app.KerfModeSwitch.Layout.Column = 2;
-            app.KerfModeSwitch.Tooltip = 'Uncoupling is only for tapered parts to compensate for the difference in wire speed between left and right profiles.';
-
-            % 2. Kerf Left
-            lblKerfL = uilabel(gridKerf, 'Text','Kerf Left [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
-            lblKerfL.Layout.Row = 2; lblKerfL.Layout.Column = 1;
-
-            app.KerfLeftSpinner = uispinner(gridKerf, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',app.KerfLeftValue, ...
-                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ...
-                'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
-            app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
-
-            % 3. Kerf Right
-            lblKerfR = uilabel(gridKerf, 'Text','Kerf Right [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
-            lblKerfR.Layout.Row = 3; lblKerfR.Layout.Column = 1;
-
-            app.KerfRightSpinner = uispinner(gridKerf, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',app.KerfRightValue, ...
-                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Enable', 'off', ... % Disabled by default (Coupled)
-                'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
-            app.KerfRightSpinner.Layout.Row = 3; app.KerfRightSpinner.Layout.Column = 2;
-
-            % 4. Point Count Label
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): 0 / 0', ...
-                'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize',10);
-            app.KerfPointCountLabel.Layout.Row = 4;
-            app.KerfPointCountLabel.Layout.Column = [1 2];
-
-            % 5. Apply Button
-            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
-            app.BtnApplyKerf.Layout.Row = 5;
-            app.BtnApplyKerf.Layout.Column = [1 2];
-
-            % 5. GUIDANCE (Model-tab style)
-            lbl_P_Guide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_P_Guide.Layout.Row = 5;
-
-            guideTextP = {
-                '1. Set the tolerance so the extracted profiles (red/green) conform to the sliced mesh profiles.'
-                '   - Smaller tolerance improves accuracy, but increases the number of points and the size of the G-code.'
-                ''
-                '2. Set and apply Kerf Offset'
-                ''
-                '3. Check both profiles look correct, then click Continue.'
-                ''
-                'TIP: Kerf is the width of cut made by a tool or machine.'
-                ''
-                '- For a hot wire cutter, kerf depends mainly on wire power and feed rate (and can vary with material).'
-                ''
-                '- An offset must be applied to the profile to compensate.'
-                ''
-                'Note: the offset distance applied is half the kerf value (Kerf/2).'
-                };
-
-            app.TxtProfileGuide = uitextarea(app.profilesLeft, 'Editable','off', 'Value', guideTextP, ...
-                'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtProfileGuide.Layout.Row = 6;
-
-            % 6. STATUS (Model-tab style)
-            lbl_P_Stat = uilabel(app.profilesLeft, 'Text','Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_P_Stat.Layout.Row = 7;
-
-            app.TxtProfileStatus = uitextarea(app.profilesLeft, 'Editable','off', 'Value', {''}, ...
-                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
-            app.TxtProfileStatus.Layout.Row = 8;
-
-            % -- Continue (bottom, like Model tab buttons section)
-            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
-                'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnProfilesContinue.Layout.Row = 9;
-
-            % --- Right Panel: 2D Plots ---
-            gridProfRight = uigridlayout(app.GLProfiles,[2 1]);
-            gridProfRight.Layout.Column = 2;
-            gridProfRight.RowHeight = {'1x','1x'};
-
-            app.AxLeftProfile = uiaxes(gridProfRight);
-            app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxLeftProfile,'Left Profile'); grid(app.AxLeftProfile,'on'); axis(app.AxLeftProfile,'equal');
-
-            app.AxRightProfile = uiaxes(gridProfRight);
-            app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
-            title(app.AxRightProfile,'Right Profile'); grid(app.AxRightProfile,'on'); axis(app.AxRightProfile,'equal');
+            % --- Tab Builders ---
+            app.createWelcomeTab();     % TAB 0: WELCOME & DASHBOARD
+            app.createModelTab();       % TAB 1: MODEL IMPORT & ORIENTATION
+            app.createProfilesTab();    % TAB 2: PROFILES
+            
+            %%
 
             % ===========================================================
             % TAB 3: BILLET CONFIGURATION
@@ -1508,9 +933,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridSCoord = uigridlayout(pnlSCoord, [5 5]);
             gridSCoord.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
             % FIX: Increased Row 5 height from 35 to 50 to prevent label cropping
-            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 40}; 
+            gridSCoord.RowHeight = {'fit', 'fit', 'fit', 'fit', 40};
             % FIX: Added 15px right padding so the last number on the scale doesn't clip
-            gridSCoord.Padding = [10 10 10 10]; 
+            gridSCoord.Padding = [10 10 10 10];
             gridSCoord.BackgroundColor = panelBg;
 
             lblSimHeadL = uilabel(gridSCoord, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
@@ -1558,19 +983,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             gaugeExt = uigauge(gridSCoord, 'linear');
             gaugeExt.Layout.Row = 5;
             gaugeExt.Layout.Column = [1 5];
-            
+
             % Calculate a clean scale maximum (round up to nearest 10mm)
             scaleMax = ceil((app.WireExt_Red * 1.2) / 10) * 10;
-            
+
             gaugeExt.MajorTicks = 0:5:scaleMax;
             gaugeExt.Limits = [0, scaleMax];
-            
+
             % Styling: Muted Industrial Palette
             gaugeExt.ScaleColors = [0.1 0.6 0.1; 0.8 0.5 0.0; 0.7 0.1 0.1];
             gaugeExt.ScaleColorLimits = [0 app.WireExt_Amber; ...
-                                         app.WireExt_Amber app.WireExt_Red; ...
-                                         app.WireExt_Red scaleMax];
-                                         
+                app.WireExt_Amber app.WireExt_Red; ...
+                app.WireExt_Red scaleMax];
+
             gaugeExt.FontColor = labelCol;
             gaugeExt.FontSize = 8;
             gaugeExt.BackgroundColor = panelBg;
@@ -1618,7 +1043,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
             app.BtnSimContinue.Layout.Row = 7;
-            
+
             % Set the parent grid row heights: R1-5 fit, R6 takes all space, R7 fits button
             app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
 
@@ -1766,7 +1191,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Force initial UI state sync
             app.onTaperModeChanged();
-            
+
             % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
             app.applyTheme();
         end
@@ -1782,7 +1207,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             bedMin = app.MachineBedPos;
             bedMax = app.MachineBedPos + app.MachineBedSize;
             limZ = [0, app.MachineLimitZ];
-            
+
             t = app.getTheme(); % <--- Master Palette
 
             crit = strings(0);
@@ -1823,7 +1248,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 msgLines =["Machine configuration valid.", "Ready to proceed."];
             end
         end
-        
+
         function clearPlanes(app)
             % Deletes any existing plane graphics and resets handles
             if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
@@ -2060,7 +1485,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             drawnow limitrate nocallbacks;
-        
+
         end
 
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
@@ -2861,9 +2286,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             delete(findall(app.AxModel,'Type','light'));
             camlight(app.AxModel,'headlight');
             lighting(app.AxModel,'gouraud');
-            
+
             % ONLY reset the manual lock on a brand new file import
-            app.IsBilletUserModified = false; 
+            app.IsBilletUserModified = false;
             app.autoFitView();
             drawnow;
             app.captureHomeView();
@@ -3288,7 +2713,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
                 P =[app.LeftProfilePoints; app.RightProfilePoints];
             else
-                P = app.ModelPatch.Vertices; 
+                P = app.ModelPatch.Vertices;
             end
 
             localMins = min(P,[], 1);
@@ -3369,7 +2794,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isValid = true;
             end
         end
-        
+
         function onResetBilletViewModel(app)
             app.BilletViewMode = "Model";
             app.refreshBilletPlots();
@@ -3410,7 +2835,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletShift =[0 0 0];
 
             app.IsBilletUserModified = false; % Unlock Size auto-calculation
-            
+
             % Mark downstream tabs as stale so they re-calculate if not locked
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
@@ -3452,7 +2877,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             app.IsBilletPosUserModified = false; % Unlock Position auto-calculation
-            
+
             % Mark downstream tabs as stale
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
@@ -3586,7 +3011,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function refreshBilletPlots(app)
             if isempty(app.ModelPatch)
-                return; 
+                return;
             end
 
             V     = app.ModelPatch.Vertices;
@@ -3610,7 +3035,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if span < 1, span = 100; end
 
             center = (allMin + allMax) / 2.0;
-            limitRange = span * 0.6; 
+            limitRange = span * 0.6;
 
             commonX =[ center(1)-limitRange, center(1)+limitRange ];
             commonY =[ center(2)-limitRange, center(2)+limitRange ];
@@ -3662,7 +3087,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
                             'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
                     end
-                    
+
                     d1 = 0; % Anti-markdown bug
                     [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
 
@@ -5350,26 +4775,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- 1. CALCULATE PROGRAM BOUNDS (Ignore Homing/Return) ---
             % We only look at points from the start of Lead-In to the end of Lead-Out
             progIdx = (app.SimRapidCutoffIndex):app.SimLeadOutEndIndex;
-            
+
             % Extract working paths
             workL = app.SimTowerPathL(progIdx, :);
             workR = app.SimTowerPathR(progIdx, :);
 
             % Tower L (Visual X/Y in G-code)
             app.TowerL_Bounds = [min(workL(:,2)), max(workL(:,2)), ...
-                                 min(workL(:,3)), max(workL(:,3))];
+                min(workL(:,3)), max(workL(:,3))];
             % Tower R (Visual Z/A in G-code)
             app.TowerR_Bounds = [min(workR(:,2)), max(workR(:,2)), ...
-                                 min(workR(:,3)), max(workR(:,3))];
+                min(workR(:,3)), max(workR(:,3))];
 
             % --- 2. UPDATE SIM UI LABELS (G-Code Format) ---
             if isgraphics(app.LblSimExtMin)
                 app.LblSimExtMin.Text = sprintf('Min: X=%.2f  Y=%.2f  Z=%.2f  A=%.2f', ...
                     app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
-                
+
                 app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
                     app.TowerL_Bounds(2), app.TowerL_Bounds(4), app.TowerR_Bounds(2), app.TowerR_Bounds(4));
-                
+
                 app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm (Limit:%.0fmm)', ...
                     app.MaxPathExtension, app.WireExt_Red);
             end
@@ -5476,7 +4901,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updateSimVisuals(1);
             app.onResetSimViewMachine();
         end
-        
+
         % --- Core Visualization Loop ---
         function updateSimVisuals(app, idx)
             % Efficiently updates coordinates of existing plot objects
@@ -5535,15 +4960,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Readouts
             app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); app.LblReadoutY.Text = sprintf('%.2f', pTL(3));
             app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); app.LblReadoutA.Text = sprintf('%.2f', pTR(3));
-        
+
             % Calculate extension: dL = sqrt(Span^2 + dy^2 + dz^2) - Span
             dy = pTL(2) - pTR(2);
             dz = pTL(3) - pTR(3);
             ext = hypot(app.MachineSpanX, hypot(dy, dz)) - app.MachineSpanX;
-            
+
             % Update Gauge
             app.SimGaugeExt.Value = min(ext, app.SimGaugeExt.Limits(2));
-        
+
         end
 
         % --- Interaction Handlers ---
@@ -5817,7 +5242,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 2. DETERMINE STATUS STATE & COLOR ---
             msg = strings(0);
-            
+
             % Default to Success (Green) if G-code exists, else Stale (Red)
             if isempty(app.PP_GCodeLines)
                 panelBg = t.statErrBg;
@@ -5830,7 +5255,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- 3. APPLY SAFETY OVERRIDES (Priority: Red > Amber) ---
-            
+
             % Check A: Wire Extension (Mechanical Limit)
             isExtRed   = app.MaxPathExtension > app.WireExt_Red;
             isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
@@ -6094,7 +5519,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 lines(end+1) = s;
-                
+
                 if nargin >= 6
                     % Only increment index and record position if we have movement
                     pathIdx = pathIdx + 1;
@@ -6104,7 +5529,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
                     app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
                 end
-                
+
                 % Map this line of G-code to the last known path position
                 map(end+1) = max(1, pathIdx);
             end
@@ -6248,7 +5673,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 1. Extract values from pre-calculated TowerL_Bounds [minY, maxY, minZ, maxZ]
             minX_v = app.TowerL_Bounds(1); maxX_v = app.TowerL_Bounds(2);
             minY_v = app.TowerL_Bounds(3); maxY_v = app.TowerL_Bounds(4);
-            
+
             minZ_v = app.TowerR_Bounds(1); maxZ_v = app.TowerR_Bounds(2);
             minA_v = app.TowerR_Bounds(3); maxA_v = app.TowerR_Bounds(4);
 
@@ -6639,7 +6064,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if ~isempty(app.BilletCenterOffsetEdits) && any(obj == app.BilletCenterOffsetEdits)
                         isShiftField = true;
                     end
-                    
+
                     % --- Special Case: Plane Offset Spinners ---
                     if obj == app.NumLeftOffset
                         obj.FontColor = t.planeRedTxt;
@@ -6765,5 +6190,642 @@ classdef HotWireSTEPApp_v6_2 < handle
                 cols.TextInactive  = [0 0 0];
             end
         end
+    end
+
+    methods (Access = private)
+        % ===========================================================
+        % PRIVATE UI BUILDERS
+        % ===========================================================
+        % The functions in this block are called exclusively by buildUI().
+        % They encapsulate the layout logic for each tab to keep the code
+        % modular, prevent variable shadowing, and make the UI easier to edit.
+
+        % TAB 0 (WELCOME)
+        function createWelcomeTab(app)
+            % Purpose: Builds the Welcome & Dashboard tab UI components.
+            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
+            % Dependencies: app.getTheme()
+
+            % 1. Fetch Theme Colors locally for this function
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+            inputBg  = t.inputBg;
+            inputTxt = t.inputTxt;
+
+            % 2. Create Tab Container
+            app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome');
+
+            app.GLWelcome = uigridlayout(app.TabWelcome, [ 1 2 ]);
+            app.GLWelcome.ColumnWidth = {320, '1x'};
+            app.GLWelcome.Padding =[ 10 10 10 10 ];
+            app.GLWelcome.ColumnSpacing = 10;
+
+            %% --- LEFT PANEL: UI Anatomy Guide ---
+            pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
+            pnlAnatomy.Layout.Column = 1;
+
+            % 5 Rows to accommodate the theme switch
+            glAnat = uigridlayout(pnlAnatomy,[ 5 1 ]);
+            glAnat.RowHeight = {'fit', '1x', '2x', 'fit', 'fit'};
+            glAnat.Padding =[ 10 10 10 10 ];
+            glAnat.BackgroundColor = sideBg;
+
+            uilabel(glAnat, 'Text', 'Understanding the Interface', 'FontWeight', 'bold', 'FontSize', 16, 'FontColor', labelCol);
+
+            uiTxt = {
+                'This application is designed to be read from Top to Bottom, and from Left to Right.';
+                '';
+                'Each tab has a left panel like this one with inputs, guidance, and status blocks,'
+                'and large right pnael with interactive plots for visualisation and user input';
+                '';
+                'Move through the tabs at the top of the window one by one, left to right'
+                '';
+                'You need to read and action the required setup instructions in the right panel of this tab before first use.'
+                };
+            uitextarea(glAnat, 'Value', uiTxt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            % The "Mock UI" Explainer Box
+            pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
+
+            glMock = uigridlayout(pnlMock,[ 8 1 ]);
+            glMock.RowHeight = {'fit','fit', 'fit','fit', 'fit','fit', 'fit','fit'};
+            glMock.RowSpacing = 2; % Tight gap between labels and text
+            glMock.BackgroundColor = panelBg;
+
+            lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
+            lbl1.Layout.Row = 1;
+            txt1 = uitextarea(glMock, 'Value', {'For each tab, the top of the left panel will contain buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt1.Layout.Row = 2;
+
+            lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
+            lbl2.Layout.Row = 3;
+            txt2 = uitextarea(glMock, 'Value', {'Below the user inputs, there will be a guidance block, with basic step by step instructions on what to do and check for that tab.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt2.Layout.Row = 4;
+
+            lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
+            lbl3.Layout.Row = 5;
+            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).'};
+
+            % Use theme-engine colors for the example box
+            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor', t.statPassBg,'FontColor', t.statPassTxt);
+            txt3.Layout.Row = 6;
+
+            lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
+            lbl4.Layout.Row = 7;
+            txt4 = uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
+            txt4.Layout.Row = 8;
+
+            % --- Theme Toggle ---
+            glTheme = uigridlayout(glAnat, [ 1 2 ]);
+            glTheme.RowHeight = {'fit'};
+            glTheme.ColumnWidth = {'fit', 'fit'};
+            glTheme.Padding =[ 0 0 0 0 ];
+            glTheme.BackgroundColor = sideBg;
+            glTheme.Layout.Row = 4;
+
+            lblTheme = uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
+            lblTheme.Layout.Column = 1;
+
+            % Read the saved preference to set the switch's initial state
+            if ispref('HotWireSTEPApp', 'Theme')
+                currentTheme = getpref('HotWireSTEPApp', 'Theme');
+            else
+                currentTheme = 'Dark';
+            end
+
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme);
+            app.ThemeSwitch.FontColor = labelCol;
+            app.ThemeSwitch.ValueChangedFcn = @(src,evt)app.onThemeToggleChanged(src);
+            app.ThemeSwitch.Layout.Column = 2;
+
+            % Continue Button
+            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            btnWelcomeCont.Layout.Row = 5;
+
+            %% --- RIGHT PANEL: Main Content & Setup ---
+            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
+            rightScroll.Layout.Column = 2;
+
+            glRight = uigridlayout(rightScroll,[ 4 1 ]);
+
+            % 120px Header, 1.2x About, 1x FreeCAD, 'fit' Footer
+            glRight.RowHeight = {120, '1.2x', '1x', 'fit'};
+            glRight.BackgroundColor = panelBg;
+            glRight.Padding =[ 20 0 20 0 ];
+            glRight.RowSpacing = 15;
+
+            % --- Header Area ---
+            glHead = uigridlayout(glRight,[ 1 2 ]);
+            glHead.ColumnWidth = {'1x', 280};
+            glHead.RowHeight = {'1x'};
+            glHead.Padding =[ 0 0 0 0 ];
+            glHead.BackgroundColor = panelBg;
+
+            isDark = app.UIFigure.Color(1) < 0.5;
+            if isDark
+                logoName = 'Science_engineering_WHITE.png';
+            else
+                logoName = 'Science_engineering_BLACK.png';
+            end
+
+            appDir = fileparts(mfilename('fullpath'));
+            pathOption1 = fullfile(appDir, logoName);
+            pathOption2 = fullfile(appDir, 'src', logoName);
+
+            lblTitle = uilabel(glHead, 'Text', 'CNC Hot Wire G-Code Generator', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
+            lblTitle.Layout.Row = 1; lblTitle.Layout.Column = 1;
+
+            if isfile(pathOption1)
+                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption1);
+            elseif isfile(pathOption2)
+                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption2);
+            else
+                app.ImgWelcomeLogo = uiimage(glHead); % Blank placeholder
+            end
+            app.ImgWelcomeLogo.Layout.Row = 1; app.ImgWelcomeLogo.Layout.Column = 2;
+
+            % --- About Section ---
+            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlAbout.Layout.Row = 2;
+
+            glAbout = uigridlayout(pnlAbout,[ 1 1 ]);
+            glAbout.Padding =[ 5 5 5 5 ];
+            glAbout.RowHeight = {'1x'};
+            glAbout.BackgroundColor = sideBg;
+
+            txtAbout = {
+                'Welcome to the Rapid Prototyping Workshops 4-axis CNC Hot Wire Toolpath and G-code Generator.';
+                'This software provides a complete, end-to-end workflow to take you form CAD model to G-code for CNC hot wire foam cutting';
+                'Most steps offer auto or manual configuration';
+                '';
+                'Workflow:';
+                '- Import and orient 3D CAD models (STEP/STL).';
+                '- Slice models, extract and sync 2D profiles.';
+                '- Apply kerf compensation to preserve dimensional accuracy.';
+                '- Size and position your model and billet.';
+                '- Create collision-free lead-in and exit paths.';
+                '- Visually simulate the 4-axis kinematics to verify the cut.';
+                '- Post-process and export Mach4-compatible G-code.'
+                };
+            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
+
+            % --- FreeCAD Setup Section ---
+            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlFC.Layout.Row = 3;
+
+            glFC = uigridlayout(pnlFC, [ 1 2 ]);
+            glFC.ColumnWidth = {'1x', 300};
+            glFC.RowHeight = {'1x'};
+            glFC.Padding =[ 5 5 5 5 ];
+            glFC.BackgroundColor = sideBg;
+
+            fcInstruct = {
+                'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files.';
+                'You only need to set this up once on your computer!';
+                '';
+                '1. Click "Download FreeCAD" to get the standard Windows Installer.';
+                '';
+                '2. Run the installer and install it to the default directory.';
+                '';
+                '3. Click "Browse..." and locate the file "freecadcmd.exe".';
+                '   (Typically: C:\Program Files\FreeCAD 1.0\bin\)'
+                };
+            txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            txtFC.Layout.Row = 1; txtFC.Layout.Column = 1;
+
+            glFCRight = uigridlayout(glFC,[ 3 1 ]);
+            glFCRight.RowHeight = {'fit', 'fit', 'fit'};
+            glFCRight.Padding =[ 0 0 0 0 ];
+            glFCRight.BackgroundColor = sideBg;
+            glFCRight.Layout.Row = 1; glFCRight.Layout.Column = 2;
+
+            btnDownloadFC = uibutton(glFCRight, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[ 0.2 0.5 0.8 ], 'FontColor', [ 1 1 1 ], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
+            btnDownloadFC.Layout.Row = 1; btnDownloadFC.Layout.Column = 1;
+
+            lblFC = uilabel(glFCRight, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
+            lblFC.Layout.Row = 2; lblFC.Layout.Column = 1;
+
+            if ispref('HotWireSTEPApp', 'FreeCADPath')
+                app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
+            else
+                app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
+            end
+
+            glFCBrowse = uigridlayout(glFCRight,[ 2 1 ]);
+            glFCBrowse.ColumnWidth = {'1x'};
+            glFCBrowse.RowHeight = {'fit','fit'};
+            glFCBrowse.Padding =[ 0 0 0 0 ];
+            glFCBrowse.BackgroundColor = sideBg;
+            glFCBrowse.Layout.Row = 3; glFCBrowse.Layout.Column = 1;
+
+            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe);
+            app.FieldFreeCADPath.BackgroundColor = inputBg;
+            app.FieldFreeCADPath.FontColor = inputTxt;
+            app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
+            app.FieldFreeCADPath.Layout.Row = 1;
+
+            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
+            btnBrowseFC.Layout.Row = 2; btnBrowseFC.Layout.Column = 1;
+
+            % --- Footer Panels (Contact, License, Source) ---
+            glFooter = uigridlayout(glRight, [1 3]);
+            glFooter.Layout.Row = 4;
+            glFooter.ColumnWidth = {'1x', '1x', 305};
+            glFooter.RowHeight = {80};
+            glFooter.Padding =[0 0 0 0];
+            glFooter.ColumnSpacing = 5;
+            glFooter.BackgroundColor = panelBg;
+
+            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glContact = uigridlayout(pnlContact,[1 1]);
+            glContact.RowHeight = {'fit'};
+            glContact.Padding =[0 0 0 0];
+            glContact.BackgroundColor = sideBg;
+            txtAuthor = {'Author: Matthew Richardson'; 'Email:  matthew.richardson@bristol.ac.uk'};
+            uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glLicense = uigridlayout(pnlLicense,[1 1]);
+            glLicense.RowHeight = {'fit'};
+            glLicense.Padding =[0 0 0 0];
+            glLicense.BackgroundColor = sideBg;
+            txtLicense = {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'};
+            uitextarea(glLicense, 'Value', txtLicense, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            glSource = uigridlayout(pnlSource,[1 1]);
+            glSource.RowHeight = {'fit'};
+            glSource.Padding =[5 5 5 5];
+            glSource.BackgroundColor = sideBg;
+            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+        end
+
+        % TAB 1 (MODEL)
+        function createModelTab(app)
+            % Purpose: Builds the Model Import & Orientation tab UI components.
+            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
+            % Dependencies: app.getTheme()
+
+            % Fetch Theme Colors locally for this function
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+
+            app.TabModel = uitab(app.TabGroup,'Title','Model');
+            app.GLModel = uigridlayout(app.TabModel,[1 2]);
+            app.GLModel.ColumnWidth   = {320,'1x'};
+            app.GLModel.Padding       =[10 10 10 10];
+            app.GLModel.ColumnSpacing = 10;
+
+            %% --- LEFT CONTROL PANEL ---
+            app.GLLeft = uigridlayout(app.GLModel,[16 1]);
+            app.GLLeft.Layout.Column = 1;
+            app.GLLeft.BackgroundColor = sideBg;
+
+            % Rows: Controls, Label, Guide(1x), Label, Status, Buttons
+            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.GLLeft.Padding = [10 10 10 10];
+
+            %% --- FILE IMPORT ---
+            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', ...
+                'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
+                'ButtonPushedFcn',@(~,~)app.onImportSTEP());
+            app.BtnImportSTEP.Layout.Row = 1;
+
+            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', ...
+                'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
+                'ButtonPushedFcn',@(~,~)app.onImportSTL());
+            app.BtnImportSTL.Layout.Row = 2;
+
+            app.FileLabel = uilabel(app.GLLeft, 'Text','Current File: ---', 'FontWeight','bold', 'FontColor',labelCol);
+            app.FileLabel.Layout.Row = 3;
+
+            %% --- TAPER MODE ---
+            pnl_M_Cut = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
+            pnl_M_Cut.Layout.Row = 5;
+
+            grid_M_Cut = uigridlayout(pnl_M_Cut,[1 3]);
+            grid_M_Cut.ColumnWidth = {'1x','fit','1x'};
+            grid_M_Cut.Padding=[10 0 10 0];
+            grid_M_Cut.BackgroundColor = sideBg;
+
+            lbl_M_Sp1 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp1.Layout.Column=1;
+
+            app.TaperToggle = uiswitch(grid_M_Cut,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
+                'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
+                'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
+            app.TaperToggle.Layout.Column = 2;
+
+            lbl_M_Sp2 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp2.Layout.Column=3;
+
+            %% --- ORIENTATION ---
+            pnl_M_Rot = uipanel(app.GLLeft, 'Title','Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'ForegroundColor',labelCol);
+            pnl_M_Rot.Layout.Row = 7;
+
+            % Outer grid to force centering
+            outer_M_Rot = uigridlayout(pnl_M_Rot,[1 3]);
+            outer_M_Rot.ColumnWidth={'1x','fit','1x'};
+            outer_M_Rot.Padding=[5 5 5 5];
+            outer_M_Rot.BackgroundColor=panelBg;
+
+            % Inner controls
+            app.RotGrid = uigridlayout(outer_M_Rot,[3 4]);
+            app.RotGrid.Layout.Column = 2; % Center column
+            app.RotGrid.ColumnWidth={'fit','fit',70,'fit'};
+            app.RotGrid.RowHeight={'fit','fit','fit'};
+            app.RotGrid.Padding=[0 0 0 0];
+            app.RotGrid.BackgroundColor=panelBg;
+
+            axesLabels = {'X','Y','Z'};
+            app.RotEdit = gobjects(1,3);
+            for i = 1:3
+                lbl_M_Rot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lbl_M_Rot.Layout.Row=i;
+
+                btn_M_Neg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
+                btn_M_Neg.Layout.Row=i;
+
+                app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
+                    'Tooltip',['Rotate model around the ' axesLabels{i} ' axis.'], ...
+                    'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
+                app.RotEdit(i).Layout.Row=i;
+
+                btn_M_Pos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
+                btn_M_Pos.Layout.Row=i;
+            end
+
+            % Reset Controls
+            btnMResO = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            btnMResO.Layout.Row = 8;
+
+            btnMResP = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
+            btnMResP.Layout.Row = 9;
+
+            %% --- PLANE OFFSETS ---
+            pnl_M_Off = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
+            pnl_M_Off.Layout.Row = 11;
+
+            grid_M_Off = uigridlayout(pnl_M_Off,[3 2]);
+            grid_M_Off.ColumnWidth={'1x',90};
+            grid_M_Off.RowHeight={'fit','fit','fit'};
+
+            lbl_M_OffL = uilabel(grid_M_Off,'Text','Left Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_OffL.Layout.Row=1; lbl_M_OffL.Layout.Column=1;
+
+            app.NumLeftOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'ValueDisplayFormat','%.1f',...
+                'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
+                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
+
+            lbl_M_OffR = uilabel(grid_M_Off,'Text','Right Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_OffR.Layout.Row=2; lbl_M_OffR.Layout.Column=1;
+
+            app.NumRightOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'ValueDisplayFormat','%.1f',...
+                'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
+                'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
+            app.NumRightOffset.Layout.Row=2; app.NumRightOffset.Layout.Column=2;
+
+            btn_M_ResPlane = uibutton(grid_M_Off, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
+            btn_M_ResPlane.Layout.Row=3; btn_M_ResPlane.Layout.Column=[1 2];
+
+            %% --- GUIDANCE ---
+            lbl_M_Guide = uilabel(app.GLLeft, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_Guide.Layout.Row = 12;
+
+            guideText = {
+                '1. Import your model by clicking Import STEP or STL';
+                '';
+                '2. Select straight for prismatic, or tapered for independant profiles.';
+                '';
+                '3. Rotate Model: Align cut profile to Y-Z plane.';
+                '';
+                '4. (Optional) Move the left/right planes if you want to cut a section of your model';
+                '';
+                '5. Click generate profiles, check the profiles look correct, then click continue';
+                '';
+                'TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
+                'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
+                'Rotate the model so this point is toward the front of the machine (Ymin)';
+                };
+            app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
+                'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtModelGuide.Layout.Row = 13;
+
+            %% --- STATUS ---
+            lbl_M_Stat = uilabel(app.GLLeft, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
+            lbl_M_Stat.Layout.Row = 14;
+
+            app.TxtModelStatus = uitextarea(app.GLLeft, 'Editable','off', 'Value', {'No model loaded.'}, ...
+                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
+            app.TxtModelStatus.Layout.Row = 15;
+
+            %% --- ACTION BUTTONS ---
+            pnl_M_Btn = uipanel(app.GLLeft, 'BackgroundColor',sideBg, 'BorderType','none');
+            pnl_M_Btn.Layout.Row = 16;
+
+            grid_M_Btn = uigridlayout(pnl_M_Btn,[1 2]);
+            grid_M_Btn.Padding=[0 0 0 0];
+            grid_M_Btn.BackgroundColor=sideBg;
+
+            app.BtnGenerateProfiles = uibutton(grid_M_Btn, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+                'Tooltip', 'Slice model at the defined planes.', ...
+                'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
+
+            app.BtnContinue = uibutton(grid_M_Btn, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
+                'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
+
+            %% --- RIGHT PANEL: 3D MODEL AXES ---
+            app.AxModel = uiaxes(app.GLModel);
+            app.AxModel.Layout.Column = 2;
+            app.AxModel.BackgroundColor =[0.11 0.11 0.11];
+
+            xlabel(app.AxModel,'X (mm)');
+            ylabel(app.AxModel,'Y (mm)');
+            zlabel(app.AxModel,'Z (mm)');
+
+            grid(app.AxModel,'on');
+            view(app.AxModel,3);
+            hold(app.AxModel,'on');
+        end
+
+        % TAB 2 (PROFILES)
+        function createProfilesTab(app)
+            % Purpose: Builds the Profiles extraction and Kerf tab UI components.
+            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
+            % Dependencies: app.getTheme()
+
+            % Fetch Theme Colors locally
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+
+            app.TabProfiles = uitab(app.TabGroup,'Title','Profiles');
+
+            app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
+            app.GLProfiles.ColumnWidth = {320,'1x'};
+            app.GLProfiles.Padding = [10 10 10 10];
+
+            %% --- LEFT CONTROL PANEL ---
+            app.profilesLeft = uigridlayout(app.GLProfiles,[9 1]);
+            app.profilesLeft.Layout.Column = 1;
+
+            % Rows: Controls, Guide label, Guide(1x), Status label, Status box, Continue
+            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.profilesLeft.Padding = [10 10 10 10];
+            app.profilesLeft.BackgroundColor = sideBg;
+
+            %% --- PROFILE SAMPLING ---
+            pnlSampling = uipanel(app.profilesLeft, 'Title','Profile Sampling', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSampling.Layout.Row = 1;
+
+            gridSampling = uigridlayout(pnlSampling,[2 2]);
+            gridSampling.ColumnWidth = {'1x',90};
+            gridSampling.Padding = [10 5 10 5];
+
+            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', ...
+                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+
+            app.ProfileTolSpinner = uispinner(gridSampling, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
+                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
+                'Step',0.01, ...
+                'ValueDisplayFormat','%.2f', ...
+                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ...
+                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
+
+            app.ProfilePointCountLabel = uilabel(gridSampling, ...
+                'Text','Number of Points (L/R): -- / --', ...
+                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
+            app.ProfilePointCountLabel.Layout.Row = 2;
+            app.ProfilePointCountLabel.Layout.Column = [1 2];
+
+            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol.Layout.Row = 2;
+
+            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
+            app.BtnResetProfilesView.Layout.Row = 3;
+
+            %% --- KERF COMPENSATION ---
+            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', ...
+                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlKerf.Layout.Row = 4;
+
+            gridKerf = uigridlayout(pnlKerf,[5 2]);
+            gridKerf.ColumnWidth = {95, '1x'};
+            gridKerf.RowHeight = {'fit','fit','fit','fit','fit'};
+            gridKerf.Padding = [5 5 5 5];
+
+            lblKerfMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfMode.Layout.Row = 1; lblKerfMode.Layout.Column = 1;
+
+            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', ...
+                'Items', {'Coupled', 'Independent'}, ...
+                'Value', 'Coupled', ...
+                'FontColor', labelCol, ...
+                'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
+            app.KerfModeSwitch.Layout.Row = 1;
+            app.KerfModeSwitch.Layout.Column = 2;
+            app.KerfModeSwitch.Tooltip = 'Uncoupling is only for tapered parts to compensate for the difference in wire speed between left and right profiles.';
+
+            lblKerfLeft = uilabel(gridKerf, 'Text','Kerf Left[mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfLeft.Layout.Row = 2; lblKerfLeft.Layout.Column = 1;
+
+            app.KerfLeftSpinner = uispinner(gridKerf, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',app.KerfLeftValue, ...
+                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
+                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ...
+                'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
+            app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
+
+            lblKerfRight = uilabel(gridKerf, 'Text','Kerf Right [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfRight.Layout.Row = 3; lblKerfRight.Layout.Column = 1;
+
+            app.KerfRightSpinner = uispinner(gridKerf, ...
+                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
+                'Value',app.KerfRightValue, ...
+                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
+                'Enable', 'off', ... % Disabled by default (Coupled)
+                'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
+            app.KerfRightSpinner.Layout.Row = 3; app.KerfRightSpinner.Layout.Column = 2;
+
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): 0 / 0', ...
+                'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize',10);
+            app.KerfPointCountLabel.Layout.Row = 4;
+            app.KerfPointCountLabel.Layout.Column = [1 2];
+
+            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
+                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf.Layout.Row = 5;
+            app.BtnApplyKerf.Layout.Column = [1 2];
+
+            %% --- GUIDANCE ---
+            lblGuide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
+            lblGuide.Layout.Row = 5;
+
+            guideText = {
+                '1. Set the tolerance so the extracted profiles (red/green) conform to the sliced mesh profiles.'
+                '   - Smaller tolerance improves accuracy, but increases the number of points and the size of the G-code.'
+                ''
+                '2. Set and apply Kerf Offset'
+                ''
+                '3. Check both profiles look correct, then click Continue.'
+                ''
+                'TIP: Kerf is the width of cut made by a tool or machine.'
+                ''
+                '- For a hot wire cutter, kerf depends mainly on wire power and feed rate (and can vary with material).'
+                ''
+                '- An offset must be applied to the profile to compensate.'
+                ''
+                'Note: the offset distance applied is half the kerf value (Kerf/2).'
+                };
+
+            app.TxtProfileGuide = uitextarea(app.profilesLeft, 'Editable','off', 'Value', guideText, ...
+                'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtProfileGuide.Layout.Row = 6;
+
+            %% --- STATUS ---
+            lblStatus = uilabel(app.profilesLeft, 'Text','Status', 'FontWeight','bold', 'FontColor',labelCol);
+            lblStatus.Layout.Row = 7;
+
+            app.TxtProfileStatus = uitextarea(app.profilesLeft, 'Editable','off', 'Value', {''}, ...
+                'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
+            app.TxtProfileStatus.Layout.Row = 8;
+
+            %% --- ACTION BUTTONS ---
+            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
+                'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
+                'ButtonPushedFcn',@(~,~)app.onContinue());
+            app.BtnProfilesContinue.Layout.Row = 9;
+
+            %% --- RIGHT PANEL: 2D PLOTS ---
+            gridRight = uigridlayout(app.GLProfiles,[2 1]);
+            gridRight.Layout.Column = 2;
+            gridRight.RowHeight = {'1x','1x'};
+
+            app.AxLeftProfile = uiaxes(gridRight);
+            app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxLeftProfile,'Left Profile');
+            grid(app.AxLeftProfile,'on');
+            axis(app.AxLeftProfile,'equal');
+
+            app.AxRightProfile = uiaxes(gridRight);
+            app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
+            title(app.AxRightProfile,'Right Profile');
+            grid(app.AxRightProfile,'on');
+            axis(app.AxRightProfile,'equal');
+        end
+
     end
 end
