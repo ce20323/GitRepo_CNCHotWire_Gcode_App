@@ -407,14 +407,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.createCuttingTab();  % TAB 5: CUTTING STRATEGY
             app.createSimulationTab(); % TAB 6: SIMULATION
             app.createSimulationTab(); % TAB 6: SIMULATION
+            app.createPostProcessTab(); % TAB 7: POST-PROCESS
 
             %% --- Set Initial State and Theme ---
-
-            % Force initial UI state sync
-            app.onTaperModeChanged();
-
-            % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
-            app.applyTheme();
+            
+            app.onTaperModeChanged();   % Force initial UI state sync
+            
+            app.applyTheme();           % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
         end
 
         % ===========================================================
@@ -895,21 +894,21 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             if ~isTaper
                 % Straight Mode: Must be Coupled Kerf and NO Dynamic Feed
-                if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
+                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Value = 'Coupled';
                     app.onKerfModeChanged(app.KerfModeSwitch);
                     app.KerfModeSwitch.Enable = 'off';
                 end
-                if isprop(app, 'ChkDynamicFeed') && isgraphics(app.ChkDynamicFeed)
+                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
                     app.ChkDynamicFeed.Value = false;
                     app.ChkDynamicFeed.Enable = 'off';
                 end
             else
                 % Taper Mode: Allow Independent choice
-                if isprop(app, 'KerfModeSwitch') && isgraphics(app.KerfModeSwitch)
+                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Enable = 'on';
                 end
-                if isprop(app, 'ChkDynamicFeed') && isgraphics(app.ChkDynamicFeed)
+                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
                     app.ChkDynamicFeed.Enable = 'on';
                 end
             end
@@ -933,14 +932,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             targetTab = evt.NewValue;
             oldTab    = evt.OldValue;
 
-            isWelcome  = (targetTab == app.TabWelcome);
-            isModel    = (targetTab == app.TabModel);
-            isProfiles = (targetTab == app.TabProfiles);
-            isBillet   = (targetTab == app.TabBillet);
-            isMachine  = (targetTab == app.TabMachine);
-            isCutting  = (targetTab == app.TabCutting);
-            isSim      = (targetTab == app.TabSimulation);
-            isPost     = (targetTab == app.TabPostProcess);
+            % Safely check tab equivalence (handles uninitialized tabs during dev/testing)
+            isWelcome  = isequal(targetTab, app.TabWelcome);
+            isModel    = isequal(targetTab, app.TabModel);
+            isProfiles = isequal(targetTab, app.TabProfiles);
+            isBillet   = isequal(targetTab, app.TabBillet);
+            isMachine  = isequal(targetTab, app.TabMachine);
+            isCutting  = isequal(targetTab, app.TabCutting);
+            isSim      = isequal(targetTab, app.TabSimulation);
+            isPost     = isequal(targetTab, app.TabPostProcess);
 
             needsProfiles = ~isModel && ~isWelcome;
             needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
@@ -1189,11 +1189,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
-            elseif targetTab == app.TabSimulation
-                app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);
+            elseif isequal(targetTab, app.TabSimulation)
+                % Safely fetch the feed rate if the Post-Process tab exists
+                if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
+                    app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);
+                end
                 app.generateSimulationData();
 
-            elseif targetTab == app.TabPostProcess
+            elseif isequal(targetTab, app.TabPostProcess)
                 app.updatePostProcessUI();
                 app.generateSimulationData();
                 app.onPostProcess();
@@ -1876,32 +1879,39 @@ classdef HotWireSTEPApp_v6_2 < handle
             currTab = app.TabGroup.SelectedTab;
 
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                % FIX: Make sure the Welcome tab button correctly hands off to the Gatekeeper!
-                if currTab == app.TabWelcome
+                if isequal(currTab, app.TabWelcome)
                     nextTab = app.TabModel;
-                    app.TabGroup.SelectedTab = nextTab;
-                    evt = struct('OldValue', currTab, 'NewValue', nextTab);
-                    app.onTabChanged(app.TabGroup, evt);
+                    if ~isempty(nextTab) && isgraphics(nextTab)
+                        app.TabGroup.SelectedTab = nextTab;
+                        evt = struct('OldValue', currTab, 'NewValue', nextTab);
+                        app.onTabChanged(app.TabGroup, evt);
+                    end
                 end
                 return;
             end
 
-            % 1. Determine the next tab
-            if currTab == app.TabWelcome
+            % 1. Determine the next tab safely
+            if isequal(currTab, app.TabWelcome)
                 nextTab = app.TabModel;
-            elseif currTab == app.TabModel
+            elseif isequal(currTab, app.TabModel)
                 nextTab = app.TabProfiles;
-            elseif currTab == app.TabProfiles
+            elseif isequal(currTab, app.TabProfiles)
                 nextTab = app.TabBillet;
-            elseif currTab == app.TabBillet
+            elseif isequal(currTab, app.TabBillet)
                 nextTab = app.TabMachine;
-            elseif currTab == app.TabMachine
+            elseif isequal(currTab, app.TabMachine)
                 nextTab = app.TabCutting;
-            elseif currTab == app.TabCutting
+            elseif isequal(currTab, app.TabCutting)
                 nextTab = app.TabSimulation;
-            elseif currTab == app.TabSimulation
+            elseif isequal(currTab, app.TabSimulation)
                 nextTab = app.TabPostProcess;
             else
+                return;
+            end
+
+            % Safety catch if the tab hasn't been built
+            if isempty(nextTab) || ~isgraphics(nextTab)
+                uialert(app.UIFigure, 'The next tab has not been built yet.', 'Navigation Error');
                 return;
             end
 
@@ -1912,6 +1922,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             evt = struct('OldValue', currTab, 'NewValue', nextTab);
             app.onTabChanged(app.TabGroup, evt);
         end
+
         % ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================
@@ -4222,14 +4233,27 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onSimTimerTick(app)
             % --- REAL-TIME SPEED SYNC ---
-            feed_mm_min = app.SpinFeedRate.Value;
+            % Safely fetch feed rate (fallback to default if Post tab isn't built)
+            if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
+                feed_mm_min = app.SpinFeedRate.Value;
+            else
+                feed_mm_min = HotWireSTEPApp_v6_2.DefaultFeedRate;
+            end
+
             feed_mm_sec = feed_mm_min / 60.0;
 
-            % FIX: Use the global Frame Rate constant to calculate frame distance
+            % Use the global Frame Rate constant to calculate frame distance
             periodSec = 1.0 / HotWireSTEPApp_v6_2.SimFramesPerSecond;
             baseStepDist = feed_mm_sec * periodSec;
 
-            step = baseStepDist * app.SimSpeedSpinner.Value;
+            % Safely fetch speed multiplier
+            if ~isempty(app.SimSpeedSpinner) && isgraphics(app.SimSpeedSpinner)
+                speedMult = app.SimSpeedSpinner.Value;
+            else
+                speedMult = 40.0;
+            end
+
+            step = baseStepDist * speedMult;
 
             app.SimPlayDist = app.SimPlayDist + step;
 
@@ -4963,7 +4987,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onKeyPress(app, ~, event)
             % Only handle keys when Post tab is active
-            if isempty(app.TabGroup) || app.TabGroup.SelectedTab ~= app.TabPostProcess
+            if isempty(app.TabGroup) || ~isequal(app.TabGroup.SelectedTab, app.TabPostProcess)
                 return;
             end
             if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
@@ -4980,7 +5004,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 case 'pageup'
                     app.stepPostLine(-10);
             end
-
         end
 
         function onSaveGCode(app)
@@ -5702,12 +5725,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLModel.ColumnSpacing = 10;
 
             %% --- LEFT CONTROL PANEL ---
-            app.GLLeft = uigridlayout(app.GLModel,[16 1]);
+            app.GLLeft = uigridlayout(app.GLModel,[11 1]);
             app.GLLeft.Layout.Column = 1;
             app.GLLeft.BackgroundColor = sideBg;
 
-            % Rows: Controls, Label, Guide(1x), Label, Status, Buttons
-            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            % Rows: 1-8 Controls, 9 Guidance (1x), 10 Status (70px), 11 Buttons
+            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','1x',70,'fit'};
             app.GLLeft.Padding = [10 10 10 10];
 
             %% --- FILE IMPORT ---
@@ -5726,7 +5749,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- TAPER MODE ---
             pnl_M_Cut = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
-            pnl_M_Cut.Layout.Row = 5;
+            pnl_M_Cut.Layout.Row = 4;
 
             grid_M_Cut = uigridlayout(pnl_M_Cut,[1 3]);
             grid_M_Cut.ColumnWidth = {'1x','fit','1x'};
@@ -5744,17 +5767,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- ORIENTATION ---
             pnl_M_Rot = uipanel(app.GLLeft, 'Title','Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'ForegroundColor',labelCol);
-            pnl_M_Rot.Layout.Row = 7;
+            pnl_M_Rot.Layout.Row = 5;
 
-            % Outer grid to force centering
             outer_M_Rot = uigridlayout(pnl_M_Rot,[1 3]);
             outer_M_Rot.ColumnWidth={'1x','fit','1x'};
             outer_M_Rot.Padding=[5 5 5 5];
             outer_M_Rot.BackgroundColor=panelBg;
 
-            % Inner controls
             app.RotGrid = uigridlayout(outer_M_Rot,[3 4]);
-            app.RotGrid.Layout.Column = 2; % Center column
+            app.RotGrid.Layout.Column = 2;
             app.RotGrid.ColumnWidth={'fit','fit',70,'fit'};
             app.RotGrid.RowHeight={'fit','fit','fit'};
             app.RotGrid.Padding=[0 0 0 0];
@@ -5778,16 +5799,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 btn_M_Pos.Layout.Row=i;
             end
 
-            % Reset Controls
             btnMResO = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            btnMResO.Layout.Row = 8;
+            btnMResO.Layout.Row = 6;
 
             btnMResP = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
-            btnMResP.Layout.Row = 9;
+            btnMResP.Layout.Row = 7;
 
             %% --- PLANE OFFSETS ---
             pnl_M_Off = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
-            pnl_M_Off.Layout.Row = 11;
+            pnl_M_Off.Layout.Row = 8;
 
             grid_M_Off = uigridlayout(pnl_M_Off,[3 2]);
             grid_M_Off.ColumnWidth={'1x',90};
@@ -5815,8 +5835,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             btn_M_ResPlane.Layout.Row=3; btn_M_ResPlane.Layout.Column=[1 2];
 
             %% --- GUIDANCE ---
-            lbl_M_Guide = uilabel(app.GLLeft, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_Guide.Layout.Row = 12;
+            pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 9;
+            glGuide = uigridlayout(pnlGuide,[1 1]);
+            glGuide.Padding = [2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guideText = {
                 '1. Import your model by clicking Import STEP or STL';
@@ -5833,21 +5856,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
                 'Rotate the model so this point is toward the front of the machine (Ymin)';
                 };
-            app.TxtModelGuide = uitextarea(app.GLLeft, 'Editable','off', 'Value', guideText, ...
-                'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtModelGuide.Layout.Row = 13;
+            app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lbl_M_Stat = uilabel(app.GLLeft, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_Stat.Layout.Row = 14;
+            pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 10;
+            glStatus = uigridlayout(pnlStatus,[1 1]);
+            glStatus.Padding = [2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtModelStatus = uitextarea(app.GLLeft, 'Editable','off', 'Value', {'No model loaded.'}, ...
-                'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
-            app.TxtModelStatus.Layout.Row = 15;
+            app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
 
             %% --- ACTION BUTTONS ---
             pnl_M_Btn = uipanel(app.GLLeft, 'BackgroundColor',sideBg, 'BorderType','none');
-            pnl_M_Btn.Layout.Row = 16;
+            pnl_M_Btn.Layout.Row = 11;
 
             grid_M_Btn = uigridlayout(pnl_M_Btn,[1 2]);
             grid_M_Btn.Padding=[0 0 0 0];
@@ -5893,11 +5915,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLProfiles.Padding = [10 10 10 10];
 
             %% --- LEFT CONTROL PANEL ---
-            app.profilesLeft = uigridlayout(app.GLProfiles,[9 1]);
+            app.profilesLeft = uigridlayout(app.GLProfiles,[7 1]);
             app.profilesLeft.Layout.Column = 1;
 
-            % Rows: Controls, Guide label, Guide(1x), Status label, Status box, Continue
-            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+            % Rows: 1-4 Controls, 5 Guidance (1x), 6 Status (70px), 7 Continue
+            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','1x',70,'fit'};
             app.profilesLeft.Padding = [10 10 10 10];
             app.profilesLeft.BackgroundColor = sideBg;
 
@@ -5908,7 +5930,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             gridSampling = uigridlayout(pnlSampling,[2 2]);
             gridSampling.ColumnWidth = {'1x',90};
-            gridSampling.Padding = [10 5 10 5];
+            gridSampling.Padding =[10 5 10 5];
 
             lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', ...
                 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
@@ -5926,7 +5948,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Text','Number of Points (L/R): -- / --', ...
                 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
             app.ProfilePointCountLabel.Layout.Row = 2;
-            app.ProfilePointCountLabel.Layout.Column = [1 2];
+            app.ProfilePointCountLabel.Layout.Column =[1 2];
 
             app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
@@ -5991,8 +6013,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnApplyKerf.Layout.Column = [1 2];
 
             %% --- GUIDANCE ---
-            lblGuide = uilabel(app.profilesLeft, 'Text','Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lblGuide.Layout.Row = 5;
+            pnlGuide = uipanel(app.profilesLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 5;
+            glGuide = uigridlayout(pnlGuide, [1 1]);
+            glGuide.Padding =[2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guideText = {
                 '1. Set the tolerance so the extracted profiles (red/green) conform to the sliced mesh profiles.'
@@ -6011,23 +6036,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Note: the offset distance applied is half the kerf value (Kerf/2).'
                 };
 
-            app.TxtProfileGuide = uitextarea(app.profilesLeft, 'Editable','off', 'Value', guideText, ...
-                'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtProfileGuide.Layout.Row = 6;
+            app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lblStatus = uilabel(app.profilesLeft, 'Text','Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lblStatus.Layout.Row = 7;
+            pnlStatus = uipanel(app.profilesLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 6;
+            glStatus = uigridlayout(pnlStatus, [1 1]);
+            glStatus.Padding = [2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtProfileStatus = uitextarea(app.profilesLeft, 'Editable','off', 'Value', {''}, ...
-                'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
-            app.TxtProfileStatus.Layout.Row = 8;
+            app.TxtProfileStatus = uitextarea(glStatus, 'Editable','off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
 
             %% --- ACTION BUTTONS ---
             app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
                 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnProfilesContinue.Layout.Row = 9;
+            app.BtnProfilesContinue.Layout.Row = 7;
 
             %% --- RIGHT PANEL: 2D PLOTS ---
             gridRight = uigridlayout(app.GLProfiles,[2 1]);
@@ -6035,13 +6059,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridRight.RowHeight = {'1x','1x'};
 
             app.AxLeftProfile = uiaxes(gridRight);
-            app.AxLeftProfile.BackgroundColor = [0.11 0.11 0.11];
+            app.AxLeftProfile.BackgroundColor =[0.11 0.11 0.11];
             title(app.AxLeftProfile,'Left Profile');
             grid(app.AxLeftProfile,'on');
             axis(app.AxLeftProfile,'equal');
 
             app.AxRightProfile = uiaxes(gridRight);
-            app.AxRightProfile.BackgroundColor = [0.11 0.11 0.11];
+            app.AxRightProfile.BackgroundColor =[0.11 0.11 0.11];
             title(app.AxRightProfile,'Right Profile');
             grid(app.AxRightProfile,'on');
             axis(app.AxRightProfile,'equal');
@@ -6068,9 +6092,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLBillet.Padding =[10 10 10 10];
 
             %% --- LEFT CONTROL PANEL ---
-            app.BilletLeftPanel = uigridlayout(app.GLBillet, [11 1]);
+            app.BilletLeftPanel = uigridlayout(app.GLBillet,[8 1]);
             app.BilletLeftPanel.Layout.Column = 1;
-            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+
+            % Rows: 1-5 Controls, 6 Guidance (1x), 7 Status (70px), 8 Continue
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','1x',70,'fit'};
             app.BilletLeftPanel.Padding =[10 10 10 10];
             app.BilletLeftPanel.BackgroundColor = sideBg;
 
@@ -6085,17 +6111,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             btnViewModel = uibutton(gridView, 'Text','Model View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
             btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
 
-            %% --- AUTO FIT ---
-            app.BtnAutoFitBillet = uibutton(app.BilletLeftPanel, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
-            app.BtnAutoFitBillet.Layout.Row = 2;
+            %% --- AUTO TOOLS ---
+            pnlAutoTools = uipanel(app.BilletLeftPanel, 'Title','Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlAutoTools.Layout.Row = 2;
+
+            gridAutoTools = uigridlayout(pnlAutoTools,[1 2]);
+            gridAutoTools.Padding=[5 5 5 5];
+            gridAutoTools.BackgroundColor=panelBg;
+
+            app.BtnAutoFitBillet = uibutton(gridAutoTools, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
             app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
+
+            app.BtnAutoPositionModel = uibutton(gridAutoTools, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
+            app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
 
             %% --- SIZE CONTROLS ---
             pnlSize = uipanel(app.BilletLeftPanel, 'Title', 'Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
             pnlSize.Layout.Row = 3;
 
             gridSizeOuter = uigridlayout(pnlSize, [1 1]);
-            gridSizeOuter.Padding = [5 5 5 5];
+            gridSizeOuter.Padding =[5 5 5 5];
 
             gridSize = uigridlayout(gridSizeOuter, [4 6]);
             gridSize.ColumnWidth = {35, 65, 20, 65, 20, 65};
@@ -6151,22 +6186,17 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletModelDimLabels(i).Layout.Column = 6;
             end
 
-            %% --- AUTO POSITION ---
-            app.BtnAutoPositionModel = uibutton(app.BilletLeftPanel, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
-            app.BtnAutoPositionModel.Layout.Row = 4;
-            app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
-
             %% --- RESET POSITION ---
             app.BtnResetPosition = uibutton(app.BilletLeftPanel, 'Text', 'Reset Position', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~)app.onResetPosition());
-            app.BtnResetPosition.Layout.Row = 5;
+            app.BtnResetPosition.Layout.Row = 4;
 
             %% --- POSITION CONTROLS ---
             pnlPos = uipanel(app.BilletLeftPanel, 'Title', 'Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold');
-            pnlPos.Layout.Row = 6;
+            pnlPos.Layout.Row = 5;
 
             gridPos = uigridlayout(pnlPos, [4 6]);
             gridPos.ColumnWidth = {35, 65, 20, 65, 20, 65};
-            gridPos.Padding = [4 4 4 4];
+            gridPos.Padding =[4 4 4 4];
             gridPos.ColumnSpacing = 4;
 
             uilabel(gridPos, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'HorizontalAlignment', 'center');
@@ -6198,7 +6228,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 btnMinus.Layout.Row = r;
                 btnMinus.Layout.Column = 3;
 
-                app.BilletCenterOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor', [0.7 0.7 0.8], 'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"center",src));
+                app.BilletCenterOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'BackgroundColor',[0.7 0.7 0.8], 'FontColor', [0 0 0], 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"center",src));
                 app.BilletCenterOffsetEdits(i).Layout.Row = r;
                 app.BilletCenterOffsetEdits(i).Layout.Column = 4;
                 app.BilletCenterOffsetEdits(i).Tooltip = 'Offset in axis relative to imported model origin';
@@ -6214,8 +6244,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             %% --- GUIDANCE ---
-            lblGuide = uilabel(app.BilletLeftPanel, 'Text', 'Guidance', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblGuide.Layout.Row = 7;
+            pnlGuide = uipanel(app.BilletLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 6;
+            glGuide = uigridlayout(pnlGuide, [1 1]);
+            glGuide.Padding = [2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guideTxt = {
                 'REDUCE FOAM WASTE!'
@@ -6227,22 +6260,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                 ''
                 '2. Adjust using the control blocks if needed.'
                 };
-            app.TxtBilletGuide = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtBilletGuide.Layout.Row = 8;
+            app.TxtBilletGuide = uitextarea(glGuide, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lblStatus = uilabel(app.BilletLeftPanel, 'Text', 'Status', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblStatus.Layout.Row = 9;
+            pnlStatus = uipanel(app.BilletLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 7;
+            glStatus = uigridlayout(pnlStatus, [1 1]);
+            glStatus.Padding = [2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtBilletStatus = uitextarea(app.BilletLeftPanel, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
-            app.TxtBilletStatus.Layout.Row = 10;
+            app.TxtBilletStatus = uitextarea(glStatus, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0]);
 
             %% --- ACTION BUTTONS ---
             app.BtnBilletContinue = uibutton(app.BilletLeftPanel, 'Text', 'Continue', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
-            app.BtnBilletContinue.Layout.Row = 11;
+            app.BtnBilletContinue.Layout.Row = 8;
 
             %% --- RIGHT PANEL: 4 VIEWS ---
-            app.BilletRightPanel = uigridlayout(app.GLBillet, [2 2]);
+            app.BilletRightPanel = uigridlayout(app.GLBillet,[2 2]);
             app.BilletRightPanel.Layout.Column = 2;
             app.BilletRightPanel.RowHeight = {'1x', '1x'};
             app.BilletRightPanel.ColumnWidth = {'1x', '1x'};
@@ -6270,10 +6304,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Bottom Right
             app.AxBilletRight = uiaxes(app.BilletRightPanel);
             app.AxBilletRight.Layout.Row = 2; app.AxBilletRight.Layout.Column = 2;
-            app.AxBilletRight.BackgroundColor = [0.11 0.11 0.11];
+            app.AxBilletRight.BackgroundColor =[0.11 0.11 0.11];
             title(app.AxBilletRight, 'Right View (Y/Z)');
         end
-
+        
         % TAB 4 (MACHINE)
         function createMachineTab(app)
             % Purpose: Builds the Machine Setup and Billet placement tab UI components.
@@ -6288,13 +6322,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
 
-            app.GLMachine = uigridlayout(app.TabMachine, [1 2]);
+            app.GLMachine = uigridlayout(app.TabMachine,[1 2]);
             app.GLMachine.ColumnWidth = {320, '1x'};
             app.GLMachine.Padding =[10 10 10 10];
 
             %% --- LEFT CONTROL PANEL ---
-            app.MachineLeftPanel = uigridlayout(app.GLMachine, [8 1]);
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','fit','1x','fit','fit','fit'};
+            app.MachineLeftPanel = uigridlayout(app.GLMachine,[6 1]);
+
+            % Rows: 1-3 Controls, 4 Guidance (1x), 5 Status (70px), 6 Continue
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70,'fit'};
             app.MachineLeftPanel.Padding =[10 10 10 10];
             app.MachineLeftPanel.BackgroundColor = sideBg;
 
@@ -6313,7 +6349,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlPlacement = uipanel(app.MachineLeftPanel, 'Title','Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
             pnlPlacement.Layout.Row = 2;
 
-            gridPlacement = uigridlayout(pnlPlacement, [4 2]);
+            gridPlacement = uigridlayout(pnlPlacement,[4 2]);
             gridPlacement.ColumnWidth={'1x',110};
             gridPlacement.Padding=[10 5 10 5];
             gridPlacement.BackgroundColor=panelBg;
@@ -6341,14 +6377,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachinePosSpinners(i).Layout.Column=2;
             end
 
-            %% --- AUTO POSITION ---
-            btnAutoPosition = uibutton(app.MachineLeftPanel, 'Text','Auto-position Billet', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
-            btnAutoPosition.Layout.Row = 3;
+            %% --- AUTO TOOLS ---
+            pnlAutoTools = uipanel(app.MachineLeftPanel, 'Title','Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlAutoTools.Layout.Row = 3;
+
+            gridAutoTools = uigridlayout(pnlAutoTools,[1 1]);
+            gridAutoTools.Padding=[5 5 5 5];
+            gridAutoTools.BackgroundColor=panelBg;
+
+            btnAutoPosition = uibutton(gridAutoTools, 'Text','Auto-position Billet', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
             btnAutoPosition.Tooltip = 'Optimizes X position to balance tower wire lengths, snaps Z to standard stock heights, and rounds Y to a safe distance.';
 
             %% --- GUIDANCE ---
-            lblGuide = uilabel(app.MachineLeftPanel, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lblGuide.Layout.Row = 4;
+            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 4;
+            glGuide = uigridlayout(pnlGuide, [1 1]);
+            glGuide.Padding = [2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guideMach = {
                 '1. Position the stock material securely on the physical machine bed.';
@@ -6361,20 +6406,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '';
                 'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
                 };
-            app.TxtMachineGuide = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', guideMach, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtMachineGuide.Layout.Row = 5;
+            app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lblStatus = uilabel(app.MachineLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lblStatus.Layout.Row = 6;
+            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 5;
+            glStatus = uigridlayout(pnlStatus, [1 1]);
+            glStatus.Padding = [2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtMachineStatus = uitextarea(app.MachineLeftPanel, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
-            app.TxtMachineStatus.Layout.Row = 7;
+            app.TxtMachineStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
 
             %% --- ACTION BUTTONS ---
             app.BtnMachineContinue = uibutton(app.MachineLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnMachineContinue.Layout.Row = 8;
+            app.BtnMachineContinue.Layout.Row = 6;
 
             %% --- RIGHT PANEL: 3D MACHINE PLOT ---
             app.AxMachine = uiaxes(app.GLMachine);
@@ -6407,10 +6453,12 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- LEFT CONTROL PANEL ---
             % Spans both rows on the left side
-            app.CuttingLeftPanel = uigridlayout(app.GLCutting,[9 1]);
+            app.CuttingLeftPanel = uigridlayout(app.GLCutting,[7 1]);
             app.CuttingLeftPanel.Layout.Row     = [1 2];
             app.CuttingLeftPanel.Layout.Column  = 1;
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','fit','1x','fit','fit','fit'};
+
+            % Rows: 1-4 Controls, 5 Guidance (1x), 6 Status (70px), 7 Continue
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70,'fit'};
             app.CuttingLeftPanel.Padding   =[10 10 10 10];
             app.CuttingLeftPanel.BackgroundColor = sideBg;
 
@@ -6445,7 +6493,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlMode = uipanel(app.CuttingLeftPanel, 'Title','Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlMode.Layout.Row = 3;
 
-            gridMode = uigridlayout(pnlMode, [3 2]);
+            gridMode = uigridlayout(pnlMode,[3 2]);
             gridMode.RowHeight = {'fit','fit','fit'};
             gridMode.ColumnWidth = {75, '1x'};
             gridMode.Padding=[5 5 5 5];
@@ -6525,8 +6573,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             btnClear.Layout.Row=4; btnClear.Layout.Column=[1 2];
 
             %% --- GUIDANCE ---
-            lblGuide = uilabel(app.CuttingLeftPanel, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lblGuide.Layout.Row = 5;
+            pnlGuide = uipanel(app.CuttingLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 5;
+            glGuide = uigridlayout(pnlGuide, [1 1]);
+            glGuide.Padding = [2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guideCut = {
                 'This tab allows visualisation and modification of the wire path, direction, entry/exit, cut direction.';
@@ -6543,20 +6594,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Set it to minimise the change in direction between the orange line and the start/end of the cut.';
                 'If you are entering from the top of the block, or have a lot of sweep, the Link point can route the wire over the top of the block, saving waste material.'
                 };
-            app.TxtCuttingGuide = uitextarea(app.CuttingLeftPanel, 'Editable','off', 'Value', guideCut, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtCuttingGuide.Layout.Row = 6;
+            app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lblStatus = uilabel(app.CuttingLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lblStatus.Layout.Row = 7;
+            pnlStatus = uipanel(app.CuttingLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 6;
+            glStatus = uigridlayout(pnlStatus, [1 1]);
+            glStatus.Padding = [2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtCuttingStatus = uitextarea(app.CuttingLeftPanel, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4]);
-            app.TxtCuttingStatus.Layout.Row = 8;
+            app.TxtCuttingStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4]);
 
             %% --- ACTION BUTTONS ---
             app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnCuttingContinue.Layout.Row = 9;
+            app.BtnCuttingContinue.Layout.Row = 7;
 
             %% --- RIGHT PANEL: 2D CUT PLOTS ---
             app.AxCutLeft = uiaxes(app.GLCutting);
@@ -6573,7 +6625,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(app.AxCutRight,'on');
             title(app.AxCutRight,'Right Profile Cut Path');
         end
-
+        
         % TAB 6 (SIMULATION)
         function createSimulationTab(app)
             % Purpose: Builds the Kinematics Simulation tab UI components.
@@ -6794,8 +6846,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLPostProcess.Padding       =[ 10 10 10 10 ];
 
             %% --- LEFT CONTROL PANEL ---
-            app.PostLeftPanel = uigridlayout(app.GLPostProcess,[ 9 1 ]);
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 110, 'fit', 45, 'fit'};
+            app.PostLeftPanel = uigridlayout(app.GLPostProcess,[ 7 1 ]);
+
+            % Rows: 1-3 Controls, 4 GCode (1x), 5 Guidance (1x), 6 Status (70px), 7 Save
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', '1x', 70, 'fit'};
             app.PostLeftPanel.Padding =[ 10 10 10 10 ];
             app.PostLeftPanel.BackgroundColor = sideBg;
 
@@ -6814,7 +6868,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlSettings = uipanel(app.PostLeftPanel, 'Title','Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
             pnlSettings.Layout.Row = 2;
 
-            gridSettings = uigridlayout(pnlSettings, [ 2 3 ]);
+            gridSettings = uigridlayout(pnlSettings,[ 2 3 ]);
             gridSettings.ColumnWidth={'1x', 'fit', 80};
             gridSettings.RowHeight={'fit', 'fit'};
             gridSettings.Padding=[ 5 5 5 5 ];
@@ -6879,8 +6933,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnGCodeNext.Layout.Column = 2;
 
             %% --- GUIDANCE ---
-            lblGuide = uilabel(app.PostLeftPanel, 'Text', 'Guidance', 'FontWeight','bold', 'FontColor',labelCol);
-            lblGuide.Layout.Row = 5;
+            pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlGuide.Layout.Row = 5;
+            glGuide = uigridlayout(pnlGuide, [1 1]);
+            glGuide.Padding =[2 2 2 2];
+            glGuide.BackgroundColor = sideBg;
 
             guidePost = {
                 '1. Set feed rate and wire power.';
@@ -6894,21 +6951,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Power too low / Feed too high = wire drag, cut corners, or break.';
                 'Power too high / Feed too low = kerf too big, melted details, burned foam.'
                 };
-            app.TxtPostGuide = uitextarea(app.PostLeftPanel, 'Editable','off', 'Value', guidePost, 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            app.TxtPostGuide.Layout.Row = 6;
+            app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             %% --- STATUS ---
-            lblStatus = uilabel(app.PostLeftPanel, 'Text', 'Status', 'FontWeight','bold', 'FontColor',labelCol);
-            lblStatus.Layout.Row = 7;
+            pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnlStatus.Layout.Row = 6;
+            glStatus = uigridlayout(pnlStatus,[1 1]);
+            glStatus.Padding =[2 2 2 2];
+            glStatus.BackgroundColor = sideBg;
 
-            app.TxtPostStatus = uitextarea(app.PostLeftPanel, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor',[ 0.2 0.2 0.2 ], 'FontColor',[ 0.9 0.9 0.9 ]);
-            app.TxtPostStatus.Layout.Row = 8;
+            app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor',[ 0.2 0.2 0.2 ], 'FontColor',[ 0.9 0.9 0.9 ]);
 
             %% --- ACTION BUTTONS ---
             app.BtnSaveGCode = uibutton(app.PostLeftPanel, 'Text','Save G-Code', 'FontWeight','bold', ...
                 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], 'Enable','off', ...
                 'ButtonPushedFcn',@(~,~)app.onSaveGCode());
-            app.BtnSaveGCode.Layout.Row = 9;
+            app.BtnSaveGCode.Layout.Row = 7;
             app.BtnSaveGCode.Tooltip = 'Press to save g-code as a .tap file ready for mach4';
 
             %% --- RIGHT PANEL: 3D POST PLOT ---
