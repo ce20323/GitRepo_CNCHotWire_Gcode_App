@@ -80,6 +80,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         ThemeSwitch      % Switch to toggle between Light and Dark themes
         ImgWelcomeLogo   % Image component for the application logo
 
+        %% --- UI HANDLES: GUIDE TAB ---
+        TabGuide         % Interface Guide tab container
+        GLGuide          % Grid layout for Guide tab
         %% --- UI HANDLES: MODEL TAB ---
         TabModel            % Model import and orientation tab container
         GLModel             % Grid layout for Model tab
@@ -399,15 +402,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt));
 
             %% --- Tab Builders ---
-            app.createWelcomeTab();  % TAB 0: WELCOME & DASHBOARD
-            app.createModelTab();    % TAB 1: MODEL IMPORT & ORIENTATION
-            app.createProfilesTab(); % TAB 2: PROFILES
-            app.createBilletTab();   % TAB 3: BILLET CONFIGURATION
-            app.createMachineTab();  % TAB 4: MACHINE SETUP
-            app.createCuttingTab();  % TAB 5: CUTTING STRATEGY
-            app.createSimulationTab(); % TAB 6: SIMULATION
-            app.createSimulationTab(); % TAB 6: SIMULATION
-            app.createPostProcessTab(); % TAB 7: POST-PROCESS
+            app.createWelcomeTab();     % TAB 0: WELCOME & SETUP
+            app.createGuideTab();       % TAB 1: INTERFACE GUIDE
+            app.createModelTab();       % TAB 2: MODEL IMPORT & ORIENTATION
+            app.createProfilesTab();    % TAB 3: PROFILES
+            app.createBilletTab();      % TAB 4: BILLET CONFIGURATION
+            app.createMachineTab();     % TAB 5: MACHINE SETUP
+            app.createCuttingTab();     % TAB 6: CUTTING STRATEGY
+            app.createSimulationTab();  % TAB 7: SIMULATION
+            app.createPostProcessTab(); % TAB 8: POST-PROCESS
 
             %% --- Set Initial State and Theme ---
             
@@ -934,6 +937,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Safely check tab equivalence (handles uninitialized tabs during dev/testing)
             isWelcome  = isequal(targetTab, app.TabWelcome);
+            isGuide    = isequal(targetTab, app.TabGuide);
             isModel    = isequal(targetTab, app.TabModel);
             isProfiles = isequal(targetTab, app.TabProfiles);
             isBillet   = isequal(targetTab, app.TabBillet);
@@ -1892,6 +1896,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 1. Determine the next tab safely
             if isequal(currTab, app.TabWelcome)
+                nextTab = app.TabGuide;
+            elseif isequal(currTab, app.TabGuide)
                 nextTab = app.TabModel;
             elseif isequal(currTab, app.TabModel)
                 nextTab = app.TabProfiles;
@@ -5445,11 +5451,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % TAB 0 (WELCOME)
         function createWelcomeTab(app)
-            % Purpose: Builds the Welcome & Dashboard tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            % Purpose: Builds the Welcome & Setup tab UI components.
 
-            % 1. Fetch Theme Colors locally for this function
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
@@ -5457,146 +5460,49 @@ classdef HotWireSTEPApp_v6_2 < handle
             inputBg  = t.inputBg;
             inputTxt = t.inputTxt;
 
-            % 2. Create Tab Container
             app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome');
 
-            app.GLWelcome = uigridlayout(app.TabWelcome, [ 1 2 ]);
-            app.GLWelcome.ColumnWidth = {320, '1x'};
-            app.GLWelcome.Padding =[ 10 10 10 10 ];
-            app.GLWelcome.ColumnSpacing = 10;
+            % Use a 3-column layout to center the content on wide laptop screens
+            app.GLWelcome = uigridlayout(app.TabWelcome, [1 3]);
+            app.GLWelcome.ColumnWidth = {'1x', 800, '1x'};
+            app.GLWelcome.Padding = [10 10 10 10];
+            app.GLWelcome.BackgroundColor = panelBg;
 
-            %% --- LEFT PANEL: UI Anatomy Guide ---
-            pnlAnatomy = uipanel(app.GLWelcome, 'BackgroundColor', sideBg, 'BorderType', 'none');
-            pnlAnatomy.Layout.Column = 1;
+            % Center Scrollable Panel
+            centerScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
+            centerScroll.Layout.Column = 2;
 
-            % 5 Rows to accommodate the theme switch
-            glAnat = uigridlayout(pnlAnatomy,[ 5 1 ]);
-            glAnat.RowHeight = {'fit', '1x', '2x', 'fit', 'fit'};
-            glAnat.Padding =[ 10 10 10 10 ];
-            glAnat.BackgroundColor = sideBg;
+            glCenter = uigridlayout(centerScroll, [5 1]);
+            glCenter.RowHeight = {120, 'fit', 'fit', 'fit', 'fit'};
+            glCenter.BackgroundColor = panelBg;
+            glCenter.Padding = [0 0 0 0];
+            glCenter.RowSpacing = 15;
 
-            uilabel(glAnat, 'Text', 'Understanding the Interface', 'FontWeight', 'bold', 'FontSize', 16, 'FontColor', labelCol);
-
-            uiTxt = {
-                'This application is designed to be read from Top to Bottom, and from Left to Right.';
-                '';
-                'Each tab has a left panel like this one with inputs, guidance, and status blocks,'
-                'and large right pnael with interactive plots for visualisation and user input';
-                '';
-                'Move through the tabs at the top of the window one by one, left to right'
-                '';
-                'You need to read and action the required setup instructions in the right panel of this tab before first use.'
-                };
-            uitextarea(glAnat, 'Value', uiTxt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-
-            % The "Mock UI" Explainer Box
-            pnlMock = uipanel(glAnat, 'BackgroundColor', panelBg, 'BorderType', 'line', 'ForegroundColor', labelCol, 'FontWeight','bold');
-
-            glMock = uigridlayout(pnlMock,[ 8 1 ]);
-            glMock.RowHeight = {'fit','fit', 'fit','fit', 'fit','fit', 'fit','fit'};
-            glMock.RowSpacing = 2; % Tight gap between labels and text
-            glMock.BackgroundColor = panelBg;
-
-            lbl1 = uilabel(glMock, 'Text', '1. Controls & Inputs', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl1.Layout.Row = 1;
-            txt1 = uitextarea(glMock, 'Value', {'For each tab, the top of the left panel will contain buttons, input fields, toggles, and other inputs'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt1.Layout.Row = 2;
-
-            lbl2 = uilabel(glMock, 'Text', '2. Guidance', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl2.Layout.Row = 3;
-            txt2 = uitextarea(glMock, 'Value', {'Below the user inputs, there will be a guidance block, with basic step by step instructions on what to do and check for that tab.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt2.Layout.Row = 4;
-
-            lbl3 = uilabel(glMock, 'Text', '3. Status', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl3.Layout.Row = 5;
-            statTxt = {'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).'};
-
-            % Use theme-engine colors for the example box
-            txt3 = uitextarea(glMock, 'Value', statTxt, 'Editable','off','BackgroundColor', t.statPassBg,'FontColor', t.statPassTxt);
-            txt3.Layout.Row = 6;
-
-            lbl4 = uilabel(glMock, 'Text', '4. Main Plot (Right Side) →', 'FontWeight','bold', 'FontColor', labelCol);
-            lbl4.Layout.Row = 7;
-            txt4 = uitextarea(glMock, 'Value', {'The large right panel always contains your interactive 2D or 3D visuals.'}, 'Editable','off','BackgroundColor',sideBg,'FontColor',labelCol);
-            txt4.Layout.Row = 8;
-
-            % --- Theme Toggle ---
-            glTheme = uigridlayout(glAnat, [ 1 2 ]);
-            glTheme.RowHeight = {'fit'};
-            glTheme.ColumnWidth = {'fit', 'fit'};
-            glTheme.Padding =[ 0 0 0 0 ];
-            glTheme.BackgroundColor = sideBg;
-            glTheme.Layout.Row = 4;
-
-            lblTheme = uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
-            lblTheme.Layout.Column = 1;
-
-            % Read the saved preference to set the switch's initial state
-            if ispref('HotWireSTEPApp', 'Theme')
-                currentTheme = getpref('HotWireSTEPApp', 'Theme');
-            else
-                currentTheme = 'Dark';
-            end
-
-            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme);
-            app.ThemeSwitch.FontColor = labelCol;
-            app.ThemeSwitch.ValueChangedFcn = @(src,evt)app.onThemeToggleChanged(src);
-            app.ThemeSwitch.Layout.Column = 2;
-
-            % Continue Button
-            btnWelcomeCont = uibutton(glAnat, 'Text','Get Started →', 'FontWeight','bold', 'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            btnWelcomeCont.Layout.Row = 5;
-
-            %% --- RIGHT PANEL: Main Content & Setup ---
-            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
-            rightScroll.Layout.Column = 2;
-
-            glRight = uigridlayout(rightScroll,[ 4 1 ]);
-
-            % 120px Header, 1.2x About, 1x FreeCAD, 'fit' Footer
-            glRight.RowHeight = {120, '1.2x', '1x', 'fit'};
-            glRight.BackgroundColor = panelBg;
-            glRight.Padding =[ 20 0 20 0 ];
-            glRight.RowSpacing = 15;
-
-            % --- Header Area ---
-            glHead = uigridlayout(glRight,[ 1 2 ]);
+            %% --- Header Area ---
+            glHead = uigridlayout(glCenter, [1 2]);
             glHead.ColumnWidth = {'1x', 280};
             glHead.RowHeight = {'1x'};
-            glHead.Padding =[ 0 0 0 0 ];
+            glHead.Padding = [0 0 0 0];
             glHead.BackgroundColor = panelBg;
 
             isDark = app.UIFigure.Color(1) < 0.5;
-            if isDark
-                logoName = 'Science_engineering_WHITE.png';
-            else
-                logoName = 'Science_engineering_BLACK.png';
-            end
-
+            if isDark, logoName = 'Science_engineering_WHITE.png'; else, logoName = 'Science_engineering_BLACK.png'; end
             appDir = fileparts(mfilename('fullpath'));
-            pathOption1 = fullfile(appDir, logoName);
-            pathOption2 = fullfile(appDir, 'src', logoName);
+            pathOption1 = fullfile(appDir, logoName); pathOption2 = fullfile(appDir, 'src', logoName);
 
             lblTitle = uilabel(glHead, 'Text', 'CNC Hot Wire G-Code Generator', 'FontSize', 28, 'FontWeight', 'bold', 'FontColor', labelCol, 'VerticalAlignment','center');
-            lblTitle.Layout.Row = 1; lblTitle.Layout.Column = 1;
+            lblTitle.Layout.Column = 1;
 
-            if isfile(pathOption1)
-                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption1);
-            elseif isfile(pathOption2)
-                app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption2);
-            else
-                app.ImgWelcomeLogo = uiimage(glHead); % Blank placeholder
-            end
-            app.ImgWelcomeLogo.Layout.Row = 1; app.ImgWelcomeLogo.Layout.Column = 2;
+            if isfile(pathOption1), app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption1);
+            elseif isfile(pathOption2), app.ImgWelcomeLogo = uiimage(glHead, 'ImageSource', pathOption2);
+            else, app.ImgWelcomeLogo = uiimage(glHead); end
+            app.ImgWelcomeLogo.Layout.Column = 2;
 
-            % --- About Section ---
-            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            %% --- About Section ---
+            pnlAbout = uipanel(glCenter, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlAbout.Layout.Row = 2;
-
-            glAbout = uigridlayout(pnlAbout,[ 1 1 ]);
-            glAbout.Padding =[ 5 5 5 5 ];
-            glAbout.RowHeight = {'1x'};
+            glAbout = uigridlayout(pnlAbout,[1 1]);
+            glAbout.Padding = [0 0 0 0]; % Zero padding for text areas!
             glAbout.BackgroundColor = sideBg;
 
             txtAbout = {
@@ -5615,14 +5521,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 };
             uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
 
-            % --- FreeCAD Setup Section ---
-            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            %% --- FreeCAD Setup Section ---
+            pnlFC = uipanel(glCenter, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlFC.Layout.Row = 3;
-
-            glFC = uigridlayout(pnlFC, [ 1 2 ]);
+            glFC = uigridlayout(pnlFC, [1 2]);
             glFC.ColumnWidth = {'1x', 300};
-            glFC.RowHeight = {'1x'};
-            glFC.Padding =[ 5 5 5 5 ];
+            glFC.Padding =[5 5 5 5];
             glFC.BackgroundColor = sideBg;
 
             fcInstruct = {
@@ -5630,80 +5534,134 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'You only need to set this up once on your computer!';
                 '';
                 '1. Click "Download FreeCAD" to get the standard Windows Installer.';
-                '';
                 '2. Run the installer and install it to the default directory.';
-                '';
                 '3. Click "Browse..." and locate the file "freecadcmd.exe".';
                 '   (Typically: C:\Program Files\FreeCAD 1.0\bin\)'
                 };
             txtFC = uitextarea(glFC, 'Value', fcInstruct, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
-            txtFC.Layout.Row = 1; txtFC.Layout.Column = 1;
+            txtFC.Layout.Column = 1;
 
-            glFCRight = uigridlayout(glFC,[ 3 1 ]);
+            glFCRight = uigridlayout(glFC, [3 1]);
             glFCRight.RowHeight = {'fit', 'fit', 'fit'};
-            glFCRight.Padding =[ 0 0 0 0 ];
+            glFCRight.Padding = [0 0 0 0];
             glFCRight.BackgroundColor = sideBg;
-            glFCRight.Layout.Row = 1; glFCRight.Layout.Column = 2;
+            glFCRight.Layout.Column = 2;
 
-            btnDownloadFC = uibutton(glFCRight, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[ 0.2 0.5 0.8 ], 'FontColor', [ 1 1 1 ], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
-            btnDownloadFC.Layout.Row = 1; btnDownloadFC.Layout.Column = 1;
-
+            btnDownloadFC = uibutton(glFCRight, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[0.2 0.5 0.8], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
             lblFC = uilabel(glFCRight, 'Text', 'FreeCADCmd.exe Path:', 'FontColor', labelCol, 'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
-            lblFC.Layout.Row = 2; lblFC.Layout.Column = 1;
 
-            if ispref('HotWireSTEPApp', 'FreeCADPath')
-                app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
-            else
-                app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
-            end
+            if ispref('HotWireSTEPApp', 'FreeCADPath'), app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
+            else, app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"; end
 
-            glFCBrowse = uigridlayout(glFCRight,[ 2 1 ]);
-            glFCBrowse.ColumnWidth = {'1x'};
+            glFCBrowse = uigridlayout(glFCRight,[2 1]);
             glFCBrowse.RowHeight = {'fit','fit'};
-            glFCBrowse.Padding =[ 0 0 0 0 ];
+            glFCBrowse.Padding =[0 0 0 0];
             glFCBrowse.BackgroundColor = sideBg;
-            glFCBrowse.Layout.Row = 3; glFCBrowse.Layout.Column = 1;
 
-            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe);
-            app.FieldFreeCADPath.BackgroundColor = inputBg;
-            app.FieldFreeCADPath.FontColor = inputTxt;
-            app.FieldFreeCADPath.ValueChangedFcn = @(src,evt)app.onFreeCADPathEdited(src);
-            app.FieldFreeCADPath.Layout.Row = 1;
-
+            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
             btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
-            btnBrowseFC.Layout.Row = 2; btnBrowseFC.Layout.Column = 1;
 
-            % --- Footer Panels (Contact, License, Source) ---
-            glFooter = uigridlayout(glRight, [1 3]);
+            %% --- Settings & Footer ---
+            glFooter = uigridlayout(glCenter, [2 3]);
             glFooter.Layout.Row = 4;
             glFooter.ColumnWidth = {'1x', '1x', 305};
-            glFooter.RowHeight = {80};
+            glFooter.RowHeight = {'fit', 80};
             glFooter.Padding =[0 0 0 0];
             glFooter.ColumnSpacing = 5;
             glFooter.BackgroundColor = panelBg;
 
-            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glContact = uigridlayout(pnlContact,[1 1]);
-            glContact.RowHeight = {'fit'};
-            glContact.Padding =[0 0 0 0];
-            glContact.BackgroundColor = sideBg;
-            txtAuthor = {'Author: Matthew Richardson'; 'Email:  matthew.richardson@bristol.ac.uk'};
-            uitextarea(glContact, 'Value', txtAuthor, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            % Theme Toggle
+            glTheme = uigridlayout(glFooter, [1 2]);
+            glTheme.Layout.Row = 1; glTheme.Layout.Column = [1 2];
+            glTheme.ColumnWidth = {'fit', 'fit'};
+            glTheme.Padding = [0 0 0 0];
+            glTheme.BackgroundColor = panelBg;
+            uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
+            if ispref('HotWireSTEPApp', 'Theme'), currentTheme = getpref('HotWireSTEPApp', 'Theme'); else, currentTheme = 'Dark'; end
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme, 'FontColor', labelCol, 'ValueChangedFcn', @(src,evt)app.onThemeToggleChanged(src));
 
-            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glLicense = uigridlayout(pnlLicense,[1 1]);
-            glLicense.RowHeight = {'fit'};
-            glLicense.Padding =[0 0 0 0];
-            glLicense.BackgroundColor = sideBg;
-            txtLicense = {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'};
-            uitextarea(glLicense, 'Value', txtLicense, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            % Continue Button
+            btnWelcomeCont = uibutton(glFooter, 'Text','Continue to Interface Guide →', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            btnWelcomeCont.Layout.Row = 1; btnWelcomeCont.Layout.Column = 3;
 
-            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glSource = uigridlayout(pnlSource,[1 1]);
-            glSource.RowHeight = {'fit'};
-            glSource.Padding =[5 5 5 5];
-            glSource.BackgroundColor = sideBg;
-            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+            % Contact / License / Source
+            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlContact.Layout.Row = 2; pnlContact.Layout.Column = 1;
+            glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding = [0 0 0 0]; glContact.BackgroundColor = sideBg;
+            uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlLicense.Layout.Row = 2; pnlLicense.Layout.Column = 2;
+            glLicense = uigridlayout(pnlLicense,[1 1]); glLicense.Padding = [0 0 0 0]; glLicense.BackgroundColor = sideBg;
+            uitextarea(glLicense, 'Value', {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'}, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlSource.Layout.Row = 2; pnlSource.Layout.Column = 3;
+            glSource = uigridlayout(pnlSource,[1 1]); glSource.Padding =[5 5 5 5]; glSource.BackgroundColor = sideBg;
+            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+        end
+
+        % TAB 1 (INTERFACE GUIDE)
+        function createGuideTab(app)
+            % Purpose: Teaches the user the UI layout by mimicking the actual app structure.
+
+            t = app.getTheme();
+            sideBg   = t.sideBg;
+            panelBg  = t.panelBg;
+            labelCol = t.labelCol;
+
+            app.TabGuide = uitab(app.TabGroup, 'Title', 'Interface Guide');
+
+            % Mimic the standard app layout!
+            app.GLGuide = uigridlayout(app.TabGuide, [1 2]);
+            app.GLGuide.ColumnWidth = {320, '1x'};
+            app.GLGuide.Padding = [5 5 5 5]; % Reduced global padding
+            app.GLGuide.ColumnSpacing = 5;
+
+            %% --- LEFT PANEL (Mimics Controls) ---
+            leftPnl = uigridlayout(app.GLGuide, [5 1]);
+            leftPnl.Layout.Column = 1;
+            leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit'};
+            leftPnl.Padding = [5 5 5 5];
+            leftPnl.BackgroundColor = sideBg;
+
+            % 1. Controls
+            pnl1 = uipanel(leftPnl, 'Title', '1. Controls & Inputs', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            gl1 = uigridlayout(pnl1, [1 1]);
+            gl1.Padding = [0 0 0 0]; % Zero padding!
+            uitextarea(gl1, 'Value', 'For each tab, the top of the left panel will contain buttons, input fields, toggles, and other inputs.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            % 2. Guidance
+            pnl2 = uipanel(leftPnl, 'Title', '2. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            gl2 = uigridlayout(pnl2, [1 1]);
+            gl2.Padding =[0 0 0 0];
+            uitextarea(gl2, 'Value', 'Below the user inputs, there will be a guidance block, with basic step by step instructions on what to do and check for that tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+
+            % 3. Status
+            pnl3 = uipanel(leftPnl, 'Title', '3. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            gl3 = uigridlayout(pnl3, [1 1]);
+            gl3.Padding = [0 0 0 0];
+            uitextarea(gl3, 'Value', 'This traffic-light box warns you of critical errors (Red), highlights warnings (Amber), or tells you it is safe to proceed (Green).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt);
+
+            % Continue Button
+            btnCont = uibutton(leftPnl, 'Text', 'Get Started →', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            btnCont.Layout.Row = 5;
+
+            %% --- RIGHT PANEL (Mimics Plot) ---
+            rightPnl = uipanel(app.GLGuide, 'Title', '4. Main Plot (Right Side) →', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', 16, 'BorderType', 'line');
+            rightPnl.Layout.Column = 2;
+
+            glR = uigridlayout(rightPnl,[1 1]);
+            glR.Padding = [10 10 10 10];
+            glR.BackgroundColor = sideBg;
+
+            txt = {
+                'The large right panel always contains your interactive 2D or 3D visuals.';
+                '';
+                'This application is designed to be read from Top to Bottom, and from Left to Right.';
+                'Move through the tabs at the top of the window one by one, left to right.'
+                };
+            uitextarea(glR, 'Value', txt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 16);
         end
 
         % TAB 1 (MODEL)
