@@ -5761,8 +5761,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Rows: 1:View, 2:Import, 3:Taper, 4:Orientation, 5:Planes, 6:Guidance(1x), 7:Status(70px), 8:Buttons
             app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
-            app.GLLeft.Padding = [5 5 5 5];
-            app.GLLeft.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing; % Use new spacing constant!
+            app.GLLeft.Padding =[5 5 5 5];
+            app.GLLeft.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
 
             %% --- VIEW CONTROLS (Unnumbered) ---
             pnlView = uipanel(app.GLLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
@@ -5821,13 +5821,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlRot = uipanel(app.GLLeft, 'Title','3. Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'ForegroundColor',labelCol);
             pnlRot.Layout.Row = 4;
 
-            % Inner grid: 3 rows, 5 columns.
-            % Cols 1-4: X/Y/Z controls. Col 5: Tall Reset Button
-            app.RotGrid = uigridlayout(pnlRot,[3 5]);
-            app.RotGrid.ColumnWidth={'fit','fit',60,'fit', '1x'};
+            % 3 rows, 7 columns to center the controls and fix the button width
+            % Col 1 & 7 act as flexible spacers to keep the block centered
+            app.RotGrid = uigridlayout(pnlRot,[3 7]);
+            app.RotGrid.ColumnWidth={'1x', 'fit', 'fit', 60, 'fit', HotWireSTEPApp_v6_2.ButtonHeight, '1x'};
             app.RotGrid.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             app.RotGrid.Padding=[5 5 5 5];
-            app.RotGrid.ColumnSpacing = 2;
+            app.RotGrid.ColumnSpacing = 4;
             app.RotGrid.RowSpacing = 2;
             app.RotGrid.BackgroundColor=panelBg;
 
@@ -5835,25 +5835,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RotEdit = gobjects(1,3);
             for i = 1:3
                 lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol);
-                lblRot.Layout.Row=i; lblRot.Layout.Column=1;
+                lblRot.Layout.Row=i; lblRot.Layout.Column=2;
 
                 btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
-                btnNeg.Layout.Row=i; btnNeg.Layout.Column=2;
+                btnNeg.Layout.Row=i; btnNeg.Layout.Column=3;
 
                 app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
                     'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                     'Tooltip',['Rotate model around the ' axesLabels{i} ' axis.'], ...
                     'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
-                app.RotEdit(i).Layout.Row=i; app.RotEdit(i).Layout.Column=3;
+                app.RotEdit(i).Layout.Row=i; app.RotEdit(i).Layout.Column=4;
 
                 btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
-                btnPos.Layout.Row=i; btnPos.Layout.Column=4;
+                btnPos.Layout.Row=i; btnPos.Layout.Column=5;
             end
 
-            % Tall Reset Button spanning all 3 rows
-            btnResO = uibutton(app.RotGrid, 'Text', sprintf('Reset\nOrient.'), 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            % Vertical Reset Button spanning all 3 rows
+            vertText = sprintf('R\nE\nS\nE\nT');
+            btnResO = uibutton(app.RotGrid, 'Text', vertText, 'FontWeight','bold', 'FontSize', 10, 'Tooltip', 'Reset Orientation', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
             btnResO.Layout.Row = [1 3];
-            btnResO.Layout.Column = 5;
+            btnResO.Layout.Column = 6;
 
             %% --- 4. PLANE OFFSETS ---
             pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
