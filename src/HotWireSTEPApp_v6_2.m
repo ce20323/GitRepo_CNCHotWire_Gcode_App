@@ -127,6 +127,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         KerfRightSpinner       % Spinner for right profile kerf value
         KerfPointCountLabel    % Label displaying point count after kerf application
         BtnApplyKerf           % Button to apply kerf offset to profiles
+        BtnResetKerf           % Button to reset kerf offset spinner values to default
         TxtProfileGuide        % Text area for Profiles tab user guidance
         TxtProfileStatus       % Text area for Profiles tab status feedback
         BtnProfilesContinue    % Button to proceed to the Billet tab
@@ -696,7 +697,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             nR = size(app.RightProfilePoints,1);
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
-                app.ProfilePointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nL, nR);
+                app.ProfilePointCountLabel.Text = sprintf('Extracted Profile Points (L/R): %d / %d', nL, nR);
             end
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
@@ -803,7 +804,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 4. UPDATE LABEL ---
             if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
-                app.KerfPointCountLabel.Text = sprintf('Number of Points (L/R): %d / %d', nLk, nRk);
+                app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Points (L/R): %d / %d', nLk, nRk);
             end
 
             % ----- LEGENDS & VIEW -----
@@ -883,9 +884,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if nLeft <= 0 && nRight <= 0
-                txt = 'Number of Points (L/R): -- / --';
+                txt = 'Extracted Profile Points (L/R): -- / --';
             else
-                txt = sprintf('Number of Points (L/R): %d / %d', nLeft, nRight);
+                txt = sprintf('Extracted Profile Points (L/R): %d / %d', nLeft, nRight);
             end
 
             if capLeft || capRight
@@ -1367,6 +1368,27 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.KerfLeftValue = app.KerfRightValue;
                 app.KerfLeftSpinner.Value = app.KerfLeftValue;
                 app.KerfValue = app.KerfLeftValue;
+            end
+
+            app.IsCuttingInit = false;
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
+        end
+
+        function onResetKerf(app)
+            % Resets kerf values to default and re-applies
+            defaultK = HotWireSTEPApp_v6_2.DefaultKerf;
+
+            app.KerfLeftValue = defaultK;
+            app.KerfRightValue = defaultK;
+            app.KerfValue = defaultK;
+
+            if isgraphics(app.KerfLeftSpinner)
+                app.KerfLeftSpinner.Value = defaultK;
+            end
+            if isgraphics(app.KerfRightSpinner)
+                app.KerfRightSpinner.Value = defaultK;
             end
 
             app.IsCuttingInit = false;
@@ -5950,12 +5972,16 @@ classdef HotWireSTEPApp_v6_2 < handle
             view(app.AxModel,3);
             hold(app.AxModel,'on');
         end
-        
-        % TAB 2 (PROFILES)
+
+        % TAB 3 (PROFILES)
         function createProfilesTab(app)
             % Purpose: Builds the Profiles extraction and Kerf tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Controls for resampling tolerance and kerf.
+            %   - Right Panel (1x): 2D axes for Left and Right profiles.
+            %
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
             % Fetch Theme Colors locally
             t = app.getTheme();
@@ -5966,113 +5992,107 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles');
 
             app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
-            app.GLProfiles.ColumnWidth = {320,'1x'};
-            app.GLProfiles.Padding = [10 10 10 10];
+            app.GLProfiles.ColumnWidth = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
+            app.GLProfiles.Padding =[5 5 5 5];
+            app.GLProfiles.ColumnSpacing = 5;
+            app.GLProfiles.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
-            app.profilesLeft = uigridlayout(app.GLProfiles,[7 1]);
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
+            app.profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
             app.profilesLeft.Layout.Column = 1;
 
-            % Rows: 1-4 Controls, 5 Guidance (1x), 6 Status (70px), 7 Continue
-            app.profilesLeft.RowHeight = {'fit','fit','fit','fit','1x',70,'fit'};
-            app.profilesLeft.Padding = [10 10 10 10];
-            app.profilesLeft.BackgroundColor = sideBg;
+            % Rows: 1:View, 2:Sampling, 3:Kerf, 4:Guidance(1x), 5:Status(70px), 6:Continue
+            app.profilesLeft.RowHeight = {'fit','fit','fit','1x',70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.profilesLeft.Padding = [5 5 5 5];
+            app.profilesLeft.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
+            app.profilesLeft.BackgroundColor = panelBg;
 
-            %% --- PROFILE SAMPLING ---
-            pnlSampling = uipanel(app.profilesLeft, 'Title','Profile Sampling', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlSampling.Layout.Row = 1;
+            %% --- VIEW CONTROLS (Unnumbered) ---
+            pnlView = uipanel(app.profilesLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlView.Layout.Row = 1;
 
-            gridSampling = uigridlayout(pnlSampling,[2 2]);
-            gridSampling.ColumnWidth = {'1x',90};
-            gridSampling.Padding =[10 5 10 5];
+            gridView = uigridlayout(pnlView, [1 1]);
+            gridView.Padding=[5 5 5 5];
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridView.BackgroundColor=panelBg;
 
-            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', ...
-                'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol);
+            app.BtnResetProfilesView = uibutton(gridView, 'Text','Reset Profiles View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
 
-            app.ProfileTolSpinner = uispinner(gridSampling, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], ...
-                'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, ...
-                'Step',0.01, ...
-                'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', ...
-                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            %% --- 1. PROFILE SAMPLING ---
+            pnlSampling = uipanel(app.profilesLeft, 'Title','1. Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlSampling.Layout.Row = 2;
+
+            gridSampling = uigridlayout(pnlSampling,[3 2]);
+            gridSampling.ColumnWidth = {'1x', 90};
+            gridSampling.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight, 'fit'};
+            gridSampling.Padding =[5 5 5 5];
+            gridSampling.BackgroundColor = panelBg;
+
+            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
+            lblTolerance.Layout.Row = 1; lblTolerance.Layout.Column = 1;
+
+            app.ProfileTolSpinner = uispinner(gridSampling, 'Limits',[HotWireSTEPApp_v6_2.MinProfileTolerance, HotWireSTEPApp_v6_2.MaxProfileTolerance], 'Value',HotWireSTEPApp_v6_2.DefaultProfileTolerance, 'Step',0.01, 'ValueDisplayFormat','%.2f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolSpinner.Layout.Row = 1; app.ProfileTolSpinner.Layout.Column = 2;
             app.ProfileTolerance = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
 
-            app.ProfilePointCountLabel = uilabel(gridSampling, ...
-                'Text','Number of Points (L/R): -- / --', ...
-                'HorizontalAlignment','right', 'FontColor',labelCol, 'FontAngle','italic');
-            app.ProfilePointCountLabel.Layout.Row = 2;
-            app.ProfilePointCountLabel.Layout.Column =[1 2];
+            app.BtnResetProfileTol = uibutton(gridSampling, 'Text','Reset Tolerance', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol.Layout.Row = 2; app.BtnResetProfileTol.Layout.Column =[1 2];
 
-            app.BtnResetProfileTol = uibutton(app.profilesLeft, 'Text','Reset Tolerance', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
-            app.BtnResetProfileTol.Layout.Row = 2;
+            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Points (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            app.ProfilePointCountLabel.Layout.Row = 3; app.ProfilePointCountLabel.Layout.Column =[1 2];
 
-            app.BtnResetProfilesView = uibutton(app.profilesLeft, 'Text','Reset Profiles View', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.resetProfilesView());
-            app.BtnResetProfilesView.Layout.Row = 3;
+            %% --- 2. KERF COMPENSATION ---
+            pnlKerf = uipanel(app.profilesLeft, 'Title','2. Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlKerf.Layout.Row = 3;
 
-            %% --- KERF COMPENSATION ---
-            pnlKerf = uipanel(app.profilesLeft, 'Title','Kerf Compensation', ...
-                'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlKerf.Layout.Row = 4;
+            gridKerf = uigridlayout(pnlKerf,[5 4]);
+            gridKerf.ColumnWidth = {'fit', '1x', 'fit', '1x'};
+            gridKerf.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight, 'fit'};
+            gridKerf.Padding =[5 5 5 5];
+            gridKerf.BackgroundColor = panelBg;
 
-            gridKerf = uigridlayout(pnlKerf,[5 2]);
-            gridKerf.ColumnWidth = {95, '1x'};
-            gridKerf.RowHeight = {'fit','fit','fit','fit','fit'};
-            gridKerf.Padding = [5 5 5 5];
-
-            lblKerfMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            lblKerfMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblKerfMode.Layout.Row = 1; lblKerfMode.Layout.Column = 1;
 
-            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', ...
-                'Items', {'Coupled', 'Independent'}, ...
-                'Value', 'Coupled', ...
-                'FontColor', labelCol, ...
-                'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
-            app.KerfModeSwitch.Layout.Row = 1;
-            app.KerfModeSwitch.Layout.Column = 2;
+            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', 'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
+            app.KerfModeSwitch.Layout.Row = 1; app.KerfModeSwitch.Layout.Column = [2 4];
             app.KerfModeSwitch.Tooltip = 'Uncoupling is only for tapered parts to compensate for the difference in wire speed between left and right profiles.';
 
-            lblKerfLeft = uilabel(gridKerf, 'Text','Kerf Left[mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
+            % Left Kerf
+            lblKerfLeft = uilabel(gridKerf, 'Text','Left:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblKerfLeft.Layout.Row = 2; lblKerfLeft.Layout.Column = 1;
 
-            app.KerfLeftSpinner = uispinner(gridKerf, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',app.KerfLeftValue, ...
-                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', ...
-                'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
+            app.KerfLeftSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], 'Value',app.KerfLeftValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
+            app.KerfLeftSpinner.FontColor = t.wireKerf;
+            app.KerfLeftSpinner.BackgroundColor = t.wireKerf * 0.15 + panelBg * 0.85;
 
-            lblKerfRight = uilabel(gridKerf, 'Text','Kerf Right [mm]:', 'HorizontalAlignment','right', 'FontColor',labelCol);
-            lblKerfRight.Layout.Row = 3; lblKerfRight.Layout.Column = 1;
+            % Right Kerf
+            lblKerfRight = uilabel(gridKerf, 'Text','Right:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            lblKerfRight.Layout.Row = 2; lblKerfRight.Layout.Column = 3;
 
-            app.KerfRightSpinner = uispinner(gridKerf, ...
-                'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], ...
-                'Value',app.KerfRightValue, ...
-                'Step',0.1, 'ValueDisplayFormat','%.2f', ...
-                'Enable', 'off', ... % Disabled by default (Coupled)
-                'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
-            app.KerfRightSpinner.Layout.Row = 3; app.KerfRightSpinner.Layout.Column = 2;
+            app.KerfRightSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], 'Value',app.KerfRightValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Enable', 'off', 'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
+            app.KerfRightSpinner.Layout.Row = 2; app.KerfRightSpinner.Layout.Column = 4;
+            app.KerfRightSpinner.FontColor = t.wireKerf;
+            app.KerfRightSpinner.BackgroundColor = t.wireKerf * 0.15 + panelBg * 0.85;
 
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Number of Points (L/R): 0 / 0', ...
-                'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize',10);
-            app.KerfPointCountLabel.Layout.Row = 4;
-            app.KerfPointCountLabel.Layout.Column = [1 2];
+            % Buttons
+            app.BtnResetKerf = uibutton(gridKerf, 'Text','Reset Kerf', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetKerf());
+            app.BtnResetKerf.Layout.Row = 3; app.BtnResetKerf.Layout.Column = [1 4];
 
-            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', ...
-                'ButtonPushedFcn',@(~,~)app.onApplyKerf());
-            app.BtnApplyKerf.Layout.Row = 5;
-            app.BtnApplyKerf.Layout.Column = [1 2];
+            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf.Layout.Row = 4; app.BtnApplyKerf.Layout.Column = [1 4];
 
-            %% --- GUIDANCE ---
-            pnlGuide = uipanel(app.profilesLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            pnlGuide.Layout.Row = 5;
+            % Points Readout
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Kerf Compensated Points (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            app.KerfPointCountLabel.Layout.Row = 5; app.KerfPointCountLabel.Layout.Column = [1 4];
+
+            %% --- 3. GUIDANCE ---
+            pnlGuide = uipanel(app.profilesLeft, 'Title', '3. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide.Layout.Row = 4;
             glGuide = uigridlayout(pnlGuide, [1 1]);
-            glGuide.Padding =[2 2 2 2];
-            glGuide.BackgroundColor = sideBg;
+            glGuide.Padding =[0 0 0 0];
+            glGuide.BackgroundColor = panelBg;
 
             guideText = {
                 '1. Set the tolerance so the extracted profiles (red/green) conform to the sliced mesh profiles.'
@@ -6091,36 +6111,42 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Note: the offset distance applied is half the kerf value (Kerf/2).'
                 };
 
-            app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- STATUS ---
-            pnlStatus = uipanel(app.profilesLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            pnlStatus.Layout.Row = 6;
+            %% --- 4. STATUS ---
+            pnlStatus = uipanel(app.profilesLeft, 'Title', '4. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus.Layout.Row = 5;
             glStatus = uigridlayout(pnlStatus, [1 1]);
-            glStatus.Padding = [2 2 2 2];
-            glStatus.BackgroundColor = sideBg;
+            glStatus.Padding = [0 0 0 0];
+            glStatus.BackgroundColor = panelBg;
 
-            app.TxtProfileStatus = uitextarea(glStatus, 'Editable','off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
+            app.TxtProfileStatus = uitextarea(glStatus, 'Editable','off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- ACTION BUTTONS ---
-            app.BtnProfilesContinue = uibutton(app.profilesLeft, 'Text','Continue →', 'FontWeight','bold', ...
-                'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], ...
-                'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnProfilesContinue.Layout.Row = 7;
+            gridBtn = uigridlayout(app.profilesLeft,[1 1]);
+            gridBtn.Layout.Row = 6;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
+
+            app.BtnProfilesContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 2D PLOTS ---
             gridRight = uigridlayout(app.GLProfiles,[2 1]);
             gridRight.Layout.Column = 2;
             gridRight.RowHeight = {'1x','1x'};
+            gridRight.Padding = [0 0 0 0];
+            gridRight.RowSpacing = 5;
+            gridRight.BackgroundColor = sideBg;
 
             app.AxLeftProfile = uiaxes(gridRight);
-            app.AxLeftProfile.BackgroundColor =[0.11 0.11 0.11];
+            app.AxLeftProfile.BackgroundColor = t.axBg;
             title(app.AxLeftProfile,'Left Profile');
             grid(app.AxLeftProfile,'on');
             axis(app.AxLeftProfile,'equal');
 
             app.AxRightProfile = uiaxes(gridRight);
-            app.AxRightProfile.BackgroundColor =[0.11 0.11 0.11];
+            app.AxRightProfile.BackgroundColor = t.axBg;
             title(app.AxRightProfile,'Right Profile');
             grid(app.AxRightProfile,'on');
             axis(app.AxRightProfile,'equal');
