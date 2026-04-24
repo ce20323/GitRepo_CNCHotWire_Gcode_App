@@ -5553,13 +5553,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             txtAbout = {
                 'Welcome to the Rapid Prototyping Workshops 4-axis CNC Hot Wire Toolpath and G-code Generator.';
-                'This software provides a complete, end-to-end workflow to take you form CAD model to G-code for CNC hot wire foam cutting';
-                'Most steps offer auto or manual configuration';
+                'This software provides a complete, end-to-end workflow to take you from CAD model to a G-code program the CNC foam cutter can run.';
+                'Most steps offer auto or manual configuration.';
                 '';
                 'Workflow:';
-                '- Import and orient 3D CAD models (STEP/STL).';
+                '- Export your model form your chosen CAD package, preferably as a STEP file (or STL)';              
+                '- Import and orient your 3D CAD  model (STEP/STL).';
                 '- Slice models, extract and sync 2D profiles.';
-                '- Apply kerf compensation to preserve dimensional accuracy.';
+                '- Apply kerf compensation to allow for the width of the cut, preserving dimensional accuracy.';
                 '- Size and position your model and billet.';
                 '- Create collision-free lead-in and exit paths.';
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
