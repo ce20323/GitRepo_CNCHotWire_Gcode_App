@@ -68,7 +68,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% --- UI LAYOUT CONSTANTS ---
         PanelWidth       (1,1) double = 320;  % [px] Standard width for left-hand control panels
         ButtonHeight     (1,1) double = 26;   % [px] Standard height for action buttons
-        RowHeightNormal  (1,1) double = 26;   % [px] Standard row height for inputs/spinners
+        RowHeightNormal  (1,1) double = 26;   %[px] Standard row height for inputs/spinners
+        FontSizeNormal   (1,1) double = 12;   % [pt] Standard font size for labels and text areas
+        FontSizeHeader   (1,1) double = 14;   % [pt] Font size for panel headers and emphasis
+        FontSizeTitle    (1,1) double = 16;   % [pt] Font size for major titles
     end
 
     properties
@@ -5467,7 +5470,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             %   - Right Panel (1x): Scrollable content area containing the Header,
             %     About text, FreeCAD setup, and a pinned Footer.
             %
-            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2.PanelWidth
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
             % 1. Fetch Theme Colors
             t = app.getTheme();
@@ -5484,47 +5487,48 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLWelcome.ColumnWidth = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
             app.GLWelcome.Padding = [5 5 5 5];
             app.GLWelcome.ColumnSpacing = 5;
+            app.GLWelcome.BackgroundColor = sideBg;
 
-            %% --- LEFT PANEL (Controls Feel) ---
-            leftPnl = uigridlayout(app.GLWelcome, [3 1]);
+            %% --- LEFT PANEL (Sidebar Feel) ---
+            leftPnl = uigridlayout(app.GLWelcome,[3 1]);
             leftPnl.Layout.Column = 1;
             % '1x' pushes the theme toggle and button to the bottom
             leftPnl.RowHeight = {'1x', 'fit', HotWireSTEPApp_v6_2.ButtonHeight};
             leftPnl.Padding = [5 5 5 5];
-            leftPnl.BackgroundColor = sideBg;
+            leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % Theme Toggle
             glTheme = uigridlayout(leftPnl, [1 2]);
             glTheme.Layout.Row = 2;
             glTheme.ColumnWidth = {'fit', 'fit'};
             glTheme.Padding =[0 0 0 0];
-            glTheme.BackgroundColor = sideBg;
-            uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol);
+            glTheme.BackgroundColor = panelBg;
+            uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             if ispref('HotWireSTEPApp', 'Theme'), currentTheme = getpref('HotWireSTEPApp', 'Theme'); else, currentTheme = 'Dark'; end
-            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme, 'FontColor', labelCol, 'ValueChangedFcn', @(src,evt)app.onThemeToggleChanged(src));
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn', @(src,evt)app.onThemeToggleChanged(src));
 
             % Continue Button
-            btnWelcomeCont = uibutton(leftPnl, 'Text','Continue to Guide →', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            btnWelcomeCont = uibutton(leftPnl, 'Text','Continue to Guide →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
             btnWelcomeCont.Layout.Row = 3;
 
             %% --- RIGHT PANEL (Content) ---
-            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', panelBg, 'BorderType', 'none');
+            rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', sideBg, 'BorderType', 'none');
             rightScroll.Layout.Column = 2;
 
             % 5 Rows: Header, About, FreeCAD, Spacer (1x), Footer
-            glRight = uigridlayout(rightScroll, [5 1]);
-            glRight.RowHeight = {120, 180, 'fit', '1x', 'fit'};
-            glRight.BackgroundColor = panelBg;
+            glRight = uigridlayout(rightScroll,[5 1]);
+            glRight.RowHeight = {120, 260, 'fit', '1x', 'fit'}; % 260px prevents About box scrollbar
+            glRight.BackgroundColor = sideBg;
             glRight.Padding =[20 20 20 20];
             glRight.RowSpacing = 15;
 
             % --- Header Area ---
-            glHead = uigridlayout(glRight, [1 2]);
+            glHead = uigridlayout(glRight,[1 2]);
             glHead.Layout.Row = 1;
             glHead.ColumnWidth = {'1x', 280};
             glHead.Padding =[0 0 0 0];
-            glHead.BackgroundColor = panelBg;
+            glHead.BackgroundColor = sideBg;
 
             isDark = app.UIFigure.Color(1) < 0.5;
             if isDark, logoName = 'Science_engineering_WHITE.png'; else, logoName = 'Science_engineering_BLACK.png'; end
@@ -5540,12 +5544,12 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ImgWelcomeLogo.Layout.Column = 2;
 
             % --- About Section ---
-            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             pnlAbout.Layout.Row = 2;
             glAbout = uigridlayout(pnlAbout,[1 1]);
-            glAbout.RowHeight = {'1x'}; % Fills the 180px allocated by glRight
+            glAbout.RowHeight = {'1x'};
             glAbout.Padding =[0 0 0 0];
-            glAbout.BackgroundColor = sideBg;
+            glAbout.BackgroundColor = panelBg;
 
             txtAbout = {
                 'Welcome to the Rapid Prototyping Workshops 4-axis CNC Hot Wire Toolpath and G-code Generator.';
@@ -5561,48 +5565,46 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
                 '- Post-process and export Mach4-compatible G-code.'
                 };
-            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
+            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % --- FreeCAD Setup Section (Step-by-Step) ---
-            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
+            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             pnlFC.Layout.Row = 3;
 
             glFC = uigridlayout(pnlFC,[4 2]);
             glFC.ColumnWidth = {'1x', 300};
             glFC.RowHeight = {'fit', HotWireSTEPApp_v6_2.ButtonHeight, 'fit', HotWireSTEPApp_v6_2.ButtonHeight};
             glFC.Padding =[10 10 10 10];
-            glFC.BackgroundColor = sideBg;
+            glFC.BackgroundColor = panelBg;
 
             % Intro
-            lblIntro = uilabel(glFC, 'Text', 'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files. You only need to set this up once!', 'FontColor', labelCol);
+            lblIntro = uilabel(glFC, 'Text', 'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files. You only need to set this up once!', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblIntro.Layout.Row = 1; lblIntro.Layout.Column =[1 2];
 
             % Step 1
-            lblS1 = uilabel(glFC, 'Text', 'Step 1. Download and run the standard Windows Installer.', 'FontColor', labelCol, 'FontWeight', 'bold');
+            lblS1 = uilabel(glFC, 'Text', 'Step 1. Download and run the standard Windows Installer.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblS1.Layout.Row = 2; lblS1.Layout.Column = 1;
-            btnDL = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'BackgroundColor',[0.2 0.5 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
+            btnDL = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.2 0.5 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
             btnDL.Layout.Row = 2; btnDL.Layout.Column = 2;
 
             % Step 2
-            lblS2 = uilabel(glFC, 'Text', 'Step 2. Install FreeCAD to the default directory.', 'FontColor', labelCol, 'FontWeight', 'bold');
+            lblS2 = uilabel(glFC, 'Text', 'Step 2. Install FreeCAD to the default directory.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblS2.Layout.Row = 3; lblS2.Layout.Column = [1 2];
 
             % Step 3
-            lblS3 = uilabel(glFC, 'Text', 'Step 3. Locate "FreeCADCmd.exe" (Typically: C:\Program Files\FreeCAD 1.0\bin\)', 'FontColor', labelCol, 'FontWeight', 'bold');
+            lblS3 = uilabel(glFC, 'Text', 'Step 3. Locate "FreeCADCmd.exe" (Typically: C:\Program Files\FreeCAD 1.0\bin\)', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblS3.Layout.Row = 4; lblS3.Layout.Column = 1;
 
             glFCBrowse = uigridlayout(glFC,[1 2]);
             glFCBrowse.Layout.Row = 4; glFCBrowse.Layout.Column = 2;
             glFCBrowse.ColumnWidth = {'1x', 80};
+            glFCBrowse.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             glFCBrowse.Padding =[0 0 0 0];
-            glFCBrowse.BackgroundColor = sideBg;
+            glFCBrowse.BackgroundColor = panelBg;
 
             if ispref('HotWireSTEPApp', 'FreeCADPath'), app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath'); else, app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"; end
-            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
-            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
-
-            % --- Spacer Row ---
-            % Row 4 in glRight is '1x', which pushes the footer to the bottom of the screen.
+            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
+            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
 
             % --- Footer Panels ---
             glFooter = uigridlayout(glRight,[1 3]);
@@ -5611,19 +5613,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             glFooter.RowHeight = {80};
             glFooter.Padding =[0 0 0 0];
             glFooter.ColumnSpacing = 5;
-            glFooter.BackgroundColor = panelBg;
+            glFooter.BackgroundColor = sideBg;
 
-            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding =[0 0 0 0]; glContact.BackgroundColor = sideBg;
-            uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding =[0 0 0 0]; glContact.BackgroundColor = panelBg;
+            uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glLicense = uigridlayout(pnlLicense,[1 1]); glLicense.Padding =[0 0 0 0]; glLicense.BackgroundColor = sideBg;
-            uitextarea(glLicense, 'Value', {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'}, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            glLicense = uigridlayout(pnlLicense,[1 1]); glLicense.Padding =[0 0 0 0]; glLicense.BackgroundColor = panelBg;
+            uitextarea(glLicense, 'Value', {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glSource = uigridlayout(pnlSource,[1 1]); glSource.Padding =[5 5 5 5]; glSource.BackgroundColor = sideBg;
-            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            glSource = uigridlayout(pnlSource,[1 1]); glSource.Padding =[5 5 5 5]; glSource.BackgroundColor = panelBg;
+            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
         end
 
         % TAB 1 (INTERFACE GUIDE)
@@ -5631,7 +5633,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Teaches the user the UI layout by mimicking the actual
             %          app structure. Uses dummy components to explain functionality.
             %
-            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2.PanelWidth
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
             t = app.getTheme();
             sideBg   = t.sideBg;
@@ -5645,6 +5647,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.GLGuide.ColumnWidth = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
             app.GLGuide.Padding =[5 5 5 5];
             app.GLGuide.ColumnSpacing = 5;
+            app.GLGuide.BackgroundColor = sideBg;
 
             %% --- LEFT PANEL (Mimics Controls) ---
             leftPnl = uigridlayout(app.GLGuide,[7 1]);
@@ -5652,49 +5655,49 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 1x spacer pushes Guidance and Status to the bottom!
             leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 70, HotWireSTEPApp_v6_2.ButtonHeight};
             leftPnl.Padding = [5 5 5 5];
-            leftPnl.BackgroundColor = sideBg;
+            leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % 1. Controls Intro
-            pnl1 = uipanel(leftPnl, 'Title', '1. Controls & Inputs', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnl1 = uipanel(leftPnl, 'Title', '1. Controls & Inputs', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             gl1 = uigridlayout(pnl1, [1 1]); gl1.Padding =[0 0 0 0]; gl1.BackgroundColor = sideBg;
-            uitextarea(gl1, 'Value', 'The top of the left panel contains inputs, toggles, and buttons.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            uitextarea(gl1, 'Value', 'The top of the left panel contains inputs, toggles, and buttons.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % Dummy Controls Panel
-            pnlDummy = uipanel(leftPnl, 'Title','Example Controls', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlDummy = uipanel(leftPnl, 'Title','Example Controls', 'BackgroundColor',sideBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlDummy.Layout.Row = 2;
             gridDummy = uigridlayout(pnlDummy, [3 2]);
             gridDummy.ColumnWidth = {'1x', '1x'};
             gridDummy.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight};
             gridDummy.Padding=[5 5 5 5];
-            gridDummy.BackgroundColor=panelBg;
+            gridDummy.BackgroundColor=sideBg;
 
-            uilabel(gridDummy, 'Text', 'Example Toggle:', 'FontColor', labelCol, 'HorizontalAlignment', 'right');
-            uiswitch(gridDummy, 'slider', 'Items', {'Off', 'On'}, 'FontColor', labelCol);
+            uilabel(gridDummy, 'Text', 'Example Toggle:', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment', 'right');
+            uiswitch(gridDummy, 'slider', 'Items', {'Off', 'On'}, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            uilabel(gridDummy, 'Text', 'Example Spinner:', 'FontColor', labelCol, 'HorizontalAlignment', 'right');
-            uispinner(gridDummy, 'Value', 10.0);
+            uilabel(gridDummy, 'Text', 'Example Spinner:', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment', 'right');
+            uispinner(gridDummy, 'Value', 10.0, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold');
-            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold');
+            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % 2. Guidance (Pushed to bottom by 1x spacer in Row 4)
-            pnl2 = uipanel(leftPnl, 'Title', '2. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnl2 = uipanel(leftPnl, 'Title', '2. Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnl2.Layout.Row = 5;
             gl2 = uigridlayout(pnl2,[1 1]); gl2.Padding =[0 0 0 0]; gl2.BackgroundColor = sideBg;
-            uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % 3. Status
-            pnl3 = uipanel(leftPnl, 'Title', '3. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            pnl3 = uipanel(leftPnl, 'Title', '3. Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnl3.Layout.Row = 6;
             gl3 = uigridlayout(pnl3, [1 1]); gl3.Padding =[0 0 0 0]; gl3.BackgroundColor = sideBg;
-            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt);
+            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % Continue Button
-            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
             btnCont.Layout.Row = 7;
 
             %% --- RIGHT PANEL (Mimics Plot) ---
-            rightPnl = uipanel(app.GLGuide, 'Title', '4. Main Plot (Right Side) →', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', 16, 'BorderType', 'line');
+            rightPnl = uipanel(app.GLGuide, 'Title', '4. Main Plot (Right Side) →', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeTitle, 'BorderType', 'line');
             rightPnl.Layout.Column = 2;
 
             glR = uigridlayout(rightPnl,[2 1]);
@@ -5706,7 +5709,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'The large right panel always contains your interactive 2D or 3D visuals.';
                 'Move through the tabs at the top of the window one by one, left to right.'
                 };
-            uitextarea(glR, 'Value', txt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 16);
+            uitextarea(glR, 'Value', txt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeTitle);
 
             % Dummy 3D Plot
             axDummy = uiaxes(glR);
