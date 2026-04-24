@@ -5457,7 +5457,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % They encapsulate the layout logic for each tab to keep the code
         % modular, prevent variable shadowing, and make the UI easier to edit.
 
-        % TAB 0 (WELCOME)
+        % TAB 0 (WELCOME & SETUP)
         function createWelcomeTab(app)
             % Purpose: Builds the Welcome & Setup tab. This tab introduces the
             %          software and provides the one-time FreeCAD engine setup.
@@ -5514,7 +5514,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 5 Rows: Header, About, FreeCAD, Spacer (1x), Footer
             glRight = uigridlayout(rightScroll, [5 1]);
-            glRight.RowHeight = {120, 'fit', 'fit', '1x', 'fit'};
+            glRight.RowHeight = {120, 180, 'fit', '1x', 'fit'};
             glRight.BackgroundColor = panelBg;
             glRight.Padding =[20 20 20 20];
             glRight.RowSpacing = 15;
@@ -5523,7 +5523,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             glHead = uigridlayout(glRight, [1 2]);
             glHead.Layout.Row = 1;
             glHead.ColumnWidth = {'1x', 280};
-            glHead.Padding = [0 0 0 0];
+            glHead.Padding =[0 0 0 0];
             glHead.BackgroundColor = panelBg;
 
             isDark = app.UIFigure.Color(1) < 0.5;
@@ -5543,7 +5543,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlAbout.Layout.Row = 2;
             glAbout = uigridlayout(pnlAbout,[1 1]);
-            glAbout.RowHeight = {'fit'}; % Ensures text area expands to fit content
+            glAbout.RowHeight = {'1x'}; % Fills the 180px allocated by glRight
             glAbout.Padding =[0 0 0 0];
             glAbout.BackgroundColor = sideBg;
 
@@ -5561,14 +5561,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
                 '- Post-process and export Mach4-compatible G-code.'
                 };
-            % Height is calculated roughly based on line count to ensure no scrollbar
-            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14, 'Height', 220);
+            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', 14);
 
             % --- FreeCAD Setup Section (Step-by-Step) ---
             pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize',14, 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
             pnlFC.Layout.Row = 3;
 
-            glFC = uigridlayout(pnlFC, [4 2]);
+            glFC = uigridlayout(pnlFC,[4 2]);
             glFC.ColumnWidth = {'1x', 300};
             glFC.RowHeight = {'fit', HotWireSTEPApp_v6_2.ButtonHeight, 'fit', HotWireSTEPApp_v6_2.ButtonHeight};
             glFC.Padding =[10 10 10 10];
@@ -5595,7 +5594,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             glFCBrowse = uigridlayout(glFC,[1 2]);
             glFCBrowse.Layout.Row = 4; glFCBrowse.Layout.Column = 2;
             glFCBrowse.ColumnWidth = {'1x', 80};
-            glFCBrowse.Padding = [0 0 0 0];
+            glFCBrowse.Padding =[0 0 0 0];
             glFCBrowse.BackgroundColor = sideBg;
 
             if ispref('HotWireSTEPApp', 'FreeCADPath'), app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath'); else, app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"; end
@@ -5615,7 +5614,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             glFooter.BackgroundColor = panelBg;
 
             pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
-            glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding = [0 0 0 0]; glContact.BackgroundColor = sideBg;
+            glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding =[0 0 0 0]; glContact.BackgroundColor = sideBg;
             uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol);
 
             pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol);
@@ -5665,6 +5664,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlDummy.Layout.Row = 2;
             gridDummy = uigridlayout(pnlDummy, [3 2]);
             gridDummy.ColumnWidth = {'1x', '1x'};
+            gridDummy.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight};
             gridDummy.Padding=[5 5 5 5];
             gridDummy.BackgroundColor=panelBg;
 
@@ -5690,7 +5690,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt);
 
             % Continue Button
-            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
             btnCont.Layout.Row = 7;
 
             %% --- RIGHT PANEL (Mimics Plot) ---
