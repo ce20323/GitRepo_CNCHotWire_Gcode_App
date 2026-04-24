@@ -5727,140 +5727,168 @@ classdef HotWireSTEPApp_v6_2 < handle
             axDummy.XColor = labelCol; axDummy.YColor = labelCol; axDummy.ZColor = labelCol;
         end
 
-        % TAB 1 (MODEL)
+        % TAB 2 (MODEL)
         function createModelTab(app)
             % Purpose: Builds the Model Import & Orientation tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Step-by-step controls for importing,
+            %     orienting, and slicing the 3D model.
+            %   - Right Panel (1x): 3D interactive visualization axes.
+            %
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
-            % Fetch Theme Colors locally for this function
+            % 1. Fetch Theme Colors locally for this function
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
             labelCol = t.labelCol;
 
+            % 2. Main Tab Container
             app.TabModel = uitab(app.TabGroup,'Title','Model');
+
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
-            app.GLModel.ColumnWidth   = {320,'1x'};
-            app.GLModel.Padding       =[10 10 10 10];
-            app.GLModel.ColumnSpacing = 10;
+            app.GLModel.ColumnWidth   = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
+            app.GLModel.Padding       = [5 5 5 5];
+            app.GLModel.ColumnSpacing = 5;
+            app.GLModel.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
-            app.GLLeft = uigridlayout(app.GLModel,[11 1]);
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
+            app.GLLeft = uigridlayout(app.GLModel,[7 1]);
             app.GLLeft.Layout.Column = 1;
-            app.GLLeft.BackgroundColor = sideBg;
+            app.GLLeft.BackgroundColor = panelBg; % Distinct sidebar shade
 
-            % Rows: 1-8 Controls, 9 Guidance (1x), 10 Status (70px), 11 Buttons
-            app.GLLeft.RowHeight = {'fit','fit','fit','fit','fit','fit','fit','fit','1x',70,'fit'};
-            app.GLLeft.Padding = [10 10 10 10];
+            % Rows: 1:Import, 2:Taper, 3:Orientation, 4:Planes, 5:Guidance(1x), 6:Status(70px), 7:Buttons
+            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.GLLeft.Padding =[5 5 5 5];
 
-            %% --- FILE IMPORT ---
-            app.BtnImportSTEP = uibutton(app.GLLeft, 'Text','Import STEP (recommended)', 'FontWeight','bold', ...
+            %% --- 1. FILE IMPORT ---
+            pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlImport.Layout.Row = 1;
+
+            gridImport = uigridlayout(pnlImport, [3 1]);
+            gridImport.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight, 'fit'};
+            gridImport.Padding = [5 5 5 5];
+            gridImport.BackgroundColor = panelBg;
+
+            app.BtnImportSTEP = uibutton(gridImport, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTEP());
             app.BtnImportSTEP.Layout.Row = 1;
 
-            app.BtnImportSTL = uibutton(app.GLLeft, 'Text','Import STL', 'FontWeight','bold', ...
+            app.BtnImportSTL = uibutton(gridImport, 'Text','Import STL', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTL());
             app.BtnImportSTL.Layout.Row = 2;
 
-            app.FileLabel = uilabel(app.GLLeft, 'Text','Current File: ---', 'FontWeight','bold', 'FontColor',labelCol);
+            app.FileLabel = uilabel(gridImport, 'Text','Current File: ---', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
             app.FileLabel.Layout.Row = 3;
 
-            %% --- TAPER MODE ---
-            pnl_M_Cut = uipanel(app.GLLeft, 'BackgroundColor', sideBg, 'BorderType', 'line', 'Title', '');
-            pnl_M_Cut.Layout.Row = 4;
+            %% --- 2. TAPER MODE ---
+            pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlTaper.Layout.Row = 2;
 
-            grid_M_Cut = uigridlayout(pnl_M_Cut,[1 3]);
-            grid_M_Cut.ColumnWidth = {'1x','fit','1x'};
-            grid_M_Cut.Padding=[10 0 10 0];
-            grid_M_Cut.BackgroundColor = sideBg;
+            gridTaper = uigridlayout(pnlTaper,[1 3]);
+            gridTaper.ColumnWidth = {'1x','fit','1x'};
+            gridTaper.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal};
+            gridTaper.Padding=[5 5 5 5];
+            gridTaper.BackgroundColor = panelBg;
 
-            lbl_M_Sp1 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp1.Layout.Column=1;
+            uilabel(gridTaper,'Text',''); % Left Spacer
 
-            app.TaperToggle = uiswitch(grid_M_Cut,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
+            app.TaperToggle = uiswitch(gridTaper,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
+                'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor', labelCol, ...
                 'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
                 'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
             app.TaperToggle.Layout.Column = 2;
 
-            lbl_M_Sp2 = uilabel(grid_M_Cut,'Text',''); lbl_M_Sp2.Layout.Column=3;
+            uilabel(gridTaper,'Text',''); % Right Spacer
 
-            %% --- ORIENTATION ---
-            pnl_M_Rot = uipanel(app.GLLeft, 'Title','Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'ForegroundColor',labelCol);
-            pnl_M_Rot.Layout.Row = 5;
+            %% --- 3. ORIENTATION ---
+            pnlRot = uipanel(app.GLLeft, 'Title','3. Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'ForegroundColor',labelCol);
+            pnlRot.Layout.Row = 3;
 
-            outer_M_Rot = uigridlayout(pnl_M_Rot,[1 3]);
-            outer_M_Rot.ColumnWidth={'1x','fit','1x'};
-            outer_M_Rot.Padding=[5 5 5 5];
-            outer_M_Rot.BackgroundColor=panelBg;
+            gridRotOuter = uigridlayout(pnlRot,[2 3]);
+            gridRotOuter.ColumnWidth={'1x','fit','1x'}; % Centers the inner grid
+            gridRotOuter.RowHeight = {'fit', HotWireSTEPApp_v6_2.ButtonHeight};
+            gridRotOuter.Padding=[5 5 5 5];
+            gridRotOuter.BackgroundColor=panelBg;
 
-            app.RotGrid = uigridlayout(outer_M_Rot,[3 4]);
-            app.RotGrid.Layout.Column = 2;
+            app.RotGrid = uigridlayout(gridRotOuter,[3 4]);
+            app.RotGrid.Layout.Row = 1; app.RotGrid.Layout.Column = 2;
             app.RotGrid.ColumnWidth={'fit','fit',70,'fit'};
-            app.RotGrid.RowHeight={'fit','fit','fit'};
+            app.RotGrid.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             app.RotGrid.Padding=[0 0 0 0];
             app.RotGrid.BackgroundColor=panelBg;
 
             axesLabels = {'X','Y','Z'};
             app.RotEdit = gobjects(1,3);
             for i = 1:3
-                lbl_M_Rot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'HorizontalAlignment','center', 'FontColor',labelCol);
-                lbl_M_Rot.Layout.Row=i;
+                lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lblRot.Layout.Row=i; lblRot.Layout.Column=1;
 
-                btn_M_Neg = uibutton(app.RotGrid,'Text','-90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
-                btn_M_Neg.Layout.Row=i;
+                btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
+                btnNeg.Layout.Row=i; btnNeg.Layout.Column=2;
 
                 app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
+                    'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                     'Tooltip',['Rotate model around the ' axesLabels{i} ' axis.'], ...
                     'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
-                app.RotEdit(i).Layout.Row=i;
+                app.RotEdit(i).Layout.Row=i; app.RotEdit(i).Layout.Column=3;
 
-                btn_M_Pos = uibutton(app.RotGrid,'Text','+90°', 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
-                btn_M_Pos.Layout.Row=i;
+                btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
+                btnPos.Layout.Row=i; btnPos.Layout.Column=4;
             end
 
-            btnMResO = uibutton(app.GLLeft, 'Text','Reset Orientation', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            btnMResO.Layout.Row = 6;
+            % Reset Buttons in Row 2 of Outer Grid
+            gridRotBtns = uigridlayout(gridRotOuter, [1 2]);
+            gridRotBtns.Layout.Row = 2; gridRotBtns.Layout.Column = [1 3];
+            gridRotBtns.Padding = [0 0 0 0];
+            gridRotBtns.BackgroundColor = panelBg;
 
-            btnMResP = uibutton(app.GLLeft, 'Text','Reset Plot View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlotView());
-            btnMResP.Layout.Row = 7;
+            btnResO = uibutton(gridRotBtns, 'Text','Reset Orientation', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            btnResP = uibutton(gridRotBtns, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
 
-            %% --- PLANE OFFSETS ---
-            pnl_M_Off = uipanel(app.GLLeft, 'BackgroundColor',panelBg, 'BorderType','line');
-            pnl_M_Off.Layout.Row = 8;
+            %% --- 4. PLANE OFFSETS ---
+            pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlOff.Layout.Row = 4;
 
-            grid_M_Off = uigridlayout(pnl_M_Off,[3 2]);
-            grid_M_Off.ColumnWidth={'1x',90};
-            grid_M_Off.RowHeight={'fit','fit','fit'};
+            gridOff = uigridlayout(pnlOff,[2 4]);
+            gridOff.ColumnWidth={'fit','1x','fit','1x'};
+            gridOff.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight};
+            gridOff.Padding=[5 5 5 5];
+            gridOff.BackgroundColor = panelBg;
 
-            lbl_M_OffL = uilabel(grid_M_Off,'Text','Left Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_OffL.Layout.Row=1; lbl_M_OffL.Layout.Column=1;
+            % Left Spinner
+            lblOffL = uilabel(gridOff,'Text','Left:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            lblOffL.Layout.Row=1; lblOffL.Layout.Column=1;
 
-            app.NumLeftOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f',...
+            app.NumLeftOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'ValueDisplayFormat','%.1f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
             app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
 
-            lbl_M_OffR = uilabel(grid_M_Off,'Text','Right Plane Offset:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol);
-            lbl_M_OffR.Layout.Row=2; lbl_M_OffR.Layout.Column=1;
+            % Right Spinner
+            lblOffR = uilabel(gridOff,'Text','Right:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            lblOffR.Layout.Row=1; lblOffR.Layout.Column=3;
 
-            app.NumRightOffset = uispinner(grid_M_Off, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f',...
+            app.NumRightOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
+                'ValueDisplayFormat','%.1f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
-            app.NumRightOffset.Layout.Row=2; app.NumRightOffset.Layout.Column=2;
+            app.NumRightOffset.Layout.Row=1; app.NumRightOffset.Layout.Column=4;
 
-            btn_M_ResPlane = uibutton(grid_M_Off, 'Text','Reset Planes', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.resetPlanes());
-            btn_M_ResPlane.Layout.Row=3; btn_M_ResPlane.Layout.Column=[1 2];
+            % Reset Button
+            btnResPlane = uibutton(gridOff, 'Text','Reset Planes', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlanes());
+            btnResPlane.Layout.Row=2; btnResPlane.Layout.Column=[1 4];
 
-            %% --- GUIDANCE ---
-            pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            pnlGuide.Layout.Row = 9;
+            %% --- 5. GUIDANCE ---
+            pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide.Layout.Row = 5;
             glGuide = uigridlayout(pnlGuide,[1 1]);
-            glGuide.Padding = [2 2 2 2];
-            glGuide.BackgroundColor = sideBg;
+            glGuide.Padding = [0 0 0 0]; % Zero padding for max text space
+            glGuide.BackgroundColor = panelBg;
 
             guideText = {
                 '1. Import your model by clicking Import STEP or STL';
@@ -5877,36 +5905,35 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
                 'Rotate the model so this point is toward the front of the machine (Ymin)';
                 };
-            app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- STATUS ---
-            pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
-            pnlStatus.Layout.Row = 10;
+            %% --- 6. STATUS ---
+            pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus,[1 1]);
-            glStatus.Padding = [2 2 2 2];
-            glStatus.BackgroundColor = sideBg;
+            glStatus.Padding = [0 0 0 0];
+            glStatus.BackgroundColor = panelBg;
 
-            app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
+            app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- ACTION BUTTONS ---
-            pnl_M_Btn = uipanel(app.GLLeft, 'BackgroundColor',sideBg, 'BorderType','none');
-            pnl_M_Btn.Layout.Row = 11;
+            %% --- 7. ACTION BUTTONS ---
+            gridBtn = uigridlayout(app.GLLeft,[1 2]);
+            gridBtn.Layout.Row = 7;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
 
-            grid_M_Btn = uigridlayout(pnl_M_Btn,[1 2]);
-            grid_M_Btn.Padding=[0 0 0 0];
-            grid_M_Btn.BackgroundColor=sideBg;
-
-            app.BtnGenerateProfiles = uibutton(grid_M_Btn, 'Text','Generate Profiles', 'FontWeight','bold', 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+            app.BtnGenerateProfiles = uibutton(gridBtn, 'Text','Generate Profiles', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
                 'Tooltip', 'Slice model at the defined planes.', ...
                 'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
 
-            app.BtnContinue = uibutton(grid_M_Btn, 'Text','Continue →', 'FontWeight','bold', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
+            app.BtnContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
                 'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 3D MODEL AXES ---
             app.AxModel = uiaxes(app.GLModel);
             app.AxModel.Layout.Column = 2;
-            app.AxModel.BackgroundColor =[0.11 0.11 0.11];
+            app.AxModel.BackgroundColor = t.axBg; % Use theme axBg
 
             xlabel(app.AxModel,'X (mm)');
             ylabel(app.AxModel,'Y (mm)');
