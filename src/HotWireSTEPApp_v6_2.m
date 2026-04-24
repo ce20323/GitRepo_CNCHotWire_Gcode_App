@@ -67,11 +67,12 @@ classdef HotWireSTEPApp_v6_2 < handle
         DefaultPower         (1,1) double = 35.0; % [%] Default power as % for PWM machine output.
         %% --- UI LAYOUT CONSTANTS ---
         PanelWidth       (1,1) double = 320;  % [px] Standard width for left-hand control panels
-        ButtonHeight     (1,1) double = 26;   % [px] Standard height for action buttons
-        RowHeightNormal  (1,1) double = 26;   %[px] Standard row height for inputs/spinners
+        ButtonHeight     (1,1) double = 22;   % [px] Standard height for action buttons
+        RowHeightNormal  (1,1) double = 22;   % [px] Standard row height for inputs/spinners
         FontSizeNormal   (1,1) double = 12;   % [pt] Standard font size for labels and text areas
-        FontSizeHeader   (1,1) double = 14;   % [pt] Font size for panel headers and emphasis
+        FontSizeHeader   (1,1) double = 12;   % [pt] Font size for panel headers and emphasis
         FontSizeTitle    (1,1) double = 16;   % [pt] Font size for major titles
+        BlockSpacing     (1,1) double = 4;    % [px] Standard spacing between vertical blocks/panels
     end
 
     properties
@@ -5727,7 +5728,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             axDummy.XColor = labelCol; axDummy.YColor = labelCol; axDummy.ZColor = labelCol;
         end
 
-        % TAB 2 (MODEL)
+        % TAB 1 (MODEL)
         function createModelTab(app)
             % Purpose: Builds the Model Import & Orientation tab UI components.
             %
@@ -5749,26 +5750,38 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
             app.GLModel.ColumnWidth   = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
-            app.GLModel.Padding       = [5 5 5 5];
+            app.GLModel.Padding       =[5 5 5 5];
             app.GLModel.ColumnSpacing = 5;
             app.GLModel.BackgroundColor = sideBg;
 
             %% --- LEFT CONTROL PANEL (Sidebar) ---
-            app.GLLeft = uigridlayout(app.GLModel,[7 1]);
+            app.GLLeft = uigridlayout(app.GLModel,[8 1]);
             app.GLLeft.Layout.Column = 1;
             app.GLLeft.BackgroundColor = panelBg; % Distinct sidebar shade
 
-            % Rows: 1:Import, 2:Taper, 3:Orientation, 4:Planes, 5:Guidance(1x), 6:Status(70px), 7:Buttons
-            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
-            app.GLLeft.Padding =[5 5 5 5];
+            % Rows: 1:View, 2:Import, 3:Taper, 4:Orientation, 5:Planes, 6:Guidance(1x), 7:Status(70px), 8:Buttons
+            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.GLLeft.Padding = [5 5 5 5];
+            app.GLLeft.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing; % Use new spacing constant!
+
+            %% --- VIEW CONTROLS (Unnumbered) ---
+            pnlView = uipanel(app.GLLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlView.Layout.Row = 1;
+
+            gridView = uigridlayout(pnlView, [1 1]);
+            gridView.Padding=[5 5 5 5];
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridView.BackgroundColor=panelBg;
+
+            btnMResP = uibutton(gridView, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
 
             %% --- 1. FILE IMPORT ---
             pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlImport.Layout.Row = 1;
+            pnlImport.Layout.Row = 2;
 
             gridImport = uigridlayout(pnlImport, [3 1]);
             gridImport.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight, 'fit'};
-            gridImport.Padding = [5 5 5 5];
+            gridImport.Padding =[5 5 5 5];
             gridImport.BackgroundColor = panelBg;
 
             app.BtnImportSTEP = uibutton(gridImport, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
@@ -5786,7 +5799,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 2. TAPER MODE ---
             pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlTaper.Layout.Row = 2;
+            pnlTaper.Layout.Row = 3;
 
             gridTaper = uigridlayout(pnlTaper,[1 3]);
             gridTaper.ColumnWidth = {'1x','fit','1x'};
@@ -5806,19 +5819,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 3. ORIENTATION ---
             pnlRot = uipanel(app.GLLeft, 'Title','3. Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'ForegroundColor',labelCol);
-            pnlRot.Layout.Row = 3;
+            pnlRot.Layout.Row = 4;
 
-            gridRotOuter = uigridlayout(pnlRot,[2 3]);
-            gridRotOuter.ColumnWidth={'1x','fit','1x'}; % Centers the inner grid
-            gridRotOuter.RowHeight = {'fit', HotWireSTEPApp_v6_2.ButtonHeight};
-            gridRotOuter.Padding=[5 5 5 5];
-            gridRotOuter.BackgroundColor=panelBg;
-
-            app.RotGrid = uigridlayout(gridRotOuter,[3 4]);
-            app.RotGrid.Layout.Row = 1; app.RotGrid.Layout.Column = 2;
-            app.RotGrid.ColumnWidth={'fit','fit',70,'fit'};
+            % Inner grid: 3 rows, 5 columns.
+            % Cols 1-4: X/Y/Z controls. Col 5: Tall Reset Button
+            app.RotGrid = uigridlayout(pnlRot,[3 5]);
+            app.RotGrid.ColumnWidth={'fit','fit',60,'fit', '1x'};
             app.RotGrid.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
-            app.RotGrid.Padding=[0 0 0 0];
+            app.RotGrid.Padding=[5 5 5 5];
+            app.RotGrid.ColumnSpacing = 2;
+            app.RotGrid.RowSpacing = 2;
             app.RotGrid.BackgroundColor=panelBg;
 
             axesLabels = {'X','Y','Z'};
@@ -5840,18 +5850,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 btnPos.Layout.Row=i; btnPos.Layout.Column=4;
             end
 
-            % Reset Buttons in Row 2 of Outer Grid
-            gridRotBtns = uigridlayout(gridRotOuter, [1 2]);
-            gridRotBtns.Layout.Row = 2; gridRotBtns.Layout.Column = [1 3];
-            gridRotBtns.Padding = [0 0 0 0];
-            gridRotBtns.BackgroundColor = panelBg;
-
-            btnResO = uibutton(gridRotBtns, 'Text','Reset Orientation', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetOrientation());
-            btnResP = uibutton(gridRotBtns, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
+            % Tall Reset Button spanning all 3 rows
+            btnResO = uibutton(app.RotGrid, 'Text', sprintf('Reset\nOrient.'), 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetOrientation());
+            btnResO.Layout.Row = [1 3];
+            btnResO.Layout.Column = 5;
 
             %% --- 4. PLANE OFFSETS ---
             pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
-            pnlOff.Layout.Row = 4;
+            pnlOff.Layout.Row = 5;
 
             gridOff = uigridlayout(pnlOff,[2 4]);
             gridOff.ColumnWidth={'fit','1x','fit','1x'};
@@ -5885,9 +5891,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 5. GUIDANCE ---
             pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlGuide.Layout.Row = 5;
+            pnlGuide.Layout.Row = 6;
             glGuide = uigridlayout(pnlGuide,[1 1]);
-            glGuide.Padding = [0 0 0 0]; % Zero padding for max text space
+            glGuide.Padding =[0 0 0 0]; % Zero padding for max text space
             glGuide.BackgroundColor = panelBg;
 
             guideText = {
@@ -5909,7 +5915,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 6. STATUS ---
             pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlStatus.Layout.Row = 6;
+            pnlStatus.Layout.Row = 7;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding = [0 0 0 0];
             glStatus.BackgroundColor = panelBg;
@@ -5918,7 +5924,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 7. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.GLLeft,[1 2]);
-            gridBtn.Layout.Row = 7;
+            gridBtn.Layout.Row = 8;
             gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
