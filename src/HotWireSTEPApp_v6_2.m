@@ -5357,10 +5357,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                         obj.FontColor = t.planeGreenTxt;
                         obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
                         continue; % Skip standard styling for this object
-                        % --- Special Case: Kerf Spinners ---
-                    elseif obj == app.KerfLeftSpinner || obj == app.KerfRightSpinner
-                        obj.FontColor = t.wireKerf;
-                        obj.BackgroundColor = t.wireKerf * 0.15 + t.sideBg * 0.85;
+                    % --- Special Case: Kerf Spinners ---
+                    elseif obj == app.KerfLeftSpinner
+                        obj.FontColor = t.wireKerf; % Orange text
+                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85; % Red background
+                        continue; % Skip standard styling for this object
+                    elseif obj == app.KerfRightSpinner
+                        obj.FontColor = t.wireKerf; % Orange text
+                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85; % Green background
                         continue; % Skip standard styling for this object
                     end
 
@@ -6068,7 +6072,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.KerfLeftSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], 'Value',app.KerfLeftValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
             app.KerfLeftSpinner.FontColor = t.wireKerf;
-            app.KerfLeftSpinner.BackgroundColor = t.wireKerf * 0.15 + panelBg * 0.85;
+            app.KerfLeftSpinner.BackgroundColor = t.planeRed * 0.15 + panelBg * 0.85;
 
             % Right Kerf
             lblKerfRight = uilabel(gridKerf, 'Text','Right:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
@@ -6077,7 +6081,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.KerfRightSpinner = uispinner(gridKerf, 'Limits',[HotWireSTEPApp_v6_2.MinKerf, HotWireSTEPApp_v6_2.MaxKerf], 'Value',app.KerfRightValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Enable', 'off', 'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
             app.KerfRightSpinner.Layout.Row = 2; app.KerfRightSpinner.Layout.Column = 4;
             app.KerfRightSpinner.FontColor = t.wireKerf;
-            app.KerfRightSpinner.BackgroundColor = t.wireKerf * 0.15 + panelBg * 0.85;
+            app.KerfRightSpinner.BackgroundColor = t.planeGreen * 0.15 + panelBg * 0.85;
 
             % Buttons
             app.BtnResetKerf = uibutton(gridKerf, 'Text','Reset Kerf', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetKerf());
