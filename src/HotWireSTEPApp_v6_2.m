@@ -4505,6 +4505,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
                 app.BtnSaveGCode.Enable = 'off';
                 app.BtnSaveGCode.BackgroundColor = [0.3 0.3 0.3];
+                app.BtnSaveGCode.FontColor =[0.8 0.8 0.8];
             end
 
             msg = strings(0);
@@ -4965,8 +4966,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-            app.BtnSaveGCode.Enable = 'on';
-
+            app.BtnSaveGCode.Enablapp.BtnSaveGCode.Enable = 'on';
+            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1]; % Turn green when ready
+            app.BtnSaveGCode.FontColor = [1 1 1];
+            
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
@@ -7020,8 +7023,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             %% --- LEFT CONTROL PANEL (Sidebar) ---
             app.PostLeftPanel = uigridlayout(app.GLPostProcess,[7 1]);
 
-            % Rows: 1:View, 2:Settings, 3:Export, 4:GCode(1x), 5:Guidance(1x), 6:Status(70px), 7:Save
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
+            % Rows: 1:View, 2:Settings, 3:Export, 4:GCode(1x), 5:Save, 6:Guidance(1x), 7:Status(70px)
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', HotWireSTEPApp_v6_2.ButtonHeight, '1x', 70};
             app.PostLeftPanel.Padding =[5 5 5 5];
             app.PostLeftPanel.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
             app.PostLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
@@ -7112,9 +7115,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnGCodeNext.Layout.Row = 2;
             app.BtnGCodeNext.Layout.Column = 2;
 
-            %% --- 4. GUIDANCE ---
+            %% --- 5. ACTION BUTTONS ---
+            gridBtn = uigridlayout(app.PostLeftPanel,[1 1]);
+            gridBtn.Layout.Row = 5;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
+
+            % Initializes as grey/disabled to match the Continue buttons on other tabs
+            app.BtnSaveGCode = uibutton(gridBtn, 'Text','Save G-Code', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
+                'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], 'Enable','off', ...
+                'ButtonPushedFcn',@(~,~)app.onSaveGCode());
+            app.BtnSaveGCode.Tooltip = 'Press to save g-code as a .tap file ready for mach4';
+
+            %% --- 6. GUIDANCE ---
             pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlGuide.Layout.Row = 5;
+            pnlGuide.Layout.Row = 6;
             glGuide = uigridlayout(pnlGuide,[1 1]);
             glGuide.Padding =[0 0 0 0];
             glGuide.BackgroundColor = panelBg;
@@ -7133,26 +7149,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 };
             app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- 5. STATUS ---
+            %% --- 7. STATUS ---
             pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
-            pnlStatus.Layout.Row = 6;
+            pnlStatus.Layout.Row = 7;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding =[0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
             app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.9 0.9 0.9], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
-
-            %% --- 6. ACTION BUTTONS ---
-            gridBtn = uigridlayout(app.PostLeftPanel,[1 1]);
-            gridBtn.Layout.Row = 7;
-            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
-            gridBtn.Padding=[0 0 0 0];
-            gridBtn.BackgroundColor=panelBg;
-
-            app.BtnSaveGCode = uibutton(gridBtn, 'Text','Save G-Code', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
-                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'Enable','off', ...
-                'ButtonPushedFcn',@(~,~)app.onSaveGCode());
-            app.BtnSaveGCode.Tooltip = 'Press to save g-code as a .tap file ready for mach4';
 
             %% --- RIGHT PANEL: 3D POST PLOT ---
             app.AxPost = uiaxes(app.GLPostProcess);
