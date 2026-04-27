@@ -6557,153 +6557,163 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxMachine,'on');
         end
 
-        % TAB 5 (CUTTING STRATEGY)
+        % TAB 6 (CUTTING STRATEGY)
         function createCuttingTab(app)
             % Purpose: Builds the Cutting Strategy (Lead-in/Start points) tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme(), app.getInteractionColors()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Controls for auto/manual selection of start
+            %     points, lead-in paths, and cut direction.
+            %   - Right Panel (1x): 2D axes showing the left and right cut paths.
+            %
+            % Dependencies: app.getTheme(), app.getInteractionColors(), HotWireSTEPApp_v6_2 UI Constants
 
-            % Fetch Theme Colors locally
+            % 1. Fetch Theme Colors locally
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
             labelCol = t.labelCol;
 
+            % 2. Main Tab Container
             app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
 
             app.GLCutting = uigridlayout(app.TabCutting, [2 2]);
-            app.GLCutting.ColumnWidth   = {320, '1x'};
+            app.GLCutting.ColumnWidth   = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
             app.GLCutting.RowHeight     = {'1x', '1x'};
-            app.GLCutting.Padding       =[10 10 10 10];
-            app.GLCutting.ColumnSpacing = 10;
+            app.GLCutting.Padding       =[5 5 5 5];
+            app.GLCutting.ColumnSpacing = 5;
+            app.GLCutting.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
             % Spans both rows on the left side
             app.CuttingLeftPanel = uigridlayout(app.GLCutting,[7 1]);
             app.CuttingLeftPanel.Layout.Row     = [1 2];
             app.CuttingLeftPanel.Layout.Column  = 1;
 
-            % Rows: 1-4 Controls, 5 Guidance (1x), 6 Status (70px), 7 Continue
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70,'fit'};
-            app.CuttingLeftPanel.Padding   =[10 10 10 10];
-            app.CuttingLeftPanel.BackgroundColor = sideBg;
+            % Rows: 1:View, 2:Auto, 3:Modes, 4:Interaction, 5:Guidance(1x), 6:Status(70px), 7:Continue
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.CuttingLeftPanel.Padding   = [5 5 5 5];
+            app.CuttingLeftPanel.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
+            app.CuttingLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
-            %% --- VIEW CONTROLS ---
-            pnlView = uipanel(app.CuttingLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- VIEW CONTROLS (Unnumbered) ---
+            pnlView = uipanel(app.CuttingLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView, [1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing=5;
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
 
-            %% --- AUTO TOOLS ---
-            pnlAuto = uipanel(app.CuttingLeftPanel, 'Title','Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- 1. AUTO TOOLS ---
+            pnlAuto = uipanel(app.CuttingLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlAuto.Layout.Row = 2;
 
             gridAuto = uigridlayout(pnlAuto, [1 2]);
             gridAuto.Padding=[5 5 5 5];
             gridAuto.ColumnSpacing=5;
+            gridAuto.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridAuto.BackgroundColor=panelBg;
 
-            app.btnAutoStart = uibutton(gridAuto, 'Text','Auto Start', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoStart());
+            app.btnAutoStart = uibutton(gridAuto, 'Text','Auto Start', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoStart());
             app.btnAutoStart.Tooltip = 'Automatically selects the start point closest to the front of the machine (Minimum Y).';
 
-            app.btnAutoEntry = uibutton(gridAuto, 'Text','Auto Entry', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
+            app.btnAutoEntry = uibutton(gridAuto, 'Text','Auto Entry', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
             app.btnAutoEntry.Tooltip = 'Automatically calculates a perpendicular entry path from outside the billet boundary.';
 
-            %% --- MODES ---
-            pnlMode = uipanel(app.CuttingLeftPanel, 'Title','Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- 2. MODES ---
+            pnlMode = uipanel(app.CuttingLeftPanel, 'Title','2. Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlMode.Layout.Row = 3;
 
             gridMode = uigridlayout(pnlMode,[3 2]);
-            gridMode.RowHeight = {'fit','fit','fit'};
+            gridMode.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridMode.ColumnWidth = {75, '1x'};
             gridMode.Padding=[5 5 5 5];
             gridMode.BackgroundColor=panelBg;
 
-            lblDirection = uilabel(gridMode, 'Text','Direction:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblDirection = uilabel(gridMode, 'Text','Direction:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblDirection.Layout.Row=1;
 
-            app.SwitchCutDir = uiswitch(gridMode, 'slider', 'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', 'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
+            app.SwitchCutDir = uiswitch(gridMode, 'slider', 'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
             app.SwitchCutDir.Layout.Row=1;
             app.SwitchCutDir.Layout.Column=2;
             app.SwitchCutDir.Tooltip = 'Choses which way around the profile loop the wire goes from the start point';
 
-            lblSyncStart = uilabel(gridMode, 'Text','Start Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSyncStart = uilabel(gridMode, 'Text','Start Pts:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblSyncStart.Layout.Row=2;
 
-            app.SwitchSyncStart = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
+            app.SwitchSyncStart = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
             app.SwitchSyncStart.Layout.Row=2;
             app.SwitchSyncStart.Layout.Column=2;
             app.SwitchSyncStart.Tooltip = 'If there are profile sync issues, decouple and manually select start points for each profile';
 
-            lblSyncEntry = uilabel(gridMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSyncEntry = uilabel(gridMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblSyncEntry.Layout.Row=3;
 
-            app.SwitchSyncEntry = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
+            app.SwitchSyncEntry = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
             app.SwitchSyncEntry.Layout.Row=3;
             app.SwitchSyncEntry.Layout.Column=2;
             app.SwitchSyncEntry.Tooltip = 'Independent entry points can be useful for very tapered or swept parts, entering from the top to reduce waste material';
 
-            %% --- MOUSE INTERACTION ---
-            pnlInteraction = uipanel(app.CuttingLeftPanel, 'Title','Mouse Interaction', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- 3. MOUSE INTERACTION ---
+            pnlInteraction = uipanel(app.CuttingLeftPanel, 'Title','3. Mouse Interaction', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlInteraction.Layout.Row = 4;
 
             % 4 Rows for buttons
             gridInteraction = uigridlayout(pnlInteraction, [4 2]);
-            gridInteraction.RowHeight = {'fit','fit','fit','fit'};
+            gridInteraction.RowHeight = {'fit', HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight};
             gridInteraction.Padding=[5 5 5 5];
             gridInteraction.BackgroundColor=panelBg;
 
-            lblInstruction = uilabel(gridInteraction, 'Text','Click plot to set:', 'FontColor',labelCol);
+            lblInstruction = uilabel(gridInteraction, 'Text','Click plot to set:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblInstruction.Layout.Row=1;
             lblInstruction.Layout.Column=[1 2];
 
             bCols = app.getInteractionColors();
 
             % Start (Green) & Lead In (Orange)
-            app.BtnPickStart = uibutton(gridInteraction, 'state', 'Text','Start Pt', 'FontWeight','bold', ...
+            app.BtnPickStart = uibutton(gridInteraction, 'state', 'Text','Start Pt', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',bCols.StartInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','First point on the profile cut.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickStart.Layout.Row=2; app.BtnPickStart.Layout.Column=1;
 
-            app.BtnPickEntry = uibutton(gridInteraction, 'state', 'Text','Lead In', 'FontWeight','bold', ...
+            app.BtnPickEntry = uibutton(gridInteraction, 'state', 'Text','Lead In', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',bCols.EntryInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Point outside billet where cut begins (Orange line).', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Row=2; app.BtnPickEntry.Layout.Column=2;
 
             % Link 1 & Link 2 (Yellow)
-            app.BtnPickEntry2 = uibutton(gridInteraction, 'state', 'Text','Link 1', 'FontWeight','bold', ...
+            app.BtnPickEntry2 = uibutton(gridInteraction, 'state', 'Text','Link 1', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',bCols.LinkInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Rapid move point before Lead In.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry2.Layout.Row=3; app.BtnPickEntry2.Layout.Column=1;
 
-            app.BtnPickEntry3 = uibutton(gridInteraction, 'state', 'Text','Link 2', 'FontWeight','bold', ...
+            app.BtnPickEntry3 = uibutton(gridInteraction, 'state', 'Text','Link 2', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',bCols.LinkInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Optional 2nd Rapid move point (useful to got over the top of the block.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry3.Layout.Row=3; app.BtnPickEntry3.Layout.Column=2;
 
             % Clear
-            btnClear = uibutton(gridInteraction, 'Text','Clear Pts', 'FontWeight','bold', ...
+            btnClear = uibutton(gridInteraction, 'Text','Clear Pts', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, ...
                 'Tooltip','Reset entry/link points.', ...
                 'ButtonPushedFcn',@(~,~)app.onClearEntries());
             btnClear.Layout.Row=4; btnClear.Layout.Column=[1 2];
 
-            %% --- GUIDANCE ---
-            pnlGuide = uipanel(app.CuttingLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- GUIDANCE (Unnumbered) ---
+            pnlGuide = uipanel(app.CuttingLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 5;
             glGuide = uigridlayout(pnlGuide, [1 1]);
-            glGuide.Padding = [2 2 2 2];
-            glGuide.BackgroundColor = sideBg;
+            glGuide.Padding = [0 0 0 0]; % Zero padding for max text space
+            glGuide.BackgroundColor = panelBg;
 
             guideCut = {
                 'This tab allows visualisation and modification of the wire path, direction, entry/exit, cut direction.';
@@ -6720,38 +6730,43 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Set it to minimise the change in direction between the orange line and the start/end of the cut.';
                 'If you are entering from the top of the block, or have a lot of sweep, the Link point can route the wire over the top of the block, saving waste material.'
                 };
-            app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- STATUS ---
-            pnlStatus = uipanel(app.CuttingLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- STATUS (Unnumbered) ---
+            pnlStatus = uipanel(app.CuttingLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus, [1 1]);
-            glStatus.Padding = [2 2 2 2];
-            glStatus.BackgroundColor = sideBg;
+            glStatus.Padding = [0 0 0 0];
+            glStatus.BackgroundColor = panelBg;
 
-            app.TxtCuttingStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4]);
+            app.TxtCuttingStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- ACTION BUTTONS ---
-            app.BtnCuttingContinue = uibutton(app.CuttingLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            gridBtn = uigridlayout(app.CuttingLeftPanel,[1 1]);
+            gridBtn.Layout.Row = 7;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
+
+            app.BtnCuttingContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnCuttingContinue.Layout.Row = 7;
 
             %% --- RIGHT PANEL: 2D CUT PLOTS ---
             app.AxCutLeft = uiaxes(app.GLCutting);
             app.AxCutLeft.Layout.Row=1;
             app.AxCutLeft.Layout.Column=2;
-            app.AxCutLeft.BackgroundColor = t.editBg;
+            app.AxCutLeft.BackgroundColor = t.axBg;
             grid(app.AxCutLeft,'on');
             title(app.AxCutLeft,'Left Profile Cut Path');
 
             app.AxCutRight = uiaxes(app.GLCutting);
             app.AxCutRight.Layout.Row=2;
             app.AxCutRight.Layout.Column=2;
-            app.AxCutRight.BackgroundColor = t.editBg;
+            app.AxCutRight.BackgroundColor = t.axBg;
             grid(app.AxCutRight,'on');
             title(app.AxCutRight,'Right Profile Cut Path');
         end
-        
+
         % TAB 6 (SIMULATION)
         function createSimulationTab(app)
             % Purpose: Builds the Kinematics Simulation tab UI components.
