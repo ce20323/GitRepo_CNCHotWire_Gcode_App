@@ -1095,9 +1095,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 isExtRed   = app.MaxPathExtension > app.WireExt_Red;
                 isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
 
-                % Case A: CRITICAL ERROR (Red) - Block movement past Machine Tab
+                % Case A: CRITICAL ERROR (Red) - Block movement to Sim/Post, but allow Cutting
                 if ~isValidMach || isExtRed
-                    if targetTab ~= app.TabMachine && ~isWelcome && ~isModel && ~isProfiles && ~isBillet
+                    if isSim || isPost
                         reason = "Billet is outside machine limits.";
                         if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
                         uialert(app.UIFigure, reason, 'Machine Safety Error');
@@ -1105,8 +1105,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                         return;
                     end
 
-                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD
-                elseif isExtAmber && targetTab ~= app.TabMachine && ~isWelcome && ~isModel && ~isProfiles && ~isBillet
+                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD to Sim/Post
+                elseif isExtAmber && (isSim || isPost)
                     if ~forceAuto
                         sel = uiconfirm(app.UIFigure, ...
                             sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical pulley limit.\n\nProceed anyway, or return to Machine tab to optimize?', app.MaxPathExtension), ...
@@ -1186,7 +1186,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineLeftPanel.BackgroundColor = pColF;
                 app.TxtMachineStatus.Value = msgLinesF;
                 app.TxtMachineStatus.FontColor = tColF;
-                if isValidMachF, app.BtnMachineContinue.Enable = 'on'; else, app.BtnMachineContinue.Enable = 'off'; end
+                app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
                 app.refreshMachinePlot();
 
             elseif targetTab == app.TabCutting
@@ -2416,11 +2416,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
 
-            if isValid
-                app.BtnMachineContinue.Enable = 'on';
-            else
-                app.BtnMachineContinue.Enable = 'off';
-            end
+            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
 
             app.IsMachineUserModified = true;
             app.IsMachineInit = true;
@@ -2541,11 +2537,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
 
-            if isValid
-                app.BtnMachineContinue.Enable = 'on';
-            else
-                app.BtnMachineContinue.Enable = 'off';
-            end
+            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
 
             app.IsMachineUserModified = false;
             app.IsMachineInit = true;
@@ -2817,11 +2809,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
 
-            if isValid
-                app.BtnMachineContinue.Enable = 'on';
-            else
-                app.BtnMachineContinue.Enable = 'off';
-            end
+            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
 
             drawnow limitrate;
         end
@@ -6429,56 +6417,79 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxBilletRight, 'Right View (Y/Z)');
         end
 
-        % TAB 4 (MACHINE)
+        % TAB 5 (MACHINE)
         function createMachineTab(app)
             % Purpose: Builds the Machine Setup and Billet placement tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Controls for machine view, auto-positioning,
+            %     and manual billet placement on the machine bed.
+            %   - Right Panel (1x): 3D interactive visualization of the machine.
+            %
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
-            % Fetch Theme Colors locally
+            % 1. Fetch Theme Colors locally
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
             labelCol = t.labelCol;
 
+            % 2. Main Tab Container
             app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
 
             app.GLMachine = uigridlayout(app.TabMachine,[1 2]);
-            app.GLMachine.ColumnWidth = {320, '1x'};
-            app.GLMachine.Padding =[10 10 10 10];
+            app.GLMachine.ColumnWidth = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
+            app.GLMachine.Padding =[5 5 5 5];
+            app.GLMachine.ColumnSpacing = 5;
+            app.GLMachine.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
             app.MachineLeftPanel = uigridlayout(app.GLMachine,[6 1]);
 
-            % Rows: 1-3 Controls, 4 Guidance (1x), 5 Status (70px), 6 Continue
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70,'fit'};
-            app.MachineLeftPanel.Padding =[10 10 10 10];
-            app.MachineLeftPanel.BackgroundColor = sideBg;
+            % Rows: 1:View, 2:Auto, 3:Placement, 4:Guidance(1x), 5:Status(70px), 6:Continue
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.MachineLeftPanel.Padding =[5 5 5 5];
+            app.MachineLeftPanel.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
+            app.MachineLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
-            %% --- VIEW CONTROLS ---
-            pnlView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- VIEW CONTROLS (Unnumbered) ---
+            pnlView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
-            gridView = uigridlayout(pnlView, [1 2]);
+            gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
 
-            %% --- BILLET PLACEMENT ---
-            pnlPlacement = uipanel(app.MachineLeftPanel, 'Title','Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold');
-            pnlPlacement.Layout.Row = 2;
+            %% --- 1. AUTO TOOLS ---
+            pnlAutoTools = uipanel(app.MachineLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlAutoTools.Layout.Row = 2;
+
+            gridAutoTools = uigridlayout(pnlAutoTools,[1 1]);
+            gridAutoTools.Padding=[5 5 5 5];
+            gridAutoTools.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridAutoTools.BackgroundColor=panelBg;
+
+            btnAutoPosition = uibutton(gridAutoTools, 'Text','Auto-position Billet', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
+            btnAutoPosition.Tooltip = 'Optimizes X position to balance tower wire lengths, snaps Z to standard stock heights, and rounds Y to a safe distance.';
+
+            %% --- 2. BILLET PLACEMENT ---
+            pnlPlacement = uipanel(app.MachineLeftPanel, 'Title','2. Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
+            pnlPlacement.Layout.Row = 3;
 
             gridPlacement = uigridlayout(pnlPlacement,[4 2]);
             gridPlacement.ColumnWidth={'1x',110};
+            gridPlacement.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridPlacement.Padding=[10 5 10 5];
             gridPlacement.BackgroundColor=panelBg;
 
-            lblAxisHeader = uilabel(gridPlacement, 'Text','Axis', 'FontWeight','bold', 'FontColor',labelCol);
+            lblAxisHeader = uilabel(gridPlacement, 'Text','Axis', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
             lblAxisHeader.Layout.Row=1;
 
-            lblPosHeader = uilabel(gridPlacement, 'Text','Pos [mm]', 'FontWeight','bold', 'FontColor',labelCol);
+            lblPosHeader = uilabel(gridPlacement, 'Text','Pos [mm]', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
             lblPosHeader.Layout.Column=2;
 
             mAxisLabels = {'X (Left Bed Edge)','Y (Home Position)','Z (Bed Surface)'};
@@ -6490,31 +6501,20 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.MachinePosSpinners = gobjects(1,3);
             for i=1:3
-                lblAxisRow = uilabel(gridPlacement, 'Text',mAxisLabels{i}, 'FontColor',labelCol);
+                lblAxisRow = uilabel(gridPlacement, 'Text',mAxisLabels{i}, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
                 lblAxisRow.Layout.Row=i+1;
 
-                app.MachinePosSpinners(i) = uispinner(gridPlacement, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0,'Tooltip', mTooltips{i}, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
+                app.MachinePosSpinners(i) = uispinner(gridPlacement, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Tooltip', mTooltips{i}, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
                 app.MachinePosSpinners(i).Layout.Row=i+1;
                 app.MachinePosSpinners(i).Layout.Column=2;
             end
 
-            %% --- AUTO TOOLS ---
-            pnlAutoTools = uipanel(app.MachineLeftPanel, 'Title','Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
-            pnlAutoTools.Layout.Row = 3;
-
-            gridAutoTools = uigridlayout(pnlAutoTools,[1 1]);
-            gridAutoTools.Padding=[5 5 5 5];
-            gridAutoTools.BackgroundColor=panelBg;
-
-            btnAutoPosition = uibutton(gridAutoTools, 'Text','Auto-position Billet', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
-            btnAutoPosition.Tooltip = 'Optimizes X position to balance tower wire lengths, snaps Z to standard stock heights, and rounds Y to a safe distance.';
-
-            %% --- GUIDANCE ---
-            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- 3. GUIDANCE ---
+            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', '3. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 4;
-            glGuide = uigridlayout(pnlGuide, [1 1]);
-            glGuide.Padding = [2 2 2 2];
-            glGuide.BackgroundColor = sideBg;
+            glGuide = uigridlayout(pnlGuide,[1 1]);
+            glGuide.Padding = [0 0 0 0];
+            glGuide.BackgroundColor = panelBg;
 
             guideMach = {
                 '1. Position the stock material securely on the physical machine bed.';
@@ -6527,26 +6527,31 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '';
                 'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
                 };
-            app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- STATUS ---
-            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- 4. STATUS ---
+            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', '4. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 5;
-            glStatus = uigridlayout(pnlStatus, [1 1]);
-            glStatus.Padding = [2 2 2 2];
-            glStatus.BackgroundColor = sideBg;
+            glStatus = uigridlayout(pnlStatus,[1 1]);
+            glStatus.Padding = [0 0 0 0];
+            glStatus.BackgroundColor = panelBg;
 
-            app.TxtMachineStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0]);
+            app.TxtMachineStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- ACTION BUTTONS ---
-            app.BtnMachineContinue = uibutton(app.MachineLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            %% --- 5. ACTION BUTTONS ---
+            gridBtn = uigridlayout(app.MachineLeftPanel,[1 1]);
+            gridBtn.Layout.Row = 6;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
+
+            app.BtnMachineContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnMachineContinue.Layout.Row = 6;
 
             %% --- RIGHT PANEL: 3D MACHINE PLOT ---
             app.AxMachine = uiaxes(app.GLMachine);
             app.AxMachine.Layout.Column=2;
-            app.AxMachine.BackgroundColor=[0.05 0.05 0.05];
+            app.AxMachine.BackgroundColor=t.axBg;
             grid(app.AxMachine,'on');
             view(app.AxMachine,3);
             hold(app.AxMachine,'on');
