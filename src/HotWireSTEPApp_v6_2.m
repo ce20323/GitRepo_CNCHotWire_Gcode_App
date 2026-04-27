@@ -4966,10 +4966,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-            app.BtnSaveGCode.Enablapp.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1]; % Turn green when ready
+
+            app.BtnSaveGCode.Enable = 'on';
+            app.BtnSaveGCode.BackgroundColor = [0.1 0.6 0.1]; % Turn green when ready
             app.BtnSaveGCode.FontColor = [1 1 1];
-            
+
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
