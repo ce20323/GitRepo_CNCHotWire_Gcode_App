@@ -5706,7 +5706,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % 3. Status
-            pnl3 = uipanel(leftPnl, 'Title', '3. Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnl3 = uipanel(leftPnl, 'Title', 'Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnl3.Layout.Row = 6;
             gl3 = uigridlayout(pnl3, [1 1]); gl3.Padding =[0 0 0 0]; gl3.BackgroundColor = sideBg;
             uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
@@ -6083,7 +6083,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.KerfPointCountLabel.Layout.Row = 5; app.KerfPointCountLabel.Layout.Column = [1 4];
 
             %% --- 3. GUIDANCE ---
-            pnlGuide = uipanel(app.profilesLeft, 'Title', '3. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.profilesLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 4;
             glGuide = uigridlayout(pnlGuide, [1 1]);
             glGuide.Padding =[0 0 0 0];
@@ -6109,7 +6109,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- 4. STATUS ---
-            pnlStatus = uipanel(app.profilesLeft, 'Title', '4. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.profilesLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 5;
             glStatus = uigridlayout(pnlStatus, [1 1]);
             glStatus.Padding = [0 0 0 0];
@@ -6364,7 +6364,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 5. STATUS ---
             % Purpose: Traffic light feedback for model containment
-            pnlStatus = uipanel(app.BilletLeftPanel, 'Title', '5. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.BilletLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding =[0 0 0 0];
@@ -6510,7 +6510,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             %% --- 3. GUIDANCE ---
-            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', '3. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 4;
             glGuide = uigridlayout(pnlGuide,[1 1]);
             glGuide.Padding = [0 0 0 0];
@@ -6530,7 +6530,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- 4. STATUS ---
-            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', '4. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 5;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding = [0 0 0 0];
