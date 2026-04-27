@@ -6196,6 +6196,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
+            gridView.ColumnSpacing = 5;
             gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
@@ -6209,6 +6210,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             gridAutoTools = uigridlayout(pnlAutoTools,[1 2]);
             gridAutoTools.Padding=[5 5 5 5];
+            gridAutoTools.ColumnSpacing = 5;
             gridAutoTools.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridAutoTools.BackgroundColor=panelBg;
 
@@ -6458,6 +6460,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
+            gridView.ColumnSpacing = 5;
             gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
@@ -6807,8 +6810,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
-            gridView = uigridlayout(pnlView, [1 2]);
+            gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
+            gridView.ColumnSpacing = 5;
             gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
@@ -6823,6 +6827,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridPlayback.ColumnWidth={'1x','1x','1x'};
             gridPlayback.RowHeight={HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridPlayback.Padding=[5 5 5 5];
+            gridPlayback.ColumnSpacing = 5;
+            gridPlayback.RowSpacing = 5;
             gridPlayback.BackgroundColor=panelBg;
 
             % Row 1: Buttons
@@ -6847,6 +6853,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridSettings.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
             gridSettings.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridSettings.Padding=[5 5 5 5];
+            gridSettings.ColumnSpacing = 5;
+            gridSettings.RowSpacing = 2;
             gridSettings.BackgroundColor=panelBg;
 
             lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
