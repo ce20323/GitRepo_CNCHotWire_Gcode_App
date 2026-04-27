@@ -6236,10 +6236,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlSize.Layout.Row = 3;
 
             % 7-Column Grid to perfectly match the Position block below it.
-            % Col 2 and Col 6 use '1x' to stretch and prevent text cropping.
-            % Col 7 is a dummy 26px spacer to account for the vertical reset button in the next block.
+            % Col 1 increased to 40px to prevent 'Axis' cropping.
             gridSize = uigridlayout(pnlSize, [4 7]);
-            gridSize.ColumnWidth = {25, '1x', 26, 55, 26, '1x', HotWireSTEPApp_v6_2.ButtonHeight};
+            gridSize.ColumnWidth = {40, '1x', 26, 55, 26, '1x', HotWireSTEPApp_v6_2.ButtonHeight};
             gridSize.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridSize.Padding =[5 5 5 5];
             gridSize.ColumnSpacing = 4;
@@ -6253,7 +6252,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblStockHeader.Layout.Column = [3 5]; % Spans the -, Edit, and + columns
 
             lblModelHeader = uilabel(gridSize, 'Text', 'Model', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment', 'center');
-            lblModelHeader.Layout.Column = 6;
+            lblModelHeader.Layout.Column =[6 7]; % Spans into dummy column to prevent cropping!
 
             axisLabels = {'X','Y','Z'};
             sizeTooltips = {'Length (Span)', 'Depth (Y)', 'Height (Z)'};
@@ -6282,9 +6281,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.BilletSizePlusBtns(i) = uibutton(gridSize, 'Text', '+', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
-                % Model Dim Readout (Col 6)
+                % Model Dim Readout (Col 6 & 7)
                 app.BilletModelDimLabels(i) = uilabel(gridSize, 'Text', '(---)', 'HorizontalAlignment', 'center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
-                app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = 6;
+                app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = [6 7];
             end
 
             %% --- 3. POSITION CONTROLS ---
@@ -6295,7 +6294,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 7-Column Grid matching the Size block exactly.
             % Col 7 holds the vertical Reset button spanning rows 2-4.
             gridPos = uigridlayout(pnlPos, [4 7]);
-            gridPos.ColumnWidth = {25, '1x', 26, 55, 26, '1x', HotWireSTEPApp_v6_2.ButtonHeight};
+            gridPos.ColumnWidth = {40, '1x', 26, 55, 26, '1x', HotWireSTEPApp_v6_2.ButtonHeight};
             gridPos.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridPos.Padding =[5 5 5 5];
             gridPos.ColumnSpacing = 4;
@@ -6380,10 +6379,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlStatus = uipanel(app.BilletLeftPanel, 'Title', '5. Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus,[1 1]);
-            glStatus.Padding = [0 0 0 0];
+            glStatus.Padding =[0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtBilletStatus = uitextarea(glStatus, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            app.TxtBilletStatus = uitextarea(glStatus, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- 6. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.BilletLeftPanel,[1 1]);
