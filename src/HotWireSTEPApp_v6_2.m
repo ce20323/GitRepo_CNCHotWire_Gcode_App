@@ -6981,117 +6981,135 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
         end
 
-        % TAB 7 (POST-PROCESS)
+        % TAB 8 (POST-PROCESS)
         function createPostProcessTab(app)
             % Purpose: Builds the Post-Processor and G-Code export tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Controls for feed/power, G-code generation,
+            %     and an interactive G-code viewer listbox.
+            %   - Right Panel (1x): 3D axes for verifying the generated G-code path.
+            %
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
-            % Fetch Theme Colors locally
+            % 1. Fetch Theme Colors locally
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
             labelCol = t.labelCol;
+            inputBg  = t.inputBg;
+            inputTxt = t.inputTxt;
 
+            % 2. Main Tab Container
             app.TabPostProcess = uitab(app.TabGroup, 'Title', 'Post-Process');
 
-            app.GLPostProcess = uigridlayout(app.TabPostProcess,[ 1 2 ]);
-            app.GLPostProcess.ColumnWidth   = {320, '1x'};
-            app.GLPostProcess.Padding       =[ 10 10 10 10 ];
+            app.GLPostProcess = uigridlayout(app.TabPostProcess,[1 2]);
+            app.GLPostProcess.ColumnWidth   = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
+            app.GLPostProcess.Padding       =[5 5 5 5];
+            app.GLPostProcess.ColumnSpacing = 5;
+            app.GLPostProcess.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
-            app.PostLeftPanel = uigridlayout(app.GLPostProcess,[ 7 1 ]);
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
+            app.PostLeftPanel = uigridlayout(app.GLPostProcess,[7 1]);
 
-            % Rows: 1-3 Controls, 4 GCode (1x), 5 Guidance (1x), 6 Status (70px), 7 Save
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', '1x', 70, 'fit'};
-            app.PostLeftPanel.Padding =[ 10 10 10 10 ];
-            app.PostLeftPanel.BackgroundColor = sideBg;
+            % Rows: 1:View, 2:Settings, 3:Export, 4:GCode(1x), 5:Guidance(1x), 6:Status(70px), 7:Save
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', '1x', 70, HotWireSTEPApp_v6_2.ButtonHeight};
+            app.PostLeftPanel.Padding =[5 5 5 5];
+            app.PostLeftPanel.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
+            app.PostLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
-            %% --- VIEW CONTROLS ---
-            pnlView = uipanel(app.PostLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- VIEW CONTROLS (Unnumbered) ---
+            pnlView = uipanel(app.PostLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
-            gridView = uigridlayout(pnlView,[ 1 2 ]);
-            gridView.Padding=[ 5 5 5 5 ];
+            gridView = uigridlayout(pnlView,[1 2]);
+            gridView.Padding=[5 5 5 5];
+            gridView.ColumnSpacing=5; % Matches Cutting Tab for consistency!
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetPostViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetPostViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewBillet());
 
-            %% --- SETTINGS (FEED & POWER) ---
-            pnlSettings = uipanel(app.PostLeftPanel, 'Title','Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- 1. SETTINGS (FEED & POWER) ---
+            pnlSettings = uipanel(app.PostLeftPanel, 'Title','1. Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlSettings.Layout.Row = 2;
 
-            gridSettings = uigridlayout(pnlSettings,[ 2 3 ]);
+            gridSettings = uigridlayout(pnlSettings, [2 3]);
             gridSettings.ColumnWidth={'1x', 'fit', 80};
-            gridSettings.RowHeight={'fit', 'fit'};
-            gridSettings.Padding=[ 5 5 5 5 ];
+            gridSettings.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
+            gridSettings.Padding=[5 5 5 5];
+            gridSettings.ColumnSpacing=5;
+            gridSettings.RowSpacing=2;
             gridSettings.BackgroundColor=panelBg;
 
-            app.ChkDynamicFeed = uicheckbox(gridSettings, 'Text', 'Dynamic', 'FontColor', labelCol, 'Value', true);
+            app.ChkDynamicFeed = uicheckbox(gridSettings, 'Text', 'Dynamic', 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Value', true);
             app.ChkDynamicFeed.Layout.Row=1; app.ChkDynamicFeed.Layout.Column=1;
             app.ChkDynamicFeed.Tooltip = 'Scale feed rate continuously so the wire maintains constant speed through the foam on tapered parts.';
             app.ChkDynamicFeed.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
-            lblFeed = uilabel(gridSettings, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblFeed = uilabel(gridSettings, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblFeed.Layout.Row=1; lblFeed.Layout.Column=2;
 
-            app.SpinFeedRate = uispinner(gridSettings, 'Limits',[ 10 500 ], 'Value', HotWireSTEPApp_v6_2.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f');
+            app.SpinFeedRate = uispinner(gridSettings, 'Limits',[10 500], 'Value', HotWireSTEPApp_v6_2.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=3;
             app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
             app.SpinFeedRate.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
-            lblPower = uilabel(gridSettings, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblPower = uilabel(gridSettings, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblPower.Layout.Row=2; lblPower.Layout.Column=2;
 
-            app.SpinPower = uispinner(gridSettings, 'Limits',[ 10 100 ], 'Value', HotWireSTEPApp_v6_2.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f');
+            app.SpinPower = uispinner(gridSettings, 'Limits',[10 100], 'Value', HotWireSTEPApp_v6_2.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=3;
             app.SpinPower.Tooltip = 'Programmed wire power, kerf is proportional to wire power';
             app.SpinPower.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
-            %% --- FILENAME & EXPORT ---
-            pnlExport = uipanel(app.PostLeftPanel, 'Title','Filename:', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            %% --- 2. FILENAME & EXPORT ---
+            pnlExport = uipanel(app.PostLeftPanel, 'Title','2. Filename:', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlExport.Layout.Row = 3;
 
-            gridExport = uigridlayout(pnlExport,[ 2 1 ]);
-            gridExport.RowHeight={'fit','fit'};
-            gridExport.Padding=[ 5 5 5 5 ];
+            gridExport = uigridlayout(pnlExport,[2 1]);
+            gridExport.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight};
+            gridExport.Padding=[5 5 5 5];
+            gridExport.RowSpacing=5;
             gridExport.BackgroundColor=panelBg;
 
-            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode');
+            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt);
 
-            app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', ...
+            app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
             app.BtnPostProcess.Tooltip = 'Press to generate g-code';
 
-            %% --- G-CODE VIEWER ---
-            app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','G-Code', 'FontWeight','bold', 'BorderType','line');
+            %% --- 3. G-CODE VIEWER ---
+            app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','3. G-Code', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             app.PanelGCode.Layout.Row = 4;
 
-            app.GridGCode = uigridlayout(app.PanelGCode, [ 2 2 ]);
-            app.GridGCode.RowHeight = {'1x', 'fit'};
+            app.GridGCode = uigridlayout(app.PanelGCode, [2 2]);
+            app.GridGCode.RowHeight = {'1x', HotWireSTEPApp_v6_2.ButtonHeight};
             app.GridGCode.ColumnWidth = {'1x','1x'};
-            app.GridGCode.Padding =[ 5 5 5 5 ];
+            app.GridGCode.Padding =[5 5 5 5];
+            app.GridGCode.ColumnSpacing=5;
+            app.GridGCode.BackgroundColor=panelBg;
 
-            app.ListGCode = uilistbox(app.GridGCode, 'Items', {'(Generate to view G-code...)'}, 'ValueChangedFcn', @(src,~)app.onPostLineSelected(src));
+            app.ListGCode = uilistbox(app.GridGCode, 'Items', {'(Generate to view G-code...)'}, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', sideBg, 'FontColor', labelCol, 'ValueChangedFcn', @(src,~)app.onPostLineSelected(src));
             app.ListGCode.Layout.Row = 1;
-            app.ListGCode.Layout.Column =[ 1 2 ];
+            app.ListGCode.Layout.Column =[1 2];
             app.ListGCode.FontName = 'Courier New';
 
-            app.BtnGCodePrev = uibutton(app.GridGCode,'push','Text','◀ Prev', 'ButtonPushedFcn', @(~,~)app.stepPostLine(-1));
+            app.BtnGCodePrev = uibutton(app.GridGCode,'push','Text','◀ Prev', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(-1));
             app.BtnGCodePrev.Layout.Row = 2;
             app.BtnGCodePrev.Layout.Column = 1;
 
-            app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', 'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
+            app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
             app.BtnGCodeNext.Layout.Row = 2;
             app.BtnGCodeNext.Layout.Column = 2;
 
-            %% --- GUIDANCE ---
-            pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- 4. GUIDANCE ---
+            pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 5;
-            glGuide = uigridlayout(pnlGuide, [1 1]);
-            glGuide.Padding =[2 2 2 2];
-            glGuide.BackgroundColor = sideBg;
+            glGuide = uigridlayout(pnlGuide,[1 1]);
+            glGuide.Padding =[0 0 0 0];
+            glGuide.BackgroundColor = panelBg;
 
             guidePost = {
                 '1. Set feed rate and wire power.';
@@ -7105,28 +7123,33 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Power too low / Feed too high = wire drag, cut corners, or break.';
                 'Power too high / Feed too low = kerf too big, melted details, burned foam.'
                 };
-            app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', sideBg, 'FontColor', labelCol);
+            app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- STATUS ---
-            pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'BorderType', 'line');
+            %% --- 5. STATUS ---
+            pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus,[1 1]);
-            glStatus.Padding =[2 2 2 2];
-            glStatus.BackgroundColor = sideBg;
+            glStatus.Padding =[0 0 0 0];
+            glStatus.BackgroundColor = panelBg;
 
-            app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor',[ 0.2 0.2 0.2 ], 'FontColor',[ 0.9 0.9 0.9 ]);
+            app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.9 0.9 0.9], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
-            %% --- ACTION BUTTONS ---
-            app.BtnSaveGCode = uibutton(app.PostLeftPanel, 'Text','Save G-Code', 'FontWeight','bold', ...
-                'BackgroundColor',[ 0.1 0.6 0.1 ], 'FontColor',[ 1 1 1 ], 'Enable','off', ...
+            %% --- 6. ACTION BUTTONS ---
+            gridBtn = uigridlayout(app.PostLeftPanel,[1 1]);
+            gridBtn.Layout.Row = 7;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
+
+            app.BtnSaveGCode = uibutton(gridBtn, 'Text','Save G-Code', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
+                'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'Enable','off', ...
                 'ButtonPushedFcn',@(~,~)app.onSaveGCode());
-            app.BtnSaveGCode.Layout.Row = 7;
             app.BtnSaveGCode.Tooltip = 'Press to save g-code as a .tap file ready for mach4';
 
             %% --- RIGHT PANEL: 3D POST PLOT ---
             app.AxPost = uiaxes(app.GLPostProcess);
             app.AxPost.Layout.Column = 2;
-            app.AxPost.BackgroundColor =[ 0.05 0.05 0.05 ];
+            app.AxPost.BackgroundColor = t.axBg;
             xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
             grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
         end
