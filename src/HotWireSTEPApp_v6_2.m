@@ -6767,129 +6767,142 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxCutRight,'Right Profile Cut Path');
         end
 
-        % TAB 6 (SIMULATION)
+        % TAB 7 (SIMULATION)
         function createSimulationTab(app)
             % Purpose: Builds the Kinematics Simulation tab UI components.
-            % Inputs:  app (HotWireSTEPApp_v6_2 instance)
-            % Dependencies: app.getTheme()
+            %
+            % Layout Strategy:
+            %   - Left Panel (320px): Dashboard controls for playback, speed
+            %     settings, live coordinate readouts, and program extents.
+            %   - Right Panel (1x): 3D interactive kinematics simulation axes.
+            %
+            % Dependencies: app.getTheme(), HotWireSTEPApp_v6_2 UI Constants
 
-            % Fetch Theme Colors locally
+            % 1. Fetch Theme Colors locally
             t = app.getTheme();
             sideBg   = t.sideBg;
             panelBg  = t.panelBg;
             labelCol = t.labelCol;
 
+            % 2. Main Tab Container
             app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
 
             app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
-            app.GLSimulation.ColumnWidth = {320, '1x'};
-            app.GLSimulation.Padding =[10 10 10 10];
+            app.GLSimulation.ColumnWidth = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
+            app.GLSimulation.Padding = [5 5 5 5];
+            app.GLSimulation.ColumnSpacing = 5;
+            app.GLSimulation.BackgroundColor = sideBg;
 
-            %% --- LEFT CONTROL PANEL ---
-            app.SimLeftPanel = uigridlayout(app.GLSimulation, [6 1]);
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
-            app.SimLeftPanel.Padding = [10 10 10 10];
-            app.SimLeftPanel.BackgroundColor = sideBg;
+            %% --- LEFT CONTROL PANEL (Sidebar) ---
+            app.SimLeftPanel = uigridlayout(app.GLSimulation, [7 1]);
+            app.SimLeftPanel.Layout.Column = 1;
+
+            % Rows: 1:View, 2:Playback, 3:Settings, 4:Status, 5:Extents, 6:Spacer(1x), 7:Continue
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', HotWireSTEPApp_v6_2.ButtonHeight};
+            app.SimLeftPanel.Padding = [5 5 5 5];
+            app.SimLeftPanel.RowSpacing = HotWireSTEPApp_v6_2.BlockSpacing;
+            app.SimLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS ---
-            pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView, [1 2]);
             gridView.Padding=[5 5 5 5];
+            gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
 
             %% --- PLAYBACK CONTROLS ---
-            pnlPlayback = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlPlayback = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlPlayback.Layout.Row = 2;
 
             gridPlayback = uigridlayout(pnlPlayback,[2 3]);
             gridPlayback.ColumnWidth={'1x','1x','1x'};
-            gridPlayback.RowHeight={'fit','fit'};
+            gridPlayback.RowHeight={HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridPlayback.Padding=[5 5 5 5];
             gridPlayback.BackgroundColor=panelBg;
 
             % Row 1: Buttons
-            app.SimPlayBtn = uibutton(gridPlayback, 'Text','Play', 'FontWeight','bold', 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
-            btnPause = uibutton(gridPlayback, 'Text','Pause', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
-            app.SimStopBtn = uibutton(gridPlayback, 'Text','Reset', 'FontWeight','bold', 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
+            app.SimPlayBtn = uibutton(gridPlayback, 'Text','Play', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
+            btnPause = uibutton(gridPlayback, 'Text','Pause', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+            app.SimStopBtn = uibutton(gridPlayback, 'Text','Reset', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
 
             % Row 2: Slider + Spinner
             app.SimSlider = uislider(gridPlayback, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
             app.SimSlider.Layout.Row = 2;
             app.SimSlider.Layout.Column = [1 2];
 
-            app.SimIndexSpinner = uispinner(gridPlayback, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
+            app.SimIndexSpinner = uispinner(gridPlayback, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
             app.SimIndexSpinner.Layout.Row = 2;
             app.SimIndexSpinner.Layout.Column = 3;
 
             %% --- SETTINGS ---
-            pnlSettings = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlSettings = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlSettings.Layout.Row = 3;
 
             gridSettings = uigridlayout(pnlSettings, [2 2]);
             gridSettings.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
-            gridSettings.RowHeight={'fit', 'fit'};
+            gridSettings.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
             gridSettings.Padding=[5 5 5 5];
             gridSettings.BackgroundColor=panelBg;
 
-            lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblSpeed.Layout.Row=1; lblSpeed.Layout.Column=1;
 
-            app.SimSpeedSpinner = uispinner(gridSettings, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'Tooltip', 'Simulation speed as multiple of set feed rate');
+            app.SimSpeedSpinner = uispinner(gridSettings, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'Tooltip', 'Simulation speed as multiple of set feed rate');
             app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
 
-            lblBaseFeed = uilabel(gridSettings, 'Text','Base Feed Rate [mm/min]:', 'FontColor',labelCol, 'HorizontalAlignment','right');
+            lblBaseFeed = uilabel(gridSettings, 'Text','Base Feed Rate[mm/min]:', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblBaseFeed.Layout.Row=2; lblBaseFeed.Layout.Column=1;
 
             app.LblBaseFeed = uilabel(gridSettings, 'Text', sprintf('%.0f', HotWireSTEPApp_v6_2.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
-                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt);
+                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
 
             %% --- LIVE SYSTEM STATUS ---
-            pnlStatus = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlStatus = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlStatus.Layout.Row = 4;
 
             % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
-            gridStatus = uigridlayout(pnlStatus,[5 5]);
+            gridStatus = uigridlayout(pnlStatus, [5 5]);
             gridStatus.ColumnWidth = {'fit', 60, '1x', 'fit', 60};
             gridStatus.RowHeight = {'fit', 'fit', 'fit', 'fit', 50};
-            gridStatus.Padding =[10 10 10 10];
+            gridStatus.Padding = [5 5 5 5];
             gridStatus.BackgroundColor = panelBg;
 
-            lblHeadL = uilabel(gridStatus, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblHeadL = uilabel(gridStatus, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center');
             lblHeadL.Layout.Column = [1 2];
 
-            lblHeadR = uilabel(gridStatus, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'HorizontalAlignment','center');
+            lblHeadR = uilabel(gridStatus, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center');
             lblHeadR.Layout.Column = [4 5];
 
             % Row 2: X/Z
-            lblX = uilabel(gridStatus, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblX = uilabel(gridStatus, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblX.Layout.Row=2;
 
-            app.LblReadoutX = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutX = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
 
-            lblZ = uilabel(gridStatus, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblZ = uilabel(gridStatus, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblZ.Layout.Row=2; lblZ.Layout.Column=4;
 
-            app.LblReadoutZ = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutZ = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
 
             % Row 3: Y/A
-            lblY = uilabel(gridStatus, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblY = uilabel(gridStatus, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblY.Layout.Row=3;
 
-            app.LblReadoutY = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutY = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
 
-            lblA = uilabel(gridStatus, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'HorizontalAlignment','right');
+            lblA = uilabel(gridStatus, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','right');
             lblA.Layout.Row=3; lblA.Layout.Column=4;
 
-            app.LblReadoutA = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol);
+            app.LblReadoutA = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
             % Row 4: Extension Label
@@ -6899,6 +6912,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             lblGaugeTitle.Text = 'Wire Extension (Pulley Travel) [mm]';
             lblGaugeTitle.FontWeight = 'bold';
             lblGaugeTitle.FontColor = labelCol;
+            lblGaugeTitle.FontSize = HotWireSTEPApp_v6_2.FontSizeNormal;
             lblGaugeTitle.HorizontalAlignment = 'center';
 
             % Row 5: Linear Gauge
@@ -6919,11 +6933,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.WireExt_Red scaleMax];
 
             gaugeExt.FontColor = labelCol;
-            gaugeExt.FontSize = 8;
+            gaugeExt.FontSize = 8; % Keep small to fit ticks
             gaugeExt.BackgroundColor = panelBg;
 
             gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
-                sprintf('This dial shows the live extention reuqired during the simulation'), ...
+                sprintf('This dial shows the live extention required during the simulation'), ...
                 sprintf('Green: Safe operation.'), ...
                 sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
                 sprintf('Red (>%.0fmm): Critical mechanical limit, wire will break!', app.WireExt_Red)};
@@ -6931,39 +6945,38 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.SimGaugeExt = gaugeExt;
 
             %% --- PROGRAM EXTENTS ---
-            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'BorderType','line');
+            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlBounds.Layout.Row = 5;
 
             gridBounds = uigridlayout(pnlBounds, [3 1]);
             gridBounds.RowHeight = {'fit', 'fit', 'fit'};
-            gridBounds.Padding =[10 5 10 5];
-            gridBounds.RowSpacing = 5;
+            gridBounds.Padding =[5 5 5 5];
+            gridBounds.RowSpacing = 2;
             gridBounds.BackgroundColor = panelBg;
 
-            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
             app.LblSimExtMin.Layout.Row = 1;
 
-            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',labelCol);
+            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',labelCol);
             app.LblSimExtMax.Layout.Row = 2;
 
-            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', 11, 'FontColor',t.wireKerf);
+            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'FontColor',t.wireKerf);
             app.LblSimExtWire.Layout.Row = 3;
 
             %% --- ACTION BUTTONS ---
-            % Spacer to push button to bottom
-            lblSpacer = uilabel(app.SimLeftPanel, 'Text', '');
-            lblSpacer.Layout.Row = 6;
+            gridBtn = uigridlayout(app.SimLeftPanel,[1 1]);
+            gridBtn.Layout.Row = 7;
+            gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
+            gridBtn.Padding=[0 0 0 0];
+            gridBtn.BackgroundColor=panelBg;
 
-            app.BtnSimContinue = uibutton(app.SimLeftPanel, 'Text','Continue', 'FontWeight','bold', 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            app.BtnSimContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
-            app.BtnSimContinue.Layout.Row = 7;
-
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit'};
 
             %% --- RIGHT PANEL: 3D SIM PLOT ---
             app.AxSim = uiaxes(app.GLSimulation);
             app.AxSim.Layout.Column = 2;
-            app.AxSim.BackgroundColor = [0.05 0.05 0.05];
+            app.AxSim.BackgroundColor = t.axBg;
             xlabel(app.AxSim,'X'); ylabel(app.AxSim,'Y'); zlabel(app.AxSim,'Z');
             grid(app.AxSim,'on'); view(app.AxSim, 3); axis(app.AxSim, 'equal');
         end
