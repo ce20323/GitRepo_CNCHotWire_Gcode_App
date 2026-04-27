@@ -697,7 +697,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             nR = size(app.RightProfilePoints,1);
 
             if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
-                app.ProfilePointCountLabel.Text = sprintf('Extracted Profile Points (L/R): %d / %d', nL, nR);
+                app.ProfilePointCountLabel.Text = sprintf('Extracted Profile Point Count (L/R): %d / %d', nL, nR);
             end
 
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
@@ -804,7 +804,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- 4. UPDATE LABEL ---
             if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
-                app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Points (L/R): %d / %d', nLk, nRk);
+                app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Point Count (L/R): %d / %d', nLk, nRk);
             end
 
             % ----- LEGENDS & VIEW -----
@@ -884,9 +884,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             if nLeft <= 0 && nRight <= 0
-                txt = 'Extracted Profile Points (L/R): -- / --';
+                txt = 'Extracted Profile Point Count (L/R): -- / --';
             else
-                txt = sprintf('Extracted Profile Points (L/R): %d / %d', nLeft, nRight);
+                txt = sprintf('Extracted Profile Point Count (L/R): %d / %d', nLeft, nRight);
             end
 
             if capLeft || capRight
@@ -5351,13 +5351,16 @@ classdef HotWireSTEPApp_v6_2 < handle
                     % --- Special Case: Plane Offset Spinners ---
                     if obj == app.NumLeftOffset
                         obj.FontColor = t.planeRedTxt;
-                        % Create a subtle tinted background (15% Red, 85% Theme Bg)
                         obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
                         continue; % Skip standard styling for this object
                     elseif obj == app.NumRightOffset
                         obj.FontColor = t.planeGreenTxt;
-                        % Create a subtle tinted background (15% Green, 85% Theme Bg)
                         obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
+                        continue; % Skip standard styling for this object
+                        % --- Special Case: Kerf Spinners ---
+                    elseif obj == app.KerfLeftSpinner || obj == app.KerfRightSpinner
+                        obj.FontColor = t.wireKerf;
+                        obj.BackgroundColor = t.wireKerf * 0.15 + t.sideBg * 0.85;
                         continue; % Skip standard styling for this object
                     end
 
@@ -6038,7 +6041,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnResetProfileTol = uibutton(gridSampling, 'Text','Reset Tolerance', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
             app.BtnResetProfileTol.Layout.Row = 2; app.BtnResetProfileTol.Layout.Column =[1 2];
 
-            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Points (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Point Count (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.ProfilePointCountLabel.Layout.Row = 3; app.ProfilePointCountLabel.Layout.Column =[1 2];
 
             %% --- 2. KERF COMPENSATION ---
@@ -6084,7 +6087,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BtnApplyKerf.Layout.Row = 4; app.BtnApplyKerf.Layout.Column = [1 4];
 
             % Points Readout
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Kerf Compensated Points (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Kerf Compensated Point Count (L/R): 0 / 0', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             app.KerfPointCountLabel.Layout.Row = 5; app.KerfPointCountLabel.Layout.Column = [1 4];
 
             %% --- 3. GUIDANCE ---
