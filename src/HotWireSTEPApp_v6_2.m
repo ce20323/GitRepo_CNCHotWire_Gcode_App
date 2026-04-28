@@ -5625,7 +5625,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             glFCBrowse.Padding =[0 0 0 0];
             glFCBrowse.BackgroundColor = panelBg;
 
-            if ispref('HotWireSTEPApp', 'FreeCADPath'), app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath'); else, app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe"; end
+            if ispref('HotWireSTEPApp', 'FreeCADPath')
+                app.FreeCADExe = getpref('HotWireSTEPApp', 'FreeCADPath');
+            else
+                if ismac
+                    app.FreeCADExe = "/Applications/FreeCAD.app/Contents/MacOS/FreeCADCmd";
+                elseif ispc
+                    app.FreeCADExe = "C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe";
+                else
+                    app.FreeCADExe = "freecadcmd";
+                end
+            end
+
             app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
             btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
 
@@ -5740,10 +5751,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(axDummy, 'on');
             view(axDummy, 3);
 
-            % Generate a cool looking surface
-            [X,Y,Z] = peaks(30);
-            surf(axDummy, X, Y, Z, 'EdgeColor', 'none');
-            colormap(axDummy, 'turbo');
+            % Generate a programmatic swept wing for the example plot
+            u = linspace(0, pi, 30);
+            w = linspace(0, 1, 15);
+            [U, W] = meshgrid(u, w);
+
+            % NACA-style teardrop profile
+            X_prof = 50 * (1 - cos(U));
+            Z_prof = 15 * sin(U) .* (1 - U/pi);
+
+            % Sweep and taper along Y
+            X = X_prof + 20 * W;       % Sweep back
+            Y = 150 * W;               % Span
+            Z = Z_prof .* (1 - 0.4*W); % Taper
+
+            surf(axDummy, X, Y, Z, 'FaceColor', t.modelColor, 'FaceAlpha', 0.8, 'EdgeColor', t.labelCol, 'EdgeAlpha', 0.2);
 
             title(axDummy, 'Interactive 3D Visualizer', 'Color', labelCol);
             axDummy.XColor = labelCol; axDummy.YColor = labelCol; axDummy.ZColor = labelCol;
