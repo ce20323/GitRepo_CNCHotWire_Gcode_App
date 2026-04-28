@@ -2675,13 +2675,21 @@ classdef HotWireSTEPApp_v6_2 < handle
                 bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
                 totalShift = bPlotPos + app.BilletShift;
 
-                d3 = 0; % Anti-markdown bug
+                % --- Draw Packing Block (If Billet is raised) ---
+                if app.MachineBilletPos(3) > 0
+                    [xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
+                    patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
+                        'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
+                end
+
+                % --- Draw Billet ---
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
 
                 hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
                     'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
 
+                % --- Draw Model ---
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
                     'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none');
@@ -4098,11 +4106,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             bY = bp(2);
             bZ = bp(3);
 
-            d2 = 0; % Anti-markdown bug
+            % --- Draw Packing Block (If Billet is raised) ---
+            if bZ > 0
+                [xPack, yPack, zPack] = app.makeBoxVertices(bX, bY, 0, bSize(1), bSize(2), bZ);
+                patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
+                    'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
+            end
+
+            % --- Draw Billet ---
             [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
 
             patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','--');
 
+            % --- Draw Model ---
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
                     'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor','none', 'Tag','SimModel');
@@ -5636,7 +5652,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.FreeCADExe = "freecadcmd";
                 end
             end
-
+            
             app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
             btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
 
@@ -5751,21 +5767,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             grid(axDummy, 'on');
             view(axDummy, 3);
 
-            % Generate a programmatic swept wing for the example plot
-            u = linspace(0, pi, 30);
-            w = linspace(0, 1, 15);
-            [U, W] = meshgrid(u, w);
-
-            % NACA-style teardrop profile
-            X_prof = 50 * (1 - cos(U));
-            Z_prof = 15 * sin(U) .* (1 - U/pi);
-
-            % Sweep and taper along Y
-            X = X_prof + 20 * W;       % Sweep back
-            Y = 150 * W;               % Span
-            Z = Z_prof .* (1 - 0.4*W); % Taper
-
-            surf(axDummy, X, Y, Z, 'FaceColor', t.modelColor, 'FaceAlpha', 0.8, 'EdgeColor', t.labelCol, 'EdgeAlpha', 0.2);
+            % Generate a cool looking surface
+            [X,Y,Z] = peaks(30);
+            surf(axDummy, X, Y, Z, 'EdgeColor', 'none');
+            colormap(axDummy, 'turbo');
 
             title(axDummy, 'Interactive 3D Visualizer', 'Color', labelCol);
             axDummy.XColor = labelCol; axDummy.YColor = labelCol; axDummy.ZColor = labelCol;
