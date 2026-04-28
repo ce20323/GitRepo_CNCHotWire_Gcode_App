@@ -35,7 +35,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         MachineLimitZ  (1,1) double = 500;             % [mm] Total Z-axis travel (0 to 500)
         MachineBedPos  (1,3) double = [48, 50, -20];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
         MachineBedSize (1,3) double = [1088, 700, 20]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
-
+        BrassJointOffsetRight  (1,1) double = -50.0;   % [mm] Neutral position of brass joint relative to right bed edge (negative = overhangs right)
+        
         %% --- SAFETY THRESHOLDS ---
         SafetyBuffer_BedEdge   (1,1) double = 50.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
         BilletRoundingY        (1,1) double = 10.0;   % [mm] Rounding grid increment for billet auto-placement
@@ -455,14 +456,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 2. Wire Extension Collision Check ---
             % The brass joint connects the hot wire to the tension wire.
-            % Its neutral position is SafetyBuffer_BedEdge (50mm) inward from the right bed edge.
+            % Its neutral position is defined by BrassJointOffsetRight.
             % As the wire extends, the joint is pulled left by the extension amount.
             rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
-            neutralJointX = rightBedEdge - app.SafetyBuffer_BedEdge;
+            neutralJointX = rightBedEdge - app.BrassJointOffsetRight;
             minJointX = neutralJointX - app.MaxPathExtension;
 
-            if bMax(1) > minJointX && app.MaxPathExtension > 0
-                crit(end+1) = sprintf("Billet too close to right bed edge! Wire extension (%.1fmm) pulls brass joint into the billet.", app.MaxPathExtension);
+            % The gap between the right face of the billet and the brass joint
+            % must not be less than the safety buffer.
+            if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
+                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
             end
 
             if ~isempty(crit)
@@ -2772,8 +2775,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                         if any(bad), isViolated = true; end
 
                         % Fixed length of the hot wire (from left tower to neutral joint position)
-                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
-
+                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
+                        
                         for k = 1:numel(idx)
                             currIdx = idx(k);
 
@@ -2798,10 +2801,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
                             plot3(ax, [pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
-                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 1.5);
+                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 1.0);
 
                             % Draw Brass Joint (Large Orange Dot)
-                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 12);
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 6);
 
                             % Draw tracking dots on the model profiles
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
@@ -4203,7 +4206,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             
             % Wire Components
             plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.5, 'Tag','SimWire');
-            plot3(ax,NaN,NaN,NaN, 'Color',[0.5 0.5 0.5], 'LineWidth',2.0, 'Tag','SimTensionWire');
+            plot3(ax,NaN,NaN,NaN, 'Color',t.wireLead, 'LineWidth',1.0, 'Tag','SimTensionWire');
             plot3(ax,NaN,NaN,NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 5, 'Tag','SimBrassJoint');
 
             plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimDotL');
@@ -4252,7 +4255,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Calculate Brass Joint Position (Fixed length hot wire)
             wireVec = pTR - pTL;
             wireLen = norm(wireVec);
-            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
             pJoint = pTL + wireVec * (L_hot / wireLen);
 
             set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
@@ -4734,7 +4737,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Calculate Brass Joint Position (Fixed length hot wire)
             wireVec = pTR - pTL;
             wireLen = norm(wireVec);
-            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
             pJoint = pTL + wireVec * (L_hot / wireLen);
 
             set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
