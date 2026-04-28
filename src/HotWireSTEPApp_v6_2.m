@@ -33,9 +33,9 @@ classdef HotWireSTEPApp_v6_2 < handle
         MachineSpanX   (1,1) double = 1180;            % [mm] Fixed distance between left and right towers
         MachineLimitY  (1,1) double = 750;             % [mm] Total Y-axis travel (0 to 750)
         MachineLimitZ  (1,1) double = 500;             % [mm] Total Z-axis travel (0 to 500)
-        MachineBedPos  (1,3) double = [48, 50, -20];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
-        MachineBedSize (1,3) double = [1088, 700, 20]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
-        BrassJointOffsetRight  (1,1) double = -50.0;   % [mm] Neutral position of brass joint relative to right bed edge (negative = overhangs right)
+        MachineBedPos  (1,3) double = [44, 50, -24];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
+        MachineBedSize (1,3) double = [1088, 700, 24]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
+        BrassJointOffsetRight (1,1) double = -50.0;    % [mm] Neutral position of brass joint relative to right bed edge (negative = inward/over bed)
         
         %% --- SAFETY THRESHOLDS ---
         SafetyBuffer_BedEdge   (1,1) double = 50.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
@@ -456,12 +456,12 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 2. Wire Extension Collision Check ---
             % The brass joint connects the hot wire to the tension wire.
-            % Its neutral position is defined by BrassJointOffsetRight.
-            % As the wire extends, the joint is pulled left by the extension amount.
+            % Its neutral position is defined by BrassJointOffsetRight (-50mm).
+            % Adding this negative value moves it 50mm left (inward) of the right bed edge.
             rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
-            neutralJointX = rightBedEdge - app.BrassJointOffsetRight;
+            neutralJointX = rightBedEdge + app.BrassJointOffsetRight;
             minJointX = neutralJointX - app.MaxPathExtension;
-
+            
             % The gap between the right face of the billet and the brass joint
             % must not be less than the safety buffer.
             if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
@@ -2775,7 +2775,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                         if any(bad), isViolated = true; end
 
                         % Fixed length of the hot wire (from left tower to neutral joint position)
-                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
+                        % Adding the negative offset moves the joint inward (left) from the right bed edge.
+                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
                         
                         for k = 1:numel(idx)
                             currIdx = idx(k);
@@ -4142,22 +4143,16 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % --- View Management ---
         function initSimulationPlot(app)
-            % Draws static elements and inits dynamic tags
-            ax = app.AxSim;
-            cla(ax);
-            hold(ax,'on');
-            t = app.getTheme(); % <--- Master Palette
-
             % Setup Geometry
             offX = app.MachineBedPos(1);
             mSpan = app.MachineSpanX;
             bp = app.MachineBilletPos;
             bSize = app.BilletSize;
+            bs = app.MachineBedSize; % Fetch the actual bed size!
 
-            d1 = 0; % Anti-markdown bug
-            [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -20, 1000, 700, 20); % Bed
-
-            patch(ax, 'Vertices',[xb,yb,zb], 'Faces',app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha',0.5, 'EdgeColor', t.bedEdge);
+            % 1. Machine Bed (Dynamically sized)
+            [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices', [xb,yb,zb], 'Faces', app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
@@ -4255,7 +4250,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Calculate Brass Joint Position (Fixed length hot wire)
             wireVec = pTR - pTL;
             wireLen = norm(wireVec);
-            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
             pJoint = pTL + wireVec * (L_hot / wireLen);
 
             set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
@@ -4737,7 +4732,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Calculate Brass Joint Position (Fixed length hot wire)
             wireVec = pTR - pTL;
             wireLen = norm(wireVec);
-            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.BrassJointOffsetRight;
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
             pJoint = pTL + wireVec * (L_hot / wireLen);
 
             set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
