@@ -431,7 +431,10 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % STATE & PROFILE HELPERS
         % ===========================================================
-        function[isValid, panelCol, textCol, msgLines] = checkMachineState(app)
+        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
+            % Purpose: Validates the billet's physical placement on the machine bed.
+            % Checks for bed overhangs, Z-travel limits, and wire extension collisions.
+
             bPos  = app.MachineBilletPos;
             bSize = app.BilletSize;
             bMin = bPos;
@@ -440,30 +443,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             bedMax = app.MachineBedPos + app.MachineBedSize;
             limZ = [0, app.MachineLimitZ];
 
-            t = app.getTheme(); % <--- Master Palette
+            t = app.getTheme(); % Master Palette
 
             crit = strings(0);
+
+            % --- 1. Hard Physical Limits ---
             if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
             if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
             if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
             if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
 
-            if ~isempty(crit)
-                isValid = false;
-                panelCol = t.statErrBg;
-                textCol = t.statErrTxt;
-                msgLines = ["CRITICAL ERROR:"; crit'];
-                return;
+            % --- 2. Wire Extension Collision Check ---
+            % The brass joint connects the hot wire to the tension wire.
+            % Its neutral position is SafetyBuffer_BedEdge (50mm) inward from the right bed edge.
+            % As the wire extends, the joint is pulled left by the extension amount.
+            rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
+            neutralJointX = rightBedEdge - app.SafetyBuffer_BedEdge;
+            minJointX = neutralJointX - app.MaxPathExtension;
+
+            if bMax(1) > minJointX && app.MaxPathExtension > 0
+                crit(end+1) = sprintf("Billet too close to right bed edge! Wire extension (%.1fmm) pulls brass joint into the billet.", app.MaxPathExtension);
             end
 
-            warn = strings(0);
-            buf = app.SafetyBuffer_BedEdge;
-
+            % --- 3. Soft Warnings (Proximity) ---
             if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
             if (bedMax(1) - bMax(1) < buf)
                 warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
                 if strcmp(app.TaperToggle.Value, 'Tapered')
-                    warn(end+1) = "TAPER WARNING: Brass wire fixture may hit right tower.";
+                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
                 end
             end
             if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
@@ -2347,7 +2354,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                     bx =[0, bSize(d(1)), bSize(d(1)), 0, 0];
                     by =[0, 0, bSize(d(2)), bSize(d(2)), 0];
-                    plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '--', 'LineWidth', 1.5);
+                    plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5);
                 else
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
                         'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
@@ -2364,7 +2371,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
 
                     patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
-                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '--', 'LineWidth', 1.5);
+                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
 
                     view(ax, 3);
                 end
@@ -2629,14 +2636,20 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshMachinePlot(app)
+            % Purpose: Renders the 3D machine view, including the bed, towers, billet,
+            %          model, and a sweep of the wire path to visualize the cut.
+            %          Also performs safety checks for wire extension.
+
             ax = app.AxMachine;
             if isempty(ax) || ~isgraphics(ax), return; end
 
+            %% --- SETUP & INITIALIZATION ---
             delete(allchild(ax));
             hold(ax, 'on');
 
-            t = app.getTheme(); % <--- Master Palette
+            t = app.getTheme(); % Master Palette
 
+            % Machine geometry constants
             offX = app.MachineBedPos(1);
             mX = app.MachineSpanX;
             mLimY = app.MachineLimitY;
@@ -2644,18 +2657,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             bs = app.MachineBedSize;
             bp = app.MachineBedPos;
 
-            d1 = 0; % Anti-markdown bug
+            %% --- DRAW STATIC MACHINE COMPONENTS ---
+            % 1. Machine Bed
             [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-
             hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
                 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
-            d2 = 0; % Anti-markdown bug
-            [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
-
+            % 2. Travel Limits (Bounding Box)[ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
             hLim = patch(ax, 'Vertices',[ xl, yl, zl ], 'Faces', app.boxFaces, ...
                 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
 
+            % 3. Left and Right Towers (Planes)
             pY =[ 0; mLimY; mLimY; 0 ];
             pZ =[ 0; 0; mLimZ; mLimZ ];
 
@@ -2665,9 +2677,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             hTowerR = patch(ax, 'XData', ones(4,1)*(mX-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeGreen, ...
                 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle', '-');
 
+            % Tower Labels
             text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
             text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
 
+            %% --- DRAW BILLET & MODEL ---
             hBillet = gobjects(0); hModel = gobjects(0); hGhostL = gobjects(0); hWireL = gobjects(0);
             isViolated = false;
 
@@ -2675,31 +2689,29 @@ classdef HotWireSTEPApp_v6_2 < handle
                 bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
                 totalShift = bPlotPos + app.BilletShift;
 
-                % --- Draw Packing Block (If Billet is raised) ---
-                if app.MachineBilletPos(3) > 0
-                    [xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
-                    patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
-                        'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
+                % 1. Draw Packing Block (If Billet is raised off the bed)
+                if app.MachineBilletPos(3) > 0[xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
+                    patch(ax, 'Vertices',[xPack, yPack, zPack], 'Faces', app.boxFaces, ...
+                        'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
                 end
 
-                % --- Draw Billet ---
+                % 2. Draw Billet (Thin solid lines to prevent aliasing)
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-
                 hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
-                    'EdgeColor', t.labelCol, 'LineStyle', '--', 'LineWidth', 1.0);
+                    'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
 
-                % --- Draw Model ---
+                % 3. Draw Model Mesh
                 Vplot = app.ModelPatch.Vertices + totalShift;
                 hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
                     'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none');
 
+                %% --- DRAW TOOLPATHS & WIRE SWEEP ---
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    d4 = 0; % Anti-markdown bug
-                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+                    % 1. Draw Ghost Profiles (Raw extracted profiles)[ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3);
 
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
@@ -2710,19 +2722,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
                         'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
 
-                    d5 = 0; % Anti-markdown bug
-                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
+                    % 2. Draw Kerf-Compensated Wire Paths[ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
-                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');[ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);
-                        [ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
+                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+                        [ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);[ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
 
                         hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
                         plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
-                        d6 = 0; % Anti-markdown bug
+                        % 3. Project paths to the physical towers
                         [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
@@ -2730,25 +2741,50 @@ classdef HotWireSTEPApp_v6_2 < handle
                         plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
                         plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
 
+                        % 4. Draw the Wire Sweep (Connecting lines between towers)
+                        % We sample the path to draw representative wire positions
                         stepInt = max(1, floor(numel(tL.y)/20));
                         idx = 1:stepInt:numel(tL.y);
                         if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
                         dotCMap = hsv(numel(idx));
 
+                        % Check if the toolpath forces the towers outside physical limits
                         bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
                         if any(bad), isViolated = true; end
+
+                        % Fixed length of the hot wire (from left tower to neutral joint position)
+                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
 
                         for k = 1:numel(idx)
                             currIdx = idx(k);
 
                             wCol =[ t.wireBaseCol, 0.60 ];
                             if bad(currIdx)
-                                wCol =[ 1 0.8 0 0.8 ];
+                                wCol =[ 1 0.8 0 0.8 ]; % Highlight bad segments in amber
                             end
 
-                            plot3(ax,[ -offX, mX-offX ],[ tL.y(currIdx), tR.y(currIdx) ],[ tL.z(currIdx), tR.z(currIdx) ], ...
+                            % Tower connection points for this step
+                            pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
+                            pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
+
+                            % Calculate Brass Joint Position
+                            % The hot wire is a fixed length. The joint moves left as the span increases.
+                            wireVec = pTR_i - pTL_i;
+                            wireLen = norm(wireVec);
+                            pJoint_i = pTL_i + wireVec * (L_hot / wireLen);
+
+                            % Draw Hot Wire (Left tower to Brass Joint)
+                            plot3(ax,[pTL_i(1), pJoint_i(1)], [pTL_i(2), pJoint_i(2)],[pTL_i(3), pJoint_i(3)], ...
                                 'Color', wCol, 'LineWidth', 0.5);
 
+                            % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
+                            plot3(ax,[pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
+                                'Color', [0.5 0.5 0.5 0.8], 'LineWidth', 1.5);
+
+                            % Draw Brass Joint (Large Orange Dot)
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 12);
+
+                            % Draw tracking dots on the model profiles
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
                                 '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
 
@@ -2759,6 +2795,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
             end
 
+            %% --- FORMATTING & LEGEND ---
             handles =[ hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL ];
             labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Extracted Profile', 'Wire Path (Kerf)'};
 
@@ -2777,7 +2814,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             ylim(ax,[ -50, mLimY + 50 ]);
             zlim(ax,[ -bs(3)-20, mLimZ + 80 ]);
 
-            d7 = 0; % Anti-markdown bug
+            %% --- SAFETY CHECKS & UI UPDATE ---
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             if isViolated
@@ -2788,17 +2825,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- WIRE EXTENSION SAFETY CHECK ---
-            if ~isempty(tL) && ~isempty(tR)
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints) && exist('tL', 'var')
                 dy_ext = tL.y - tR.y;
                 dz_ext = tL.z - tR.z;
                 ext_all = hypot(app.MachineSpanX, hypot(dy_ext, dz_ext)) - app.MachineSpanX;
                 app.MaxPathExtension = max(ext_all);
 
+                % Note: The actual collision with the billet is now handled inside checkMachineState.
+                % Here we only check the absolute mechanical limits of the pulley system.
                 if app.MaxPathExtension > app.WireExt_Red
                     isValid = false; % Hard Block
                     pCol = t.statErrBg;
                     tCol = t.statErrTxt;
-                    txtLines = ["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
+                    txtLines =["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
                         sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
                         sprintf("Exceeds Hardware Limit (%.0f mm)!", app.WireExt_Red)];
                 elseif app.MaxPathExtension > app.WireExt_Amber
@@ -2806,7 +2845,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if isValid
                         pCol = t.statWarnBg;
                         tCol = t.statWarnTxt;
-                        txtLines = ["WARNING: WIRE EXTENSION", ...
+                        txtLines =["WARNING: WIRE EXTENSION", ...
                             sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
                             "Pulley travel is nearly exhausted."];
                     end
@@ -4115,9 +4154,8 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- Draw Billet ---
             [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
-
-            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','--');
-
+            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
+            
             % --- Draw Model ---
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
@@ -4143,8 +4181,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- Dynamic Elements ---
-            % Wire
-            plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.2, 'Tag','SimWire');
+            
+            % Wire Components
+            plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.5, 'Tag','SimWire');
+            plot3(ax,NaN,NaN,NaN, 'Color',[0.5 0.5 0.5], 'LineWidth',2.0, 'Tag','SimTensionWire');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 5, 'Tag','SimBrassJoint');
 
             plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimDotR');
@@ -4186,14 +4227,21 @@ classdef HotWireSTEPApp_v6_2 < handle
             offX = app.MachineBedPos(1);
 
             % Update Wire & Dots
-            pTL = app.SimTowerPathL(idx,:) - [offX,0,0]; pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
-            set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pTR(1)], 'YData',[pTL(2) pTR(2)], 'ZData',[pTL(3) pTR(3)]);
+            pTL = app.SimTowerPathL(idx,:) -[offX,0,0];
+            pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
+
+            % Calculate Brass Joint Position (Fixed length hot wire)
+            wireVec = pTR - pTL;
+            wireLen = norm(wireVec);
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
+            pJoint = pTL + wireVec * (L_hot / wireLen);
+
+            set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
+            set(findobj(app.AxSim,'Tag','SimTensionWire'), 'XData',[pJoint(1) pTR(1)], 'YData',[pJoint(2) pTR(2)], 'ZData',[pJoint(3) pTR(3)]);
+            set(findobj(app.AxSim,'Tag','SimBrassJoint'), 'XData',pJoint(1), 'YData',pJoint(2), 'ZData',pJoint(3));
+
             set(findobj(app.AxSim,'Tag','SimDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
             set(findobj(app.AxSim,'Tag','SimDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
-
-            pML = app.SimPathL(idx,:) - [offX,0,0]; pMR = app.SimPathR(idx,:) - [offX,0,0];
-            set(findobj(app.AxSim,'Tag','SimModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
-            set(findobj(app.AxSim,'Tag','SimModelDotR'), 'XData',pMR(1), 'YData',pMR(2), 'ZData',pMR(3));
 
             % Helpers for Trails
             function upT(tag, data, s, e)
@@ -4658,13 +4706,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             towerL = app.PP_TowerPathL; towerR = app.PP_TowerPathR;
             pathL  = app.PP_PathL; pathR  = app.PP_PathR;
 
-            % Update Dots
-            pTL = [towerL(idx,1) - offX, towerL(idx,2), towerL(idx,3)];
-            pTR = [towerR(idx,1) - offX, towerR(idx,2), towerR(idx,3)];
-            pML = [pathL(idx,1) - offX, pathL(idx,2), pathL(idx,3)];
-            pMR = [pathR(idx,1) - offX, pathR(idx,2), pathR(idx,3)];
+            % Update Dots & Wire
+            pTL =[towerL(idx,1) - offX, towerL(idx,2), towerL(idx,3)];
+            pTR =[towerR(idx,1) - offX, towerR(idx,2), towerR(idx,3)];
+            pML =[pathL(idx,1) - offX, pathL(idx,2), pathL(idx,3)];
+            pMR =[pathR(idx,1) - offX, pathR(idx,2), pathR(idx,3)];
 
-            set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pTR(1)], 'YData',[pTL(2) pTR(2)], 'ZData',[pTL(3) pTR(3)]);
+            % Calculate Brass Joint Position (Fixed length hot wire)
+            wireVec = pTR - pTL;
+            wireLen = norm(wireVec);
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) - app.SafetyBuffer_BedEdge;
+            pJoint = pTL + wireVec * (L_hot / wireLen);
+
+            set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
+            set(findobj(ax,'Tag','PostTensionWire'), 'XData',[pJoint(1) pTR(1)], 'YData',[pJoint(2) pTR(2)], 'ZData',[pJoint(3) pTR(3)]);
+            set(findobj(ax,'Tag','PostBrassJoint'), 'XData',pJoint(1), 'YData',pJoint(2), 'ZData',pJoint(3));
+
             set(findobj(ax,'Tag','PostDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
             set(findobj(ax,'Tag','PostDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
             set(findobj(ax,'Tag','PostModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
