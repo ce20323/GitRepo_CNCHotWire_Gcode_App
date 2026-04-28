@@ -4966,9 +4966,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-
+            
             app.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor = [0.1 0.6 0.1]; % Turn green when ready
+            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1];
             app.BtnSaveGCode.FontColor = [1 1 1];
 
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
@@ -7166,6 +7166,5 @@ classdef HotWireSTEPApp_v6_2 < handle
             xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
             grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
         end
-
     end
 end
