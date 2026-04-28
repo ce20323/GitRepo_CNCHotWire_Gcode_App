@@ -441,19 +441,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             bMax = bPos + bSize;
             bedMin = app.MachineBedPos;
             bedMax = app.MachineBedPos + app.MachineBedSize;
-            limZ = [0, app.MachineLimitZ];
+            limZ =[0, app.MachineLimitZ];
 
             t = app.getTheme(); % Master Palette
 
             crit = strings(0);
 
-            % --- 1. Hard Physical Limits ---
+            %% --- 1. Hard Physical Limits ---
             if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
             if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
             if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
             if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
 
-            % --- 2. Wire Extension Collision Check ---
+            %% --- 2. Wire Extension Collision Check ---
             % The brass joint connects the hot wire to the tension wire.
             % Its neutral position is SafetyBuffer_BedEdge (50mm) inward from the right bed edge.
             % As the wire extends, the joint is pulled left by the extension amount.
@@ -465,7 +465,18 @@ classdef HotWireSTEPApp_v6_2 < handle
                 crit(end+1) = sprintf("Billet too close to right bed edge! Wire extension (%.1fmm) pulls brass joint into the billet.", app.MaxPathExtension);
             end
 
-            % --- 3. Soft Warnings (Proximity) ---
+            if ~isempty(crit)
+                isValid = false;
+                panelCol = t.statErrBg;
+                textCol = t.statErrTxt;
+                msgLines =["CRITICAL ERROR:"; crit'];
+                return;
+            end
+
+            warn = strings(0);
+            buf = app.SafetyBuffer_BedEdge; % <--- This defines 'buf' for the warnings below!
+
+            %% --- 3. Soft Warnings (Proximity) ---
             if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
             if (bedMax(1) - bMax(1) < buf)
                 warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
@@ -1134,12 +1145,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % --- LEVEL 5: CUTTING STRATEGY GATEKEEPER ---
             if needsCutting
-                % 1. Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it (UserModified=0)
-                if ~app.IsCuttingInit || ~app.IsCuttingUserModified
-                    app.onAutoStart(false);
-                    app.onAutoEntry(false);
+                % 1. Auto-Trigger: Only if never setup (Init=0)
+                % If the user has manually modified the points, we respect their lock and do NOT auto-override.
+                if ~app.IsCuttingInit
+                    if ~app.IsCuttingUserModified
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
+                    end
+                    app.IsCuttingInit = true;
                 end
-
                 [isValidCut, pColC, tColC, msgLinesC] = app.validateCuttingStrategy();
 
                 % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
