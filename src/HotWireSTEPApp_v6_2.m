@@ -1154,6 +1154,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                     app.IsCuttingInit = true;
                 end
+
                 [isValidCut, pColC, tColC, msgLinesC] = app.validateCuttingStrategy();
 
                 % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
@@ -2674,16 +2675,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             %% --- DRAW STATIC MACHINE COMPONENTS ---
             % 1. Machine Bed
             [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
+            hBed = patch(ax, 'Vertices', [ xb, yb, zb ], 'Faces', app.boxFaces, ...
                 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
-            % 2. Travel Limits (Bounding Box)[ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
-            hLim = patch(ax, 'Vertices',[ xl, yl, zl ], 'Faces', app.boxFaces, ...
+            % 2. Travel Limits (Bounding Box)
+            [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
+            hLim = patch(ax, 'Vertices', [ xl, yl, zl ], 'Faces', app.boxFaces, ...
                 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
 
             % 3. Left and Right Towers (Planes)
-            pY =[ 0; mLimY; mLimY; 0 ];
-            pZ =[ 0; 0; mLimZ; mLimZ ];
+            pY = [ 0; mLimY; mLimY; 0 ];
+            pZ = [ 0; 0; mLimZ; mLimZ ];
 
             hTowerL = patch(ax, 'XData', ones(4,1)*(-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeRed, ...
                 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle', '-');
@@ -2704,14 +2706,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 totalShift = bPlotPos + app.BilletShift;
 
                 % 1. Draw Packing Block (If Billet is raised off the bed)
-                if app.MachineBilletPos(3) > 0[xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
-                    patch(ax, 'Vertices',[xPack, yPack, zPack], 'Faces', app.boxFaces, ...
-                        'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
+                if app.MachineBilletPos(3) > 0
+                    [xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
+                    patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
+                        'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
                 end
 
                 % 2. Draw Billet (Thin solid lines to prevent aliasing)
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-                hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
+                hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
                     'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
 
@@ -2723,9 +2726,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 %% --- DRAW TOOLPATHS & WIRE SWEEP ---
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                    % 1. Draw Ghost Profiles (Raw extracted profiles)[ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3);
+                    % 1. Draw Ghost Profiles (Raw extracted profiles)
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                     xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
                     xR_world = app.RightProfilePoints(1,1) + totalShift(1);
@@ -2736,7 +2740,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
                         'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
 
-                    % 2. Draw Kerf-Compensated Wire Paths[ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
+                    % 2. Draw Kerf-Compensated Wire Paths
+                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
                         isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
@@ -2772,14 +2777,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                         for k = 1:numel(idx)
                             currIdx = idx(k);
 
-                            wCol =[ t.wireBaseCol, 0.60 ];
+                            wCol = [ t.wireBaseCol, 0.60 ];
                             if bad(currIdx)
                                 wCol =[ 1 0.8 0 0.8 ]; % Highlight bad segments in amber
                             end
 
                             % Tower connection points for this step
-                            pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
-                            pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
+                            pTL_i = [-offX, tL.y(currIdx), tL.z(currIdx)];
+                            pTR_i = [mX-offX, tR.y(currIdx), tR.z(currIdx)];
 
                             % Calculate Brass Joint Position
                             % The hot wire is a fixed length. The joint moves left as the span increases.
@@ -2792,8 +2797,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                                 'Color', wCol, 'LineWidth', 0.5);
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
-                            plot3(ax,[pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
-                                'Color', [0.5 0.5 0.5 0.8], 'LineWidth', 1.5);
+                            plot3(ax, [pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
+                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 1.5);
 
                             % Draw Brass Joint (Large Orange Dot)
                             plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 12);
