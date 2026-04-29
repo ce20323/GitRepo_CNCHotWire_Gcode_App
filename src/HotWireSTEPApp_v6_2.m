@@ -38,7 +38,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         BrassJointOffsetRight (1,1) double = -50.0;    % [mm] Neutral position of brass joint relative to right bed edge (negative = inward/over bed)
         
         %% --- SAFETY THRESHOLDS ---
-        SafetyBuffer_BedEdge   (1,1) double = 50.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
+        SafetyBuffer_BedEdge   (1,1) double = 10.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
         BilletRoundingY        (1,1) double = 10.0;   % [mm] Rounding grid increment for billet auto-placement
         BilletMinYBuffer       (1,1) double = 50.0;   % [mm] Min billet Y position (match distance from home to front of sacrificial bed)
         ModelContainmentTol    (1,1) double = 0.0001; % [mm] Max allowable numerical rounding error for 'Red' collision checks
@@ -2802,10 +2802,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
                             plot3(ax, [pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
-                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 1.0);
+                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 0.5);
 
                             % Draw Brass Joint (Large Orange Dot)
-                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 6);
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 4);
 
                             % Draw tracking dots on the model profiles
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
@@ -4143,6 +4143,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         % --- View Management ---
         function initSimulationPlot(app)
+
+            % Draws static elements and inits dynamic tags
+            ax = app.AxSim;
+            cla(ax);
+            hold(ax,'on');
+            t = app.getTheme();
+
             % Setup Geometry
             offX = app.MachineBedPos(1);
             mSpan = app.MachineSpanX;
@@ -4152,7 +4159,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 1. Machine Bed (Dynamically sized)
             [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices', [xb,yb,zb], 'Faces', app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
+            patch(ax, 'Vertices',[xb,yb,zb], 'Faces', app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
             patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
             patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
@@ -4163,16 +4170,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             bZ = bp(3);
 
             % --- Draw Packing Block (If Billet is raised) ---
-            if bZ > 0
-                [xPack, yPack, zPack] = app.makeBoxVertices(bX, bY, 0, bSize(1), bSize(2), bZ);
+            if bZ > 0[xPack, yPack, zPack] = app.makeBoxVertices(bX, bY, 0, bSize(1), bSize(2), bZ);
                 patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
-                    'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
+                    'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
             end
 
             % --- Draw Billet ---
             [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
             patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
-            
+
             % --- Draw Model ---
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
@@ -4182,9 +4188,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % --- NEW: Ghost Profiles in neutral Grey ---
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
-                d3 = 0; % Anti-markdown bug
                 [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                 totalShift = bp + app.BilletShift;
@@ -4198,11 +4203,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- Dynamic Elements ---
-            
+
             % Wire Components
             plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.5, 'Tag','SimWire');
-            plot3(ax,NaN,NaN,NaN, 'Color',t.wireLead, 'LineWidth',1.0, 'Tag','SimTensionWire');
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 5, 'Tag','SimBrassJoint');
+            plot3(ax,NaN,NaN,NaN, 'Color',t.planeRed, 'LineWidth',0.6, 'Tag','SimTensionWire');
+            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 4, 'Tag','SimBrassJoint');
 
             plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimDotL');
             plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimDotR');
@@ -4244,8 +4249,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             offX = app.MachineBedPos(1);
 
             % Update Wire & Dots
-            pTL = app.SimTowerPathL(idx,:) -[offX,0,0];
-            pTR = app.SimTowerPathR(idx,:) - [offX,0,0];
+            pTL = app.SimTowerPathL(idx,:) - [ offX, 0, 0 ];
+            pTR = app.SimTowerPathR(idx,:) - [ offX, 0, 0 ];
 
             % Calculate Brass Joint Position (Fixed length hot wire)
             wireVec = pTR - pTL;
@@ -4253,23 +4258,31 @@ classdef HotWireSTEPApp_v6_2 < handle
             L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
             pJoint = pTL + wireVec * (L_hot / wireLen);
 
-            set(findobj(app.AxSim,'Tag','SimWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
-            set(findobj(app.AxSim,'Tag','SimTensionWire'), 'XData',[pJoint(1) pTR(1)], 'YData',[pJoint(2) pTR(2)], 'ZData',[pJoint(3) pTR(3)]);
-            set(findobj(app.AxSim,'Tag','SimBrassJoint'), 'XData',pJoint(1), 'YData',pJoint(2), 'ZData',pJoint(3));
+            set(findobj(app.AxSim,'Tag','SimWire'), 'XData', [ pTL(1) pJoint(1) ], 'YData',[ pTL(2) pJoint(2) ], 'ZData', [ pTL(3) pJoint(3) ]);
+            set(findobj(app.AxSim,'Tag','SimTensionWire'), 'XData',[ pJoint(1) pTR(1) ], 'YData',[ pJoint(2) pTR(2) ], 'ZData', [ pJoint(3) pTR(3) ]);
+            set(findobj(app.AxSim,'Tag','SimBrassJoint'), 'XData', pJoint(1), 'YData', pJoint(2), 'ZData', pJoint(3));
 
-            set(findobj(app.AxSim,'Tag','SimDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
-            set(findobj(app.AxSim,'Tag','SimDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
+            set(findobj(app.AxSim,'Tag','SimDotL'), 'XData', pTL(1), 'YData', pTL(2), 'ZData', pTL(3));
+            set(findobj(app.AxSim,'Tag','SimDotR'), 'XData', pTR(1), 'YData', pTR(2), 'ZData', pTR(3));
+
+            % Update Model Profile Dots
+            pML = app.SimPathL(idx,:) - [ offX, 0, 0 ];
+            pMR = app.SimPathR(idx,:) - [ offX, 0, 0 ];
+            set(findobj(app.AxSim,'Tag','SimModelDotL'), 'XData', pML(1), 'YData', pML(2), 'ZData', pML(3));
+            set(findobj(app.AxSim,'Tag','SimModelDotR'), 'XData', pMR(1), 'YData', pMR(2), 'ZData', pMR(3));
 
             % Helpers for Trails
             function upT(tag, data, s, e)
-                h=findobj(app.AxSim,'Tag',tag);
+                h = findobj(app.AxSim,'Tag',tag);
                 if ~isempty(h)
-                    if s>e, h.XData=[]; h.YData=[]; h.ZData=[]; else
-                        dt=data(s:e,:)-[offX,0,0]; h.XData=dt(:,1); h.YData=dt(:,2); h.ZData=dt(:,3);
+                    if s > e
+                        h.XData = []; h.YData = []; h.ZData =[];
+                    else
+                        dt = data(s:e,:) - [ offX, 0, 0 ];
+                        h.XData = dt(:,1); h.YData = dt(:,2); h.ZData = dt(:,3);
                     end
                 end
             end
-
             % Update Phase Trails
             phases = {
                 1, app.SimRapidCutoffIndex, 'Rapid';
@@ -4291,25 +4304,25 @@ classdef HotWireSTEPApp_v6_2 < handle
                     upT(['SimModel' tagName 'R'], app.SimPathR, startIdx, currEnd);
                 else
                     % Clear if not reached yet
-                    upT(['SimTower' tagName 'L'], [], 1, 0);
+                    upT(['SimTower' tagName 'L'],[], 1, 0);
                     upT(['SimTower' tagName 'R'], [], 1, 0);
                     upT(['SimModel' tagName 'L'], [], 1, 0);
                     upT(['SimModel' tagName 'R'], [], 1, 0);
                 end
+                % Readouts
+                app.LblReadoutX.Text = sprintf('%.2f', pTL(2));
+                app.LblReadoutY.Text = sprintf('%.2f', pTL(3));
+                app.LblReadoutZ.Text = sprintf('%.2f', pTR(2));
+                app.LblReadoutA.Text = sprintf('%.2f', pTR(3));
+
+                % Calculate extension: dL = sqrt(Span^2 + dy^2 + dz^2) - Span
+                dy = pTL(2) - pTR(2);
+                dz = pTL(3) - pTR(3);
+                ext = hypot(app.MachineSpanX, hypot(dy, dz)) - app.MachineSpanX;
+
+                % Update Gauge
+                app.SimGaugeExt.Value = min(ext, app.SimGaugeExt.Limits(2));
             end
-
-            % Readouts
-            app.LblReadoutX.Text = sprintf('%.2f', pTL(2)); app.LblReadoutY.Text = sprintf('%.2f', pTL(3));
-            app.LblReadoutZ.Text = sprintf('%.2f', pTR(2)); app.LblReadoutA.Text = sprintf('%.2f', pTR(3));
-
-            % Calculate extension: dL = sqrt(Span^2 + dy^2 + dz^2) - Span
-            dy = pTL(2) - pTR(2);
-            dz = pTL(3) - pTR(3);
-            ext = hypot(app.MachineSpanX, hypot(dy, dz)) - app.MachineSpanX;
-
-            % Update Gauge
-            app.SimGaugeExt.Value = min(ext, app.SimGaugeExt.Limits(2));
-
         end
 
         % --- Interaction Handlers ---
