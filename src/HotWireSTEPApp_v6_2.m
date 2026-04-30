@@ -755,7 +755,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 1. CALCULATE SHARED AXES LIMITS ---
             yAll = [yL(:); yR(:)];
-            zAll =[zL(:); zR(:)];
+            zAll = [zL(:); zR(:)];
             if isempty(yAll) || isempty(zAll)
                 return;
             end
@@ -777,10 +777,11 @@ classdef HotWireSTEPApp_v6_2 < handle
                 dz = min_dz;
             end
 
-            padY = 0.1 * dy;
+            % Reduced horizontal padding from 10% to 2% to maximize plot width
+            padY = 0.02 * dy;
             padZ = 0.1 * dz;
             yLim =[yMin - padY, yMax + padY];
-            zLim = [zMin - padZ, zMax + padZ];
+            zLim =[zMin - padZ, zMax + padZ];
 
             t = app.getTheme();
             app.clearProfiles2D();
@@ -792,7 +793,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
             doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
 
-            if doKerfL[ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+            if doKerfL
+                [ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
 
             if doKerfR
@@ -812,7 +814,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxLeftProfile,'on');
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
+                % Changed from thick dashed (':', 2.5) to thin solid ('-', 0.5) to prevent aliasing
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth',0.5);
             end
             if ~isempty(yL)
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
@@ -826,7 +829,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxRightProfile,'on');
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth',2.5);
+                % Changed from thick dashed (':', 2.5) to thin solid ('-', 0.5) to prevent aliasing
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth',0.5);
             end
             if ~isempty(yR)
                 app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
@@ -867,7 +871,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value), 'Color', t.labelCol);
             title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value), 'Color', t.labelCol);
 
-            % Add the missing axes labels!
             xlabel(app.AxLeftProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
             ylabel(app.AxLeftProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
             xlabel(app.AxRightProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
@@ -3194,11 +3197,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             curXL = xlim(app.AxCutLeft);
             isInitialized = ~isequal(curXL,[ 0 1 ]);
 
-            limsL = []; limsR =[];
+            limsL =[]; limsR =[];
 
             if isInitialized
-                limsL = [ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
-                limsR = [ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
+                limsL =[ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
+                limsR =[ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
             end
 
             cla(app.AxCutLeft); cla(app.AxCutRight);
@@ -3210,8 +3213,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
             % Draw Bed
-            bedY =[ 50, 750, 750, 50 ];
-            bedZ =[ -20, -20, 0, 0 ];
+            bedY = [ 50, 750, 750, 50 ];
+            bedZ = [ -20, -20, 0, 0 ];
             patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
             patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
 
@@ -3221,18 +3224,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
             hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
 
-            % Draw Billet
+            % Draw Packing Block (If Billet is raised)
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
-            boxY = [ bY, bY+bW, bY+bW, bY, bY ];
-            boxZ = [ bZ, bZ, bZ+bH, bZ+bH, bZ ];
-            hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
-            hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
 
-            %% --- 3. PROCESS PATH DATA ---
-            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+            if bZ > 0
+                packY =[ bY, bY+bW, bY+bW, bY, bY ];
+                packZ = [ 0, 0, bZ, bZ, 0 ];
+                patch(app.AxCutLeft, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
+                patch(app.AxCutRight, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
+            end
+
+            % Draw Billet (Thin solid line with EdgeAlpha to prevent aliasing)
+            boxY =[ bY, bY+bW, bY+bW, bY, bY ];
+            boxZ =[ bZ, bZ, bZ+bH, bZ+bH, bZ ];
+            hBilletL = patch(app.AxCutLeft, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3, 'HitTest', 'off');
+            hBilletR = patch(app.AxCutRight, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3, 'HitTest', 'off');
+
+            %% --- 3. PROCESS PATH DATA ---[ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
 
             hGhostL = gobjects(0); hGhostR = gobjects(0);
 
@@ -3244,7 +3255,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Apply Start Index Shift and Direction Reversal
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);[ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
+            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
             %% --- 4. DRAW CUT PATHS ---
             function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
@@ -3256,10 +3268,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             hRapidL = gobjects(0); hLeadL = gobjects(0); hStartL = gobjects(0); hPathDummyL = gobjects(0); hEntryDotL = gobjects(0); hLoadL = gobjects(0);
             if ~isempty(yL)
                 c = (1:numel(yL))';
-                patch(app.AxCutLeft, 'XData', [ yL;NaN ], 'YData', [ zL;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [ 0 0.5 1 ], 'none', 1.0);
-
-                [ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft, [ yL(1), zL(1) ], [ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
+                patch(app.AxCutLeft, 'XData',[ yL;NaN ], 'YData', [ zL;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft, [ yL(1), zL(1) ], [ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
 
                 if numel(yL) > 1
                     idxNext = 2;
@@ -3276,7 +3286,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(yR)
                 c = (1:numel(yR))';
                 patch(app.AxCutRight, 'XData', [ yR;NaN ], 'YData',[ zR;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight,[ yR(1), zR(1) ], [ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);
+                [ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight,[ yR(1), zR(1) ],[ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
                 if numel(yR) > 1
                     idxNext = 2;
@@ -3310,9 +3321,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0); end
 
             buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
-            buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);
-
-            [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+            buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);[ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
             app.CuttingLeftPanel.BackgroundColor = pCol;
             app.TxtCuttingStatus.Value = msgLines;
             app.TxtCuttingStatus.FontColor = tCol;
@@ -3323,7 +3332,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             title(app.AxCutRight,'Right Tower', 'Color', t.labelCol);
             colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
 
-            % Add missing axes labels
             xlabel(app.AxCutLeft, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
             ylabel(app.AxCutLeft, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
             xlabel(app.AxCutRight, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
@@ -3339,7 +3347,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
             end
 
-            daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight, [ 1 1 1 ]);
+            daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight,[ 1 1 1 ]);
         end
 
         function[yL, zL, yR, zR] = getSyncedKerfProfiles(app)
@@ -3490,25 +3498,29 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetCuttingViewBillet(app)
-            % View 2: Fit to Billet + Buffer
+            % View 2: Fit to Billet + Proportional Buffer
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
 
-            buffer = 50; % mm
+            % Use a proportional buffer (15% of max dimension) instead of a fixed 50mm
+            % This prevents small billets from looking extremely zoomed out.
+            buffer = max(bW, bH) * 0.15;
+            if buffer < 10, buffer = 10; end % Minimum 10mm buffer
 
-            % Explicitly lock limits and aspect ratio without using 'axis equal'
-            xLims = [bY - buffer, bY + bW + buffer];
-            yLims =[bZ - buffer, bZ + bH + buffer];
+            xLims =[ bY - buffer, bY + bW + buffer ];
+            yLims =[ bZ - buffer, bZ + bH + buffer ];
 
             xlim(app.AxCutLeft, xLims);
             ylim(app.AxCutLeft, yLims);
-            daspect(app.AxCutLeft, [1 1 1]);
+            daspect(app.AxCutLeft, [ 1 1 1 ]);
 
             xlim(app.AxCutRight, xLims);
             ylim(app.AxCutRight, yLims);
-            daspect(app.AxCutRight, [1 1 1]);
+            daspect(app.AxCutRight, [ 1 1 1 ]);
+
+            drawnow limitrate;
         end
 
         function onCutAxesClick(app, ax, ~, side)
@@ -5092,6 +5104,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.initPostPlot();
             app.updatePostPlotForSelectedLine(1);
             app.updatePostStatus(true); % Pass 'true' to signify this is a fresh post
+
+            % Force Machine View on initialization!
+            app.onResetPostViewMachine();
+
         end
 
         function onPostLineSelected(app, src)
