@@ -778,9 +778,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Reduced horizontal padding from 10% to 2% to maximize plot width
-            padY = 0.05 * dy;
+            padY = 0.02 * dy;
             padZ = 0.1 * dz;
-            yLim =[yMin - padY, yMax + padY];
+
+            % ASYMMETRIC LEGEND PADDING: Add 30% extra space to the right side
+            % so the legend doesn't cover the trailing edge of the profile.
+            legendPadY = 0.30 * dy;
+
+            yLim =[yMin - padY, yMax + padY + legendPadY];
             zLim =[zMin - padZ, zMax + padZ];
 
             t = app.getTheme();
@@ -797,8 +802,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 [ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
 
-            if doKerfR
-                [ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            if doKerfR[ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
             %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
@@ -3512,7 +3516,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % are never cropped, even on very small billets.
             buffer = max(bW, bH) * 0.10 + 25.0;
 
-            xLims =[ bY - buffer, bY + bW + buffer ];
+            % ASYMMETRIC LEGEND PADDING: Add 35% extra space to the right side
+            % so the legend doesn't cover the toolpaths.
+            legendBuffer = buffer + max(bW, bH) * 0.35;
+
+            xLims =[ bY - buffer, bY + bW + legendBuffer ];
             yLims =[ bZ - buffer, bZ + bH + buffer ];
 
             xlim(app.AxCutLeft, xLims);
@@ -4730,7 +4738,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             hold(axP,'off');
 
-            drawnow;
         end
 
         function updatePostPlotForSelectedLine(app, k)
@@ -5098,19 +5105,19 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-            
+
             app.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1];
+            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1]; % Turn green when ready
             app.BtnSaveGCode.FontColor = [1 1 1];
 
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
-            app.updatePostPlotForSelectedLine(1);
-            app.updatePostStatus(true); % Pass 'true' to signify this is a fresh post
 
-            % Force Machine View on initialization!
+            % Force Machine View limits BEFORE updating the line data to prevent flicker
             app.onResetPostViewMachine();
 
+            app.updatePostPlotForSelectedLine(1);
+            app.updatePostStatus(true); % Pass 'true' to signify this is a fresh post
         end
 
         function onPostLineSelected(app, src)
