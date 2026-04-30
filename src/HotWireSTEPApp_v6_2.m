@@ -742,7 +742,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
-            % Draw 2D Y–Z profiles on the Profiles tab with shared scaling.
+            % Purpose: Draws 2D Y-Z profiles on the Profiles tab with shared scaling.
+            %          Applies kerf offsets and synchronizes point counts if enabled.
 
             if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
                 return;
@@ -752,50 +753,62 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % Axis limits
+            %% --- 1. CALCULATE SHARED AXES LIMITS ---
             yAll = [yL(:); yR(:)];
-            zAll = [zL(:); zR(:)];
+            zAll =[zL(:); zR(:)];
             if isempty(yAll) || isempty(zAll)
                 return;
             end
 
             yMin = min(yAll); yMax = max(yAll);
             zMin = min(zAll); zMax = max(zAll);
-            dy = max(yMax - yMin, 1); dz = max(zMax - zMin, 1);
-            padY = 0.1 * dy; padZ = 0.1 * dz;
-            yLim = [yMin - padY, yMax + padY];
-            zLim =[zMin - padZ, zMax + padZ];
+            dy = max(yMax - yMin, 1);
+            dz = max(zMax - zMin, 1);
+
+            % SMART FIT LOGIC: Prevent wide/short profiles (like airfoils) from
+            % squishing into a tiny vertical strip. We enforce a minimum Z-span
+            % (e.g., 25% of the Y-span) to utilize the UI container's vertical space
+            % without breaking the 1:1 aspect ratio.
+            min_dz = dy * 0.25;
+            if dz < min_dz
+                dz_pad_extra = (min_dz - dz) / 2.0;
+                zMin = zMin - dz_pad_extra;
+                zMax = zMax + dz_pad_extra;
+                dz = min_dz;
+            end
+
+            padY = 0.1 * dy;
+            padZ = 0.1 * dz;
+            yLim =[yMin - padY, yMax + padY];
+            zLim = [zMin - padZ, zMax + padZ];
 
             t = app.getTheme();
             app.clearProfiles2D();
 
-            % --- 1. DETERMINE FINAL PROFILES (Raw or Kerfed) ---
-            final_yL = yL;
-            final_zL = zL;
-            final_yR = yR;
-            final_zR = zR;
+            %% --- 2. DETERMINE FINAL PROFILES (Raw or Kerfed) ---
+            final_yL = yL; final_zL = zL;
+            final_yR = yR; final_zR = zR;
 
             doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
             doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
 
-            if doKerfL
-                [final_yL, final_zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+            if doKerfL[ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
 
-            if doKerfR[final_yR, final_zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            if doKerfR
+                [ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
-            % --- 2. SYNC POINT COUNTS UNIVERSALLY ---
+            %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
             % Always sync the final shapes so the UI exactly matches the Simulation.
-            if ~isempty(final_yL) && ~isempty(final_yR)
-                [final_yL, final_zL, final_yR, final_zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+            if ~isempty(final_yL) && ~isempty(final_yR)[ final_yL, final_zL, final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
             end
 
             nLk = numel(final_yL);
             nRk = numel(final_yR);
 
-            % --- 3. DRAW PLOTS ---
-            % LEFT
+            %% --- 4. DRAW PLOTS ---
+            % LEFT TOWER
             hold(app.AxLeftProfile,'on');
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
@@ -809,7 +822,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
             hold(app.AxLeftProfile,'off');
 
-            % RIGHT
+            % RIGHT TOWER
             hold(app.AxRightProfile,'on');
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
@@ -823,51 +836,61 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
             hold(app.AxRightProfile,'off');
 
-            % --- 4. UPDATE LABEL ---
+            %% --- 5. UPDATE LABELS & LEGENDS ---
             if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
                 app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Point Count (L/R): %d / %d', nLk, nRk);
             end
 
-            % ----- LEGENDS & VIEW -----
+            % Left Legend
             hL = gobjects(0); txtL = {};
             if isgraphics(app.LeftProfile2DMeshLine), hL(end+1)=app.LeftProfile2DMeshLine; txtL{end+1}='Model mesh slice'; end
             if isgraphics(app.LeftProfile2DLine), hL(end+1)=app.LeftProfile2DLine; txtL{end+1}='Extracted profile'; end
             if isgraphics(app.LeftKerf2DLine), hL(end+1)=app.LeftKerf2DLine; txtL{end+1}='Kerf path'; end
-            if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; end
+            if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
 
+            % Right Legend
             hR = gobjects(0); txtR = {};
             if isgraphics(app.RightProfile2DMeshLine), hR(end+1)=app.RightProfile2DMeshLine; txtR{end+1}='Model mesh slice'; end
             if isgraphics(app.RightProfile2DLine), hR(end+1)=app.RightProfile2DLine; txtR{end+1}='Extracted profile'; end
             if isgraphics(app.RightKerf2DLine), hR(end+1)=app.RightKerf2DLine; txtR{end+1}='Kerf path'; end
-            if ~isempty(hR), l=legend(app.AxRightProfile, hR, txtR, 'Location','northeast'); l.Box='off'; end
+            if ~isempty(hR), l=legend(app.AxRightProfile, hR, txtR, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
 
+            %% --- 6. FORMAT AXES ---
             if ~app.ProfileAxesLocked
                 xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
                 xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
             end
+
             daspect(app.AxLeftProfile, [1 1 1]);
             daspect(app.AxRightProfile,[1 1 1]);
 
-            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value));
-            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value));
+            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value), 'Color', t.labelCol);
+            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value), 'Color', t.labelCol);
+
+            % Add the missing axes labels!
+            xlabel(app.AxLeftProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxLeftProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            xlabel(app.AxRightProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxRightProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+
             grid(app.AxLeftProfile,'on');
             grid(app.AxRightProfile,'on');
+
+            app.AxLeftProfile.XColor = t.labelCol; app.AxLeftProfile.YColor = t.labelCol;
+            app.AxRightProfile.XColor = t.labelCol; app.AxRightProfile.YColor = t.labelCol;
         end
 
         function resetProfilesView(app)
-            % Reset Profiles tab axes limits to fit current profiles.
-            % Uses stored LeftProfilePoints / RightProfilePoints so it
-            % does not trigger a full recompute.
+            % Purpose: Resets Profiles tab axes limits to fit current profiles.
+            %          Uses stored points so it does not trigger a full recompute.
 
-            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) ...
-                    || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
                 return;
             end
 
-            yL = [];
-            zL = [];
-            yR = [];
-            zR = [];
+            %% --- 1. FETCH STORED POINTS ---
+            yL = []; zL = [];
+            yR = []; zR =[];
             xLeft  = 0;
             xRight = 0;
 
@@ -887,7 +910,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return;
             end
 
-            % Force a full relimit of axes
+            %% --- 2. FORCE RELIMIT ---
+            % Force a full relimit of axes by unlocking and calling the update function
             app.ProfileAxesLocked = false;
             app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
         end
@@ -3156,127 +3180,117 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function updateCuttingPlots(app)
+            % Purpose: Renders the 2D cutting paths (Left and Right) including
+            %          rapid moves, lead-ins, the profile cut, and lead-outs.
+
             if isempty(app.AxCutLeft) || isempty(app.AxCutRight)
                 return;
             end
 
             t = app.getTheme();
 
+            %% --- 1. PRESERVE VIEW STATE ---
             preserveView = true;
             curXL = xlim(app.AxCutLeft);
-            isInitialized = ~isequal(curXL, [0 1]);
+            isInitialized = ~isequal(curXL,[ 0 1 ]);
 
-            limsL = [];
-            limsR =[];
+            limsL = []; limsR =[];
 
             if isInitialized
-                limsL = [xlim(app.AxCutLeft); ylim(app.AxCutLeft)];
-                limsR =[xlim(app.AxCutRight); ylim(app.AxCutRight)];
+                limsL = [ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
+                limsR = [ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
             end
 
-            cla(app.AxCutLeft);
-            cla(app.AxCutRight);
-            hold(app.AxCutLeft,'on');
-            hold(app.AxCutRight,'on');
+            cla(app.AxCutLeft); cla(app.AxCutRight);
+            hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
 
+            %% --- 2. SETUP GEOMETRY & OFFSETS ---
             offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
             offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
             isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
 
-            bedY =[50, 750, 750, 50];
-            bedZ =[-20, -20, 0, 0];
+            % Draw Bed
+            bedY =[ 50, 750, 750, 50 ];
+            bedZ =[ -20, -20, 0, 0 ];
             patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
             patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
 
-            mBoxY =[0, app.MachineLimitY, app.MachineLimitY, 0, 0];
-            mBoxZ =[0, 0, app.MachineLimitZ, app.MachineLimitZ, 0];
-
+            % Draw Machine Limits
+            mBoxY =[ 0, app.MachineLimitY, app.MachineLimitY, 0, 0 ];
+            mBoxZ =[ 0, 0, app.MachineLimitZ, app.MachineLimitZ, 0 ];
             hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
             hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
 
+            % Draw Billet
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
-            boxY =[bY, bY+bW, bY+bW, bY, bY];
-            boxZ = [bZ, bZ, bZ+bH, bZ+bH, bZ];
-
+            boxY = [ bY, bY+bW, bY+bW, bY, bY ];
+            boxZ = [ bZ, bZ, bZ+bH, bZ+bH, bZ ];
             hBilletL = plot(app.AxCutLeft, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
             hBilletR = plot(app.AxCutRight, boxY, boxZ, '--', 'Color', t.labelCol, 'LineWidth', 1.5, 'HitTest', 'off');
 
-            % 4. Process Data (Kerf -> Sync -> Shift Pipeline)
+            %% --- 3. PROCESS PATH DATA ---
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
 
-            x_dummy1 = 0;[syncY_L, syncZ_L, syncY_R, syncZ_R] = app.getSyncedKerfProfiles();
-
-            hGhostL = gobjects(0);
-            hGhostR = gobjects(0);
+            hGhostL = gobjects(0); hGhostR = gobjects(0);
 
             if ~isempty(app.LeftProfilePoints)
                 hGhostL = plot(app.AxCutLeft, app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
             end
-
             if ~isempty(app.RightProfilePoints)
                 hGhostR = plot(app.AxCutRight, app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
             end
 
             % Apply Start Index Shift and Direction Reversal
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);[ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
-            x_dummy2 = 0;
-            [yL, zL] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
-
-            x_dummy3 = 0;
-            [yR, zR] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
-
-            % 5. Draw
+            %% --- 4. DRAW CUT PATHS ---
             function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
-                if nargin < 5
-                    lWidth = 1.0;
-                end
+                if nargin < 5, lWidth = 1.0; end
                 hD = plot(ax, NaN, NaN, style, 'Color', color, 'MarkerFaceColor', mFace, 'LineWidth', lWidth);
             end
 
+            % Left Path
             hRapidL = gobjects(0); hLeadL = gobjects(0); hStartL = gobjects(0); hPathDummyL = gobjects(0); hEntryDotL = gobjects(0); hLoadL = gobjects(0);
-
             if ~isempty(yL)
                 c = (1:numel(yL))';
-                patch(app.AxCutLeft, 'XData', [yL;NaN], 'YData', [zL;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [0 0.5 1], 'none', 1.0);
+                patch(app.AxCutLeft, 'XData', [ yL;NaN ], 'YData', [ zL;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [ 0 0.5 1 ], 'none', 1.0);
 
-                x_dummy4 = 0;[hRapidL, hLeadL, hEntryDotL, hLoadL] = app.drawTravelPath(app.AxCutLeft,[yL(1), zL(1)], [yL(end), zL(end)], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
+                [ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft, [ yL(1), zL(1) ], [ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
 
                 if numel(yL) > 1
                     idxNext = 2;
-                    while idxNext < numel(yL) && norm([yL(idxNext),zL(idxNext)] - [yL(1),zL(1)]) < 1e-4
+                    while idxNext < numel(yL) && norm([ yL(idxNext),zL(idxNext) ] - [ yL(1),zL(1) ]) < 1e-4
                         idxNext = idxNext + 1;
                     end
-                    app.drawRotatedMarker(app.AxCutLeft,[yL(1), zL(1)], [yL(idxNext), zL(idxNext)], 'start');
-                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [0 1 0], 'none');
+                    app.drawRotatedMarker(app.AxCutLeft, [ yL(1), zL(1) ],[ yL(idxNext), zL(idxNext) ], 'start');
+                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^',[ 0 1 0 ], 'none');
                 end
             end
 
+            % Right Path
             hRapidR = gobjects(0); hLeadR = gobjects(0); hStartR = gobjects(0); hPathDummyR = gobjects(0); hEntryDotR = gobjects(0); hLoadR = gobjects(0);
-
             if ~isempty(yR)
                 c = (1:numel(yR))';
-                patch(app.AxCutRight, 'XData', [yR;NaN], 'YData', [zR;NaN], 'CData', [c;NaN], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-', [0 0.5 1], 'none', 1.0);
-
-                x_dummy5 = 0;[hRapidR, hLeadR, hEntryDotR, hLoadR] = app.drawTravelPath(app.AxCutRight,[yR(1), zR(1)], [yR(end), zR(end)], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
+                patch(app.AxCutRight, 'XData', [ yR;NaN ], 'YData',[ zR;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight,[ yR(1), zR(1) ], [ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
 
                 if numel(yR) > 1
                     idxNext = 2;
-                    while idxNext < numel(yR) && norm([yR(idxNext),zR(idxNext)] - [yR(1),zR(1)]) < 1e-4
+                    while idxNext < numel(yR) && norm([ yR(idxNext),zR(idxNext) ] - [ yR(1),zR(1) ]) < 1e-4
                         idxNext = idxNext + 1;
                     end
-                    app.drawRotatedMarker(app.AxCutRight,[yR(1), zR(1)], [yR(idxNext), zR(idxNext)], 'start');
-                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^',[0 1 0], 'none');
+                    app.drawRotatedMarker(app.AxCutRight, [ yR(1), zR(1) ],[ yR(idxNext), zR(idxNext) ], 'start');
+                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [ 0 1 0 ], 'none');
                 end
             end
 
-            % 6. Legends (Dynamic Builder to prevent text mismatch)
+            %% --- 5. LEGENDS & UI STATUS ---
             function buildLegend(axTarget, hs, hl, hp, hr, hld, he, hm, hg, tCol)
-                hList =[];
-                lList = {};
+                hList =[]; lList = {};
                 if isgraphics(hs),  hList(end+1)=hs;  lList{end+1}='Start Point'; end
                 if isgraphics(hl),  hList(end+1)=hl;  lList{end+1}='Load Point'; end
                 if isgraphics(hp),  hList(end+1)=hp;  lList{end+1}='Cut Path'; end
@@ -3288,53 +3302,44 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 if ~isempty(hList)
                     lgd = legend(axTarget, hList, lList, 'Location','northeast');
-                    lgd.Box = 'off';
-                    lgd.TextColor = tCol;
+                    lgd.Box = 'off'; lgd.TextColor = tCol;
                 end
             end
 
-            if ~isgraphics(hEntryDotL)
-                hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', t.wireLead, t.wireLead, 1.0);
-            end
-            if ~isgraphics(hEntryDotR)
-                hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0);
-            end
+            if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', t.wireLead, t.wireLead, 1.0); end
+            if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0); end
 
             buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
             buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);
 
-            % --- VALIDATE AND UPDATE STATUS UI ---
-            x_dummy6 = 0;
-            [isValidCut, pCol, tCol, msgLines] = app.validateCuttingStrategy();
-
+            [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
             app.CuttingLeftPanel.BackgroundColor = pCol;
             app.TxtCuttingStatus.Value = msgLines;
             app.TxtCuttingStatus.FontColor = tCol;
+            if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
 
-            if isValidCut
-                app.BtnCuttingContinue.Enable = 'on';
-            else
-                app.BtnCuttingContinue.Enable = 'off';
-            end
+            %% --- 6. FORMAT AXES ---
+            title(app.AxCutLeft,'Left Tower', 'Color', t.labelCol);
+            title(app.AxCutRight,'Right Tower', 'Color', t.labelCol);
+            colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
 
-            % 7. Restore View
-            title(app.AxCutLeft,'Left Tower');
-            title(app.AxCutRight,'Right Tower');
-            colormap(app.AxCutLeft,'turbo');
-            colormap(app.AxCutRight,'turbo');
+            % Add missing axes labels
+            xlabel(app.AxCutLeft, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxCutLeft, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            xlabel(app.AxCutRight, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxCutRight, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+
+            app.AxCutLeft.XColor = t.labelCol; app.AxCutLeft.YColor = t.labelCol;
+            app.AxCutRight.XColor = t.labelCol; app.AxCutRight.YColor = t.labelCol;
 
             if isInitialized
-                xlim(app.AxCutLeft, limsL(1,:));
-                ylim(app.AxCutLeft, limsL(2,:));
-                xlim(app.AxCutRight, limsR(1,:));
-                ylim(app.AxCutRight, limsR(2,:));
+                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
+                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
             else
-                axis(app.AxCutLeft,'equal');
-                axis(app.AxCutRight,'equal');
+                axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
             end
 
-            daspect(app.AxCutLeft,[1 1 1]);
-            daspect(app.AxCutRight,[1 1 1]);
+            daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight, [ 1 1 1 ]);
         end
 
         function[yL, zL, yR, zR] = getSyncedKerfProfiles(app)
