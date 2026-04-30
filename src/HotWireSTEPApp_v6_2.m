@@ -778,7 +778,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % Reduced horizontal padding from 10% to 2% to maximize plot width
-            padY = 0.02 * dy;
+            padY = 0.05 * dy;
             padZ = 0.1 * dz;
             yLim =[yMin - padY, yMax + padY];
             zLim =[zMin - padZ, zMax + padZ];
@@ -814,10 +814,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxLeftProfile,'on');
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
-                % Changed from thick dashed (':', 2.5) to thin solid ('-', 0.5) to prevent aliasing
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth',0.5);
+                % Thick solid line (2.0) so it sits visibly behind the extracted profile
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth', 2.0);
             end
             if ~isempty(yL)
+                % Thinner line (0.75) plotted AFTER the mesh so it layers on top
                 app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
             end
             if doKerfL && ~isempty(final_yL)
@@ -829,10 +830,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             hold(app.AxRightProfile,'on');
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
-                % Changed from thick dashed (':', 2.5) to thin solid ('-', 0.5) to prevent aliasing
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth',0.5);
+                % Thick solid line (2.0) so it sits visibly behind the extracted profile
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth', 2.0);
             end
             if ~isempty(yR)
+                % Thinner line (0.75) plotted AFTER the mesh so it layers on top
                 app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
             end
             if doKerfR && ~isempty(final_yR)
@@ -2742,11 +2744,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                         'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
                 end
 
-                % 2. Draw Billet (Thin solid lines to prevent aliasing)
-                [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-                hBillet = patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, ...
+                % 2. Draw Billet (Thin solid lines to prevent aliasing)[ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+                hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
-                    'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
+                    'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
 
                 % 3. Draw Model Mesh
                 Vplot = app.ModelPatch.Vertices + totalShift;
@@ -3240,10 +3241,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Draw Billet (Thin solid line with EdgeAlpha to prevent aliasing)
             boxY =[ bY, bY+bW, bY+bW, bY, bY ];
             boxZ =[ bZ, bZ, bZ+bH, bZ+bH, bZ ];
-            hBilletL = patch(app.AxCutLeft, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3, 'HitTest', 'off');
-            hBilletR = patch(app.AxCutRight, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3, 'HitTest', 'off');
-
-            %% --- 3. PROCESS PATH DATA ---[ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+            hBilletL = patch(app.AxCutLeft, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
+            hBilletR = patch(app.AxCutRight, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
+            
+            %% --- 3. PROCESS PATH DATA ---
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
 
             hGhostL = gobjects(0); hGhostR = gobjects(0);
 
@@ -3498,16 +3500,16 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onResetCuttingViewBillet(app)
-            % View 2: Fit to Billet + Proportional Buffer
+            % View 2: Fit to Billet + Proportional Buffer + Fixed Retract Buffer
             bY = app.MachineBilletPos(2);
             bZ = app.MachineBilletPos(3);
             bW = app.BilletSize(2);
             bH = app.BilletSize(3);
 
-            % Use a proportional buffer (15% of max dimension) instead of a fixed 50mm
-            % This prevents small billets from looking extremely zoomed out.
-            buffer = max(bW, bH) * 0.15;
-            if buffer < 10, buffer = 10; end % Minimum 10mm buffer
+            % Use a 10% proportional buffer PLUS a fixed 25mm buffer.
+            % The fixed 25mm ensures the standard 10mm retracts and load points
+            % are never cropped, even on very small billets.
+            buffer = max(bW, bH) * 0.10 + 25.0;
 
             xLims =[ bY - buffer, bY + bW + buffer ];
             yLims =[ bZ - buffer, bZ + bH + buffer ];
@@ -3518,7 +3520,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             xlim(app.AxCutRight, xLims);
             ylim(app.AxCutRight, yLims);
-            daspect(app.AxCutRight, [ 1 1 1 ]);
+            daspect(app.AxCutRight,[ 1 1 1 ]);
 
             drawnow limitrate;
         end
@@ -4197,9 +4199,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             % --- Draw Billet ---
-            [xm,ym,zm] = app.makeBoxVertices(bX,bY,bZ, bSize(1),bSize(2),bSize(3));
-            patch(ax, 'Vertices',[xm,ym,zm], 'Faces',app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor',t.labelCol, 'LineStyle','-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
-
+            [ xm, ym, zm ] = app.makeBoxVertices(bX, bY, bZ, bSize(1), bSize(2), bSize(3));
+            patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
+            
             % --- Draw Model ---
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
@@ -5301,11 +5303,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.readoutBg   =[0.70 0.70 0.70];
                 th.readoutTxt  =[0.20 0.20 0.20];
 
-                % FIX: Standard inputs are now dark grey in dark mode!
                 th.inputBg     =[0.24 0.24 0.24];
                 th.inputTxt    =[1.00 1.00 1.00];
 
-                % FIX: The carefully chosen Billet Shift/Size accent background
                 th.shiftBg     = [0.70 0.70 0.80];
                 th.shiftTxt    = [0.00 0.00 0.00];
 
@@ -5318,10 +5318,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.planeRedTxt = [0.96 0.40 0.40];
                 th.planeGreenTxt = [0.40 1.00 0.50];
 
-                th.wireKerf    = [1.00 0.75 0.00];
+                th.wireKerf    =[1.00 0.75 0.00];
                 th.wireNeutral = [0.80 0.80 0.80];
-                th.rawMeshCol  = [0.60 0.60 0.60];
-                th.wireLead    = [1.00 0.50 0.00];
+                th.rawMeshCol  =[0.60 0.60 0.60];
+                th.wireLead    =[1.00 0.50 0.00];
 
                 % Status Box Colors (Red / Amber / Green)
                 th.statErrBg   =[0.40 0.16 0.16];
@@ -5334,9 +5334,9 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % 3D Plotting Elements
                 th.modelColor  =[0.50 0.50 0.60];
                 th.modelAlpha  = 0.40;
-                th.billetColor = [0.30 0.50 0.80];
+                th.billetColor =[0.30 0.50 0.80];
                 th.billetAlpha = 0.20;
-                th.billetLine  = 'w';
+                th.billetLine  = [0.00 0.80 1.00]; % Bright Cyan to pop against grid
 
                 th.bedCol      = [0.40 0.40 0.40];
                 th.bedEdge     = [0.20 0.20 0.20];
@@ -5344,26 +5344,24 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.wireBaseCol = [0.50 0.50 0.50];
 
                 % Ghost profiles (RGBA with 60% opacity)
-                th.ghostRed    = [th.planeRed, 0.6];
+                th.ghostRed    =[th.planeRed, 0.6];
                 th.ghostGreen  =[th.planeGreen, 0.6];
                 th.ghostNeutral=[0.90 0.90 0.90, 0.7];
 
             else
                 % --- LIGHT THEME ---
-                th.sideBg      = [0.96 0.96 0.96];
-                th.panelBg     = [0.90 0.90 0.90];
-                th.labelCol    = [0.15 0.15 0.15];
-                th.accentBg    = [0.70 0.70 0.80];
+                th.sideBg      =[0.96 0.96 0.96];
+                th.panelBg     =[0.90 0.90 0.90];
+                th.labelCol    =[0.15 0.15 0.15];
+                th.accentBg    =[0.70 0.70 0.80];
                 th.editBg      =[1.00 1.00 1.00];
                 th.editTxt     =[0.00 0.00 0.00];
                 th.readoutBg   =[0.85 0.85 0.85];
                 th.readoutTxt  =[0.20 0.20 0.20];
 
-                % Standard inputs are white in light mode
-                th.inputBg     = [1.00 1.00 1.00];
-                th.inputTxt    = [0.00 0.00 0.00];
+                th.inputBg     =[1.00 1.00 1.00];
+                th.inputTxt    =[0.00 0.00 0.00];
 
-                % The carefully chosen Billet Shift/Size accent background
                 th.shiftBg     =[0.70 0.70 0.80];
                 th.shiftTxt    =[0.00 0.00 0.00];
 
@@ -5382,10 +5380,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.wireLead    =[0.85 0.35 0.00];
 
                 % Status Box Colors
-                th.statErrBg   = [1.00 0.80 0.80];
-                th.statErrTxt  = [0.80 0.00 0.00];
-                th.statWarnBg  = [1.00 0.90 0.70];
-                th.statWarnTxt = [0.65 0.30 0.00];
+                th.statErrBg   =[1.00 0.80 0.80];
+                th.statErrTxt  =[0.80 0.00 0.00];
+                th.statWarnBg  =[1.00 0.90 0.70];
+                th.statWarnTxt =[0.65 0.30 0.00];
                 th.statPassBg  = th.panelBg;
                 th.statPassTxt = th.planeGreen;
 
@@ -5393,15 +5391,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                 th.modelAlpha  = 0.30;
                 th.billetColor = [0.30 0.50 0.80];
                 th.billetAlpha = 0.20;
-                th.billetLine  = 'k';
+                th.billetLine  =[0.00 0.20 0.80]; % Deep Blue to pop against grid
 
-                th.bedCol      = [0.80 0.80 0.80];
-                th.bedEdge     = [0.50 0.50 0.50];
-                th.cageCol     = [0.30 0.30 0.30];
-                th.wireBaseCol = [0.40 0.40 0.40];
+                th.bedCol      =[0.80 0.80 0.80];
+                th.bedEdge     =[0.50 0.50 0.50];
+                th.cageCol     =[0.30 0.30 0.30];
+                th.wireBaseCol =[0.40 0.40 0.40];
 
-                th.ghostRed    = [th.planeRed, 0.6];
-                th.ghostGreen  = [th.planeGreen, 0.6];
+                th.ghostRed    =[th.planeRed, 0.6];
+                th.ghostGreen  =[th.planeGreen, 0.6];
                 th.ghostNeutral=[0.20 0.20 0.20, 0.5];
             end
         end
