@@ -2744,7 +2744,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                         'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
                 end
 
-                % 2. Draw Billet (Thin solid lines to prevent aliasing)[ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+                % 2. Draw Billet (Thin solid lines to prevent aliasing)
+                [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
                 hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
                     'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
