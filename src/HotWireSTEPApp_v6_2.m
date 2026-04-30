@@ -2833,9 +2833,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             ax.BackgroundColor = t.editBg;
             set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
 
+            % Restore missing axes labels
+            xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z');
+
             xlim(ax,[ -offX - 100, mX - offX + 100 ]);
             ylim(ax,[ -50, mLimY + 50 ]);
-            zlim(ax,[ -bs(3)-20, mLimZ + 80 ]);
+            % Increased Z-limit padding from 80 to 150 to prevent Z-label cropping
+            zlim(ax,[ -bs(3)-20, mLimZ + 150 ]);
 
             %% --- SAFETY CHECKS & UI UPDATE ---
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
@@ -4491,9 +4495,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             bs = app.MachineBedSize;
 
             view(ax, 3); axis(ax, 'equal');
-            xlim(ax, [-offX - 100, mX - offX + 100]);
-            ylim(ax, [-50, mLimY + 50]);
-            zlim(ax, [-bs(3)-20, mLimZ + 80]);
+
+            xlim(ax, [ -offX - 100, mX - offX + 100 ]);
+            ylim(ax, [ -50, mLimY + 50 ]);
+            % Increased Z-limit padding from 80 to 150 to prevent Z-label cropping
+            zlim(ax, [ -bs(3)-20, mLimZ + 150 ]);
+
+            % Force MATLAB to apply these limits immediately during initialization
+            drawnow limitrate;
         end
 
         function resetViewToBillet(app, ax)
