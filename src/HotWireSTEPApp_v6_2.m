@@ -2801,10 +2801,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                         N_pts = numel(tL.y);
                         idx = 1;
                         last_idx = 1;
+                        accumulated_angle = 0;
 
-                        % Target ~40 lines, but at least 10mm apart to prevent crowding
+                        % --- TWEAKABLE DISTRIBUTION PARAMETERS ---
+                        % 1. Straight Lines: Target distance between wires
                         total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
-                        target_spacing = max(10.0, total_len / 40.0);
+                        target_spacing = max(10.0, total_len / 40.0); 
+                        
+                        % 2. Curves: Degrees of cumulative bending before drawing a wire
+                        curve_angle_threshold = 15.0; 
+                        
+                        % 3. Minimum Spacing: Prevents crowding/pairing on curves and noisy straights
+                        min_spacing = 4.0; 
+                        
+                        % 4. Hard Corners: Always draw if the angle exceeds this (ignores min_spacing)
+                        sharp_corner_threshold = 20.0;
+                        % -----------------------------------------
 
                         for i = 2:N_pts-1
                             % Physical distance from the last drawn wire
@@ -2822,21 +2834,28 @@ classdef HotWireSTEPApp_v6_2 < handle
                                 dp = dot(v1, v2) / (n1 * n2);
                                 angle_deg = acosd(max(-1, min(1, dp)));
                             end
+                            
+                            accumulated_angle = accumulated_angle + angle_deg;
 
                             % --- RULES FOR DRAWING A WIRE ---
                             % 1. Spacing: Traveled far enough along a gentle curve or straight
                             isSpaced = (d >= target_spacing);
 
-                            % 2. Sharpness: Sharp internal corner (> 15 deg)
-                            isSharp = (angle_deg > 15.0);
+                            % 2. Sharpness: Sharp internal corner (Always draws)
+                            isSharp = (angle_deg >= sharp_corner_threshold);
 
                             % 3. Transition: Start/End of an external curve or straight.
-                            % Triggers if one segment is >1mm and at least 3x longer than the other.
-                            isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2));
+                            % Must bend at least 2 degrees to ignore noisy straight lines.
+                            isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2)) && (angle_deg > 2.0);
+                            
+                            % 4. Curvature: Fanning around smooth curves
+                            isCurved = (accumulated_angle >= curve_angle_threshold);
 
-                            if isSpaced || isSharp || isTransition
+                            % Apply the rules (with min_spacing veto for non-sharp moves)
+                            if isSharp || ((isSpaced || isTransition || isCurved) && (d >= min_spacing))
                                 idx(end+1) = i;
                                 last_idx = i;
+                                accumulated_angle = 0; % Reset after drawing!
                             end
                         end
 
@@ -2863,8 +2882,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                             end
 
                             % Tower connection points for this step
-                            pTL_i = [-offX, tL.y(currIdx), tL.z(currIdx)];
-                            pTR_i = [mX-offX, tR.y(currIdx), tR.z(currIdx)];
+                            pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
+                            pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
                             
                             % Calculate Brass Joint Position
                             wireVec = pTR_i - pTL_i;
@@ -2872,15 +2891,15 @@ classdef HotWireSTEPApp_v6_2 < handle
                             pJoint_i = pTL_i + wireVec * (L_hot / wireLen);
 
                             % Draw Hot Wire (Left tower to Brass Joint)
-                            plot3(ax,[pTL_i(1), pJoint_i(1)], [pTL_i(2), pJoint_i(2)], [pTL_i(3), pJoint_i(3)], ...
-                                'Color', wCol, 'LineWidth', 0.6);
+                            plot3(ax, [ pTL_i(1), pJoint_i(1) ],[ pTL_i(2), pJoint_i(2) ], [ pTL_i(3), pJoint_i(3) ], ...
+                                'Color', wCol, 'LineWidth', 0.5);
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
-                            plot3(ax, [pJoint_i(1), pTR_i(1)], [pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
-                                'Color',wCol, 'LineWidth', 0.6);
+                            plot3(ax,[ pJoint_i(1), pTR_i(1) ],[ pJoint_i(2), pTR_i(2) ], [ pJoint_i(3), pTR_i(3) ], ...
+                                'Color', [ 0.5 0.5 0.5 0.8 ], 'LineWidth', 1.5);
 
                             % Draw Brass Joint (Large Orange Dot)
-                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 4);
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 12);
 
                             % Draw tracking dots on the model profiles
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
@@ -4566,14 +4585,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             view(ax, 3); axis(ax, 'equal');
 
-            % Proportional 10% padding based on physical machine dimensions
+            % Proportional 10% padding for X/Y, but fixed large padding for Z
+            % to prevent MATLAB's 'axis equal' from cropping the Z-label.
             padX = mX * 0.10;
             padY = mLimY * 0.10;
-            padZ = mLimZ * 0.10;
+            padZ = 150;
 
             xlim(ax, [ -offX - padX, mX - offX + padX ]);
             ylim(ax, [ -padY, mLimY + padY ]);
-            zlim(ax,[ -bs(3) - padZ, mLimZ + padZ ]);
+            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
 
             % Force MATLAB to apply these limits immediately during initialization
             drawnow limitrate;
