@@ -2797,11 +2797,53 @@ classdef HotWireSTEPApp_v6_2 < handle
                         plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
                         plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
 
-                        % 4. Draw the Wire Sweep (Connecting lines between towers)
-                        % We sample the path to draw representative wire positions
-                        stepInt = max(1, floor(numel(tL.y)/20));
-                        idx = 1:stepInt:numel(tL.y);
-                        if idx(end) ~= numel(tL.y), idx(end+1) = numel(tL.y); end
+                        % 4. Draw the Wire Sweep (Smart Distribution)
+                        N_pts = numel(tL.y);
+                        idx = 1;
+                        last_idx = 1;
+
+                        % Target ~40 lines, but at least 10mm apart to prevent crowding
+                        total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
+                        target_spacing = max(10.0, total_len / 40.0);
+
+                        for i = 2:N_pts-1
+                            % Physical distance from the last drawn wire
+                            d = hypot(ySyncL(i) - ySyncL(last_idx), zSyncL(i) - zSyncL(last_idx));
+
+                            % Segment vectors and lengths
+                            v1 =[ ySyncL(i) - ySyncL(i-1), zSyncL(i) - zSyncL(i-1) ];
+                            v2 =[ ySyncL(i+1) - ySyncL(i), zSyncL(i+1) - zSyncL(i) ];
+                            n1 = norm(v1);
+                            n2 = norm(v2);
+
+                            % Turning angle at this specific point
+                            angle_deg = 0;
+                            if n1 > 1e-4 && n2 > 1e-4
+                                dp = dot(v1, v2) / (n1 * n2);
+                                angle_deg = acosd(max(-1, min(1, dp)));
+                            end
+
+                            % --- RULES FOR DRAWING A WIRE ---
+                            % 1. Spacing: Traveled far enough along a gentle curve or straight
+                            isSpaced = (d >= target_spacing);
+
+                            % 2. Sharpness: Sharp internal corner (> 15 deg)
+                            isSharp = (angle_deg > 15.0);
+
+                            % 3. Transition: Start/End of an external curve or straight.
+                            % Triggers if one segment is >1mm and at least 3x longer than the other.
+                            isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2));
+
+                            if isSpaced || isSharp || isTransition
+                                idx(end+1) = i;
+                                last_idx = i;
+                            end
+                        end
+
+                        % Always include the very last point
+                        idx(end+1) = N_pts;
+                        idx = unique(idx);
+
                         dotCMap = hsv(numel(idx));
 
                         % Check if the toolpath forces the towers outside physical limits
@@ -2809,13 +2851,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                         if any(bad), isViolated = true; end
 
                         % Fixed length of the hot wire (from left tower to neutral joint position)
-                        % Adding the negative offset moves the joint inward (left) from the right bed edge.
                         L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
-                        
+
                         for k = 1:numel(idx)
                             currIdx = idx(k);
 
-                            wCol = [ t.wireBaseCol, 0.60 ];
+                            % WIRE COLOR FIX: Higher alpha (0.6) and adjusted base color
+                            wCol =[ t.wireBaseCol, 0.60 ];
                             if bad(currIdx)
                                 wCol =[ 1 0.8 0 0.8 ]; % Highlight bad segments in amber
                             end
@@ -2823,20 +2865,19 @@ classdef HotWireSTEPApp_v6_2 < handle
                             % Tower connection points for this step
                             pTL_i = [-offX, tL.y(currIdx), tL.z(currIdx)];
                             pTR_i = [mX-offX, tR.y(currIdx), tR.z(currIdx)];
-
+                            
                             % Calculate Brass Joint Position
-                            % The hot wire is a fixed length. The joint moves left as the span increases.
                             wireVec = pTR_i - pTL_i;
                             wireLen = norm(wireVec);
                             pJoint_i = pTL_i + wireVec * (L_hot / wireLen);
 
                             % Draw Hot Wire (Left tower to Brass Joint)
-                            plot3(ax,[pTL_i(1), pJoint_i(1)], [pTL_i(2), pJoint_i(2)],[pTL_i(3), pJoint_i(3)], ...
-                                'Color', wCol, 'LineWidth', 0.5);
+                            plot3(ax,[pTL_i(1), pJoint_i(1)], [pTL_i(2), pJoint_i(2)], [pTL_i(3), pJoint_i(3)], ...
+                                'Color', wCol, 'LineWidth', 0.6);
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
-                            plot3(ax, [pJoint_i(1), pTR_i(1)],[pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
-                                'Color',[0.5 0.5 0.5 0.8], 'LineWidth', 0.5);
+                            plot3(ax, [pJoint_i(1), pTR_i(1)], [pJoint_i(2), pTR_i(2)],[pJoint_i(3), pTR_i(3)], ...
+                                'Color',wCol, 'LineWidth', 0.6);
 
                             % Draw Brass Joint (Large Orange Dot)
                             plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 4);
@@ -4525,10 +4566,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             view(ax, 3); axis(ax, 'equal');
 
-            xlim(ax, [ -offX - 100, mX - offX + 100 ]);
-            ylim(ax, [ -50, mLimY + 50 ]);
-            % Increased Z-limit padding from 80 to 150 to prevent Z-label cropping
-            zlim(ax, [ -bs(3)-20, mLimZ + 150 ]);
+            % Proportional 10% padding based on physical machine dimensions
+            padX = mX * 0.10;
+            padY = mLimY * 0.10;
+            padZ = mLimZ * 0.10;
+
+            xlim(ax, [ -offX - padX, mX - offX + padX ]);
+            ylim(ax, [ -padY, mLimY + padY ]);
+            zlim(ax,[ -bs(3) - padZ, mLimZ + padZ ]);
 
             % Force MATLAB to apply these limits immediately during initialization
             drawnow limitrate;
