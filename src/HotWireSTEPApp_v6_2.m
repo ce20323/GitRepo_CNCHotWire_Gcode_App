@@ -2809,13 +2809,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                         target_spacing = max(10.0, total_len / 40.0); 
                         
                         % 2. Curves: Degrees of cumulative bending before drawing a wire
-                        curve_angle_threshold = 15.0; 
+                        curve_angle_threshold = 10.0; 
                         
                         % 3. Minimum Spacing: Prevents crowding/pairing on curves and noisy straights
                         min_spacing = 4.0; 
                         
                         % 4. Hard Corners: Always draw if the angle exceeds this (ignores min_spacing)
-                        sharp_corner_threshold = 20.0;
+                        sharp_corner_threshold = 10.0;
                         % -----------------------------------------
 
                         for i = 2:N_pts-1
@@ -2896,10 +2896,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                             % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
                             plot3(ax,[ pJoint_i(1), pTR_i(1) ],[ pJoint_i(2), pTR_i(2) ], [ pJoint_i(3), pTR_i(3) ], ...
-                                'Color', [ 0.5 0.5 0.5 0.8 ], 'LineWidth', 1.5);
+                                'Color', [ 0.5 0.5 0.5 0.8 ], 'LineWidth', 1.0);
 
                             % Draw Brass Joint (Large Orange Dot)
-                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 12);
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 6);
 
                             % Draw tracking dots on the model profiles
                             plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
@@ -2930,10 +2930,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Restore missing axes labels
             xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z');
 
-            xlim(ax,[ -offX - 100, mX - offX + 100 ]);
-            ylim(ax,[ -50, mLimY + 50 ]);
-            % Increased Z-limit padding from 80 to 150 to prevent Z-label cropping
-            zlim(ax,[ -bs(3)-20, mLimZ + 150 ]);
+            % Minimal padding to allow towers to fill the screen
+            padX = 5;
+            padY = 5;
+            padZ = 40;
+
+            xlim(ax,[ -offX - padX, mX - offX + padX ]);
+            ylim(ax,[ -padY, mLimY + padY ]);
+            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
 
             %% --- SAFETY CHECKS & UI UPDATE ---
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
@@ -4585,14 +4589,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             view(ax, 3); axis(ax, 'equal');
 
-            % Proportional 10% padding for X/Y, but fixed large padding for Z
-            % to prevent MATLAB's 'axis equal' from cropping the Z-label.
-            padX = mX * 0.10;
-            padY = mLimY * 0.10;
-            padZ = 150;
+            % Minimal padding to allow towers to fill the screen,
+            % with just enough Z-padding to prevent label cropping.
+            padX = 5;
+            padY = 5;
+            padZ = 40;
 
-            xlim(ax, [ -offX - padX, mX - offX + padX ]);
-            ylim(ax, [ -padY, mLimY + padY ]);
+            xlim(ax,[ -offX - padX, mX - offX + padX ]);
+            ylim(ax,[ -padY, mLimY + padY ]);
             zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
 
             % Force MATLAB to apply these limits immediately during initialization
