@@ -777,16 +777,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 dz = min_dz;
             end
 
-            % Reduced horizontal padding from 10% to 2% to maximize plot width
-            padY = 0.02 * dy;
-            padZ = 0.1 * dz;
+            % Symmetric 5% padding. MATLAB's 'axis equal' will automatically
+            % handle dead space for the legend based on the window size.
+            padY = 0.05 * dy;
+            padZ = 0.10 * dz;
 
-            % ASYMMETRIC LEGEND PADDING: Add 30% extra space to the right side
-            % so the legend doesn't cover the trailing edge of the profile.
-            legendPadY = 0.30 * dy;
-
-            yLim =[yMin - padY, yMax + padY + legendPadY];
-            zLim =[zMin - padZ, zMax + padZ];
+            yLim =[ yMin - padY, yMax + padY ];
+            zLim = [ zMin - padZ, zMax + padZ ];
 
             t = app.getTheme();
             app.clearProfiles2D();
@@ -819,11 +816,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.LeftProfileRawYZ)
                 rawL = app.LeftProfileRawYZ;
                 % Thick solid line (2.0) so it sits visibly behind the extracted profile
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth', 2.0);
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
             end
             if ~isempty(yL)
                 % Thinner line (0.75) plotted AFTER the mesh so it layers on top
-                app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75);
+                app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75,'linestyle','-','LineWidth', 0.4);
             end
             if doKerfL && ~isempty(final_yL)
                 app.LeftKerf2DLine = plot(app.AxLeftProfile, final_yL, final_zL, 'Color', t.wireKerf, 'LineWidth',0.75);
@@ -835,11 +832,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             if ~isempty(app.RightProfileRawYZ)
                 rawR = app.RightProfileRawYZ;
                 % Thick solid line (2.0) so it sits visibly behind the extracted profile
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle','-', 'LineWidth', 2.0);
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
             end
             if ~isempty(yR)
                 % Thinner line (0.75) plotted AFTER the mesh so it layers on top
-                app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75);
+                app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75,'linestyle','-','LineWidth', 0.4);
             end
             if doKerfR && ~isempty(final_yR)
                 app.RightKerf2DLine = plot(app.AxRightProfile, final_yR, final_zR, 'Color', t.wireKerf, 'LineWidth',0.75);
@@ -2340,6 +2337,8 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function refreshBilletPlots(app)
+            % Purpose: Updates the 4-way split view on the Billet tab.
+
             if isempty(app.ModelPatch)
                 return;
             end
@@ -2349,7 +2348,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             bSize = app.BilletSize;
             shift = app.BilletShift;
 
-            t = app.getTheme(); % <--- Master Palette
+            t = app.getTheme(); % Master Palette
 
             V_shifted = V + shift;
 
@@ -2357,7 +2356,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 allMin = min(V_shifted,[], 1);
                 allMax = max(V_shifted,[], 1);
             else
-                allMin =[ 0, 0, 0 ];
+                allMin = [ 0, 0, 0 ];
                 allMax = bSize;
             end
 
@@ -2369,7 +2368,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             commonX =[ center(1)-limitRange, center(1)+limitRange ];
             commonY =[ center(2)-limitRange, center(2)+limitRange ];
-            commonZ =[ center(3)-limitRange, center(3)+limitRange ];
+            commonZ = [ center(3)-limitRange, center(3)+limitRange ];
 
             hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
 
@@ -2379,7 +2378,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ],[ 1 2 3 ]};
+            dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ], [ 1 2 3 ]};
             labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
 
             for i = 1:4
@@ -2392,38 +2391,39 @@ classdef HotWireSTEPApp_v6_2 < handle
                 hold(ax,'on');
 
                 if i < 4
+                    % 1. Draw Model
                     patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
                         'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
 
-                    if hasProfiles
-                        % FIX: Use strict RGB for EdgeColor and explicitly set EdgeAlpha
-                        patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
-                            'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
-                        patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
-                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
-                    end
-
-                    bx =[0, bSize(d(1)), bSize(d(1)), 0, 0];
-                    by =[0, 0, bSize(d(2)), bSize(d(2)), 0];
+                    % 2. Draw Billet Outline FIRST (so it sits behind the profiles)
+                    bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
+                    by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
                     plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5);
+
+                    % 3. Draw Profiles LAST (Thicker, fully opaque)
+                    if hasProfiles
+                        patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                        patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                    end
                 else
+                    % 1. Draw Model
                     patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
                         'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
 
-                    if hasProfiles
-                        % FIX: Use strict RGB for EdgeColor and explicitly set EdgeAlpha
-                        patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
-                            'EdgeColor', t.planeRed, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
-                        patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
-                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 0.6, 'FaceColor', 'none', 'LineWidth', 0.75);
-                    end
-
-                    d1 = 0; % Anti-markdown bug
+                    % 2. Draw Billet Outline FIRST
                     [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
+                    patch(ax, 'Vertices', [ bx, by, bz ], 'Faces', app.boxFaces, ...
+                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.8, 'EdgeAlpha', 0.3);
 
-                    patch(ax, 'Vertices',[ bx, by, bz ], 'Faces', app.boxFaces, ...
-                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.3);
-
+                    % 3. Draw Profiles LAST
+                    if hasProfiles
+                        patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                        patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                    end
                     view(ax, 3);
                 end
 
@@ -2444,6 +2444,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             drawnow limitrate;
         end
+
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
