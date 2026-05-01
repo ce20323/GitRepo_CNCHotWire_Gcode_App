@@ -4239,54 +4239,62 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         % --- View Management ---
+% --- View Management ---
         function initSimulationPlot(app)
+            % Purpose: Initializes the 3D simulation plot with static geometry
+            %          (bed, towers, billet, model) and empty dynamic graphics objects.
 
-            % Draws static elements and inits dynamic tags
             ax = app.AxSim;
             cla(ax);
             hold(ax,'on');
             t = app.getTheme();
 
-            % Setup Geometry
+            %% --- SETUP GEOMETRY ---
             offX = app.MachineBedPos(1);
             mSpan = app.MachineSpanX;
             bp = app.MachineBilletPos;
             bSize = app.BilletSize;
             bs = app.MachineBedSize; % Fetch the actual bed size!
 
+            %% --- DRAW STATIC MACHINE COMPONENTS ---
             % 1. Machine Bed (Dynamically sized)
-            [xb,yb,zb] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
-            patch(ax, 'Vertices',[xb,yb,zb], 'Faces', app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
+            [ xb, yb, zb ] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
+            patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, 'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
 
-            patch(ax, 'XData',ones(4,1)*(-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeRed, 'FaceAlpha',0.15, 'EdgeColor',t.planeRed);
-            patch(ax, 'XData',ones(4,1)*(mSpan-offX), 'YData',[0;750;750;0], 'ZData',[0;0;500;500], 'FaceColor',t.planeGreen, 'FaceAlpha',0.15, 'EdgeColor',t.planeGreen);
+            % 2. Left and Right Towers
+            patch(ax, 'XData', ones(4,1)*(-offX), 'YData', [ 0; 750; 750; 0 ], 'ZData', [ 0; 0; 500; 500 ], 'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed);
+            patch(ax, 'XData', ones(4,1)*(mSpan-offX), 'YData',[ 0; 750; 750; 0 ], 'ZData',[ 0; 0; 500; 500 ], 'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen);
 
-            % Billet & Model
+            % Tower Labels
+            text(ax, -offX, 750*0.98, 500*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
+            text(ax, mSpan-offX, 750*0.02, 500*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
+
+            %% --- DRAW BILLET & MODEL ---
             bX = bp(1)-offX;
             bY = bp(2);
             bZ = bp(3);
 
-            % --- Draw Packing Block (If Billet is raised) ---
-            if bZ > 0[xPack, yPack, zPack] = app.makeBoxVertices(bX, bY, 0, bSize(1), bSize(2), bZ);
-                patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
-                    'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
+            % 1. Draw Packing Block (If Billet is raised)
+            if bZ > 0
+                 [ xPack, yPack, zPack ] = app.makeBoxVertices(bX, bY, 0, bSize(1), bSize(2), bZ);
+                patch(ax, 'Vertices', [ xPack, yPack, zPack ], 'Faces', app.boxFaces, ...
+                    'FaceColor', [ 0.25 0.25 0.25 ], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
             end
 
-            % --- Draw Billet ---
-            [ xm, ym, zm ] = app.makeBoxVertices(bX, bY, bZ, bSize(1), bSize(2), bSize(3));
+            % 2. Draw Billet
+             [ xm, ym, zm ] = app.makeBoxVertices(bX, bY, bZ, bSize(1), bSize(2), bSize(3));
             patch(ax, 'Vertices', [ xm, ym, zm ], 'Faces', app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
             
-            % --- Draw Model ---
+            % 3. Draw Model
             if ~isempty(app.ModelPatch)
-                patch(ax, 'Vertices', app.ModelPatch.Vertices+[bX,bY,bZ]+app.BilletShift, 'Faces',app.ModelPatch.Faces, ...
-                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor','none', 'Tag','SimModel');
+                patch(ax, 'Vertices', app.ModelPatch.Vertices +[ bX, bY, bZ ] + app.BilletShift, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none', 'Tag', 'SimModel');
             end
 
-            % --- NEW: Ghost Profiles in neutral Grey ---
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                [yS_rawL, zS_rawL, yS_rawR, zS_rawR] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+            %% --- DRAW GHOST PROFILES ---
+            % Renders the raw extracted profiles in neutral grey as a visual reference
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)[ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
                 totalShift = bp + app.BilletShift;
@@ -4299,22 +4307,23 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'Color', t.ghostNeutral, 'LineWidth', 0.5, 'LineStyle', '-', 'Tag', 'SimGhostR');
             end
 
-            % --- Dynamic Elements ---
+            %% --- INITIALIZE DYNAMIC ELEMENTS ---
+            % 1. Wire Components
+            plot3(ax, NaN, NaN, NaN, 'Color', t.wireKerf, 'LineWidth', 0.5, 'Tag', 'SimWire');
+            plot3(ax, NaN, NaN, NaN, 'Color', t.planeRed, 'LineWidth', 0.6, 'Tag', 'SimTensionWire');
+            plot3(ax, NaN, NaN, NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 2, 'Tag', 'SimBrassJoint');
 
-            % Wire Components
-            plot3(ax,NaN,NaN,NaN, 'Color',t.wireKerf, 'LineWidth',0.5, 'Tag','SimWire');
-            plot3(ax,NaN,NaN,NaN, 'Color',t.planeRed, 'LineWidth',0.6, 'Tag','SimTensionWire');
-            plot3(ax,NaN,NaN,NaN, 'o', 'MarkerFaceColor', t.wireLead, 'MarkerEdgeColor', t.wireLead, 'MarkerSize', 4, 'Tag','SimBrassJoint');
+            % 2. Tower Dots
+            plot3(ax, NaN, NaN, NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag', 'SimDotL');
+            plot3(ax, NaN, NaN, NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag', 'SimDotR');
 
-            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimDotL');
-            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimDotR');
+            % 3. Model Profile Dots
+            plot3(ax, NaN, NaN, NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag', 'SimModelDotL');
+            plot3(ax, NaN, NaN, NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag', 'SimModelDotR');
 
-            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeRed, 'MarkerEdgeColor', t.planeRed, 'MarkerFaceColor', t.planeRed, 'MarkerSize', 2, 'Tag','SimModelDotL');
-            plot3(ax,NaN,NaN,NaN, 'o', 'Color', t.planeGreen, 'MarkerEdgeColor', t.planeGreen, 'MarkerFaceColor', t.planeGreen, 'MarkerSize', 2, 'Tag','SimModelDotR');
-
-            % Trails
+            % 4. Toolpath Trails
             tags = {'Rapid','LeadIn','Feed','LeadOut','Return'};
-            cols = {[0.9 0.8 0], t.wireLead, t.planeRed, t.wireLead,[0.9 0.8 0]};
+            cols = {[ 0.9 0.8 0 ], t.wireLead, t.planeRed, t.wireLead, [ 0.9 0.8 0 ]};
             styles = {'-','-','-','--','--'};
 
             for i=1:5
@@ -4327,17 +4336,16 @@ classdef HotWireSTEPApp_v6_2 < handle
                     colR = t.planeGreen;
                 end
 
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colL, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'L']);
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimTower' tags{i} 'R']);
+                plot3(ax, NaN, NaN, NaN, styles{i}, 'Color', colL, 'LineWidth', 0.5, 'Tag', ['SimTower' tags{i} 'L']);
+                plot3(ax, NaN, NaN, NaN, styles{i}, 'Color', colR, 'LineWidth', 0.5, 'Tag', ['SimTower' tags{i} 'R']);
 
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colL, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'L']);
-                plot3(ax,NaN,NaN,NaN, styles{i}, 'Color',colR, 'LineWidth',0.5, 'Tag',['SimModel' tags{i} 'R']);
+                plot3(ax, NaN, NaN, NaN, styles{i}, 'Color', colL, 'LineWidth', 0.5, 'Tag', ['SimModel' tags{i} 'L']);
+                plot3(ax, NaN, NaN, NaN, styles{i}, 'Color', colR, 'LineWidth', 0.5, 'Tag', ['SimModel' tags{i} 'R']);
             end
 
             app.updateSimVisuals(1);
             app.onResetSimViewMachine();
         end
-
         % --- Core Visualization Loop ---
         function updateSimVisuals(app, idx)
             % Efficiently updates coordinates of existing plot objects
