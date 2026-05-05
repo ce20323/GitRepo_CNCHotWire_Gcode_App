@@ -1478,27 +1478,33 @@ classdef HotWireSTEPApp_v6_2 < handle
         % IMPORT STEP / STL
         % ===========================================================
         function onImportSTEP(app)
-            % Check if FreeCAD is configured correctly before opening dialog
+            % Purpose: Handles the selection and import of STEP files.
+            %          Validates FreeCAD configuration, displays a progress dialog,
+            %          and delegates the actual parsing to the helpers class.
+
+            %% --- 1. FREECAD VALIDATION ---
             if ~isfile(app.FreeCADExe)
                 uialert(app.UIFigure, 'FreeCADCmd.exe not found at the configured path! Please locate it on the Welcome Tab first.', 'FreeCAD Missing', 'Icon', 'error');
                 app.TabGroup.SelectedTab = app.TabWelcome;
                 return;
             end
 
-            [file,path] = uigetfile({'*.step;*.stp'},'Select STEP file');
-            if isequal(file,0), return; end
+            %% --- 2. FILE SELECTION ---
+            [ file, path ] = uigetfile({'*.step;*.stp'},'Select STEP file');
+            if isequal(file, 0), return; end
 
             d = uiprogressdlg(app.UIFigure, ...
                 'Title','Loading STEP File...', ...
                 'Message','Converting and loading model. Please wait...', ...
                 'Indeterminate','on');
 
+            %% --- 3. IMPORT & INITIALIZE ---
             try
                 app.CurrentModelName = string(file);
 
-                % NOTE: STEP import is now handled by the helpers class
-                [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
-                    fullfile(path,file), app.FreeCADExe);
+                % Delegate STEP import to the helpers class
+                [ V, F ] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
+
                 if isempty(V)
                     close(d);
                     return;
@@ -1506,7 +1512,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 app.ModelVerticesOriginal = V;
 
-                % Reset rotation
+                % Reset rotation state
                 app.RotAngles = [0 0 0];
                 for i = 1:3
                     app.RotEdit(i).Value = 0;
@@ -1516,7 +1522,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.NumLeftOffset.Value  = 0;
                 app.NumRightOffset.Value = 0;
 
-                app.plotMesh(V,F);
+                % Render the mesh
+                app.plotMesh(V, F);
 
             catch ME
                 close(d);
@@ -1528,36 +1535,45 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function onImportSTL(app)
-            [file,path] = uigetfile({'*.stl'},'Select STL file');
-            if isequal(file,0), return; end
+            % Purpose: Handles the selection and import of STL files.
+            %          Reads the mesh data directly and initializes the model state.
+
+            %% --- 1. FILE SELECTION ---
+            [ file, path ] = uigetfile({'*.stl'},'Select STL file');
+            if isequal(file, 0), return; end
 
             d = uiprogressdlg(app.UIFigure, ...
                 'Title','Loading STL File...', ...
                 'Message','Reading mesh. Please wait...', ...
                 'Indeterminate','on');
 
+            %% --- 2. IMPORT & INITIALIZE ---
             try
-                raw = stlread(fullfile(path,file));
-                if isa(raw,"triangulation")
+                raw = stlread(fullfile(path, file));
+                if isa(raw, "triangulation")
                     F = raw.ConnectivityList;
                     V = raw.Points;
                 else
-                    [F,V] = stlread(fullfile(path,file));
+                    [ F, V ] = stlread(fullfile(path, file));
                 end
-                V = double(V); F = double(F);
+                V = double(V);
+                F = double(F);
 
                 app.CurrentModelName      = string(file);
                 app.ModelVerticesOriginal = V;
 
+                % Reset rotation state
                 app.RotAngles = [0 0 0];
                 for i = 1:3
                     app.RotEdit(i).Value = 0;
                 end
 
+                % Reset plane offsets
                 app.NumLeftOffset.Value  = 0;
                 app.NumRightOffset.Value = 0;
 
-                app.plotMesh(V,F);
+                % Render the mesh
+                app.plotMesh(V, F);
 
             catch ME
                 close(d);
@@ -1571,17 +1587,21 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % PLOTTING (MODEL + PLANES)
         % ===========================================================
-        function plotMesh(app,V,F)
+        function plotMesh(app, V, F)
+            % Purpose: Renders the imported 3D mesh in the Model tab's axes.
+            %          Initializes the default view, lighting, and bounding box.
+
+            %% --- 1. RENDER MESH ---
             cla(app.AxModel);
 
             app.ModelPatch = patch(app.AxModel, ...
-                'Vertices',V,'Faces',F, ...
+                'Vertices', V, 'Faces', F, ...
                 'FaceColor',[0.7 0.7 0.8], ...
-                'FaceAlpha',0.6, ...
-                'EdgeColor',[0.3 0.3 0.4], ...
-                'EdgeAlpha',0.5, ...
-                'LineStyle','-', ...
-                'LineWidth',0.6);
+                'FaceAlpha', 0.6, ...
+                'EdgeColor', [0.3 0.3 0.4], ...
+                'EdgeAlpha', 0.5, ...
+                'LineStyle', '-', ...
+                'LineWidth', 0.6);
 
             if strlength(app.CurrentModelName) > 0
                 app.FileLabel.Text = "Current File: " + app.CurrentModelName;
@@ -1589,19 +1609,22 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.FileLabel.Text = "Current File: ---";
             end
 
-            xlabel(app.AxModel,'X (mm)','FontWeight','bold');
-            ylabel(app.AxModel,'Y (mm)','FontWeight','bold');
-            zlabel(app.AxModel,'Z (mm)','FontWeight','bold');
+            %% --- 2. FORMAT AXES ---
+            xlabel(app.AxModel, 'X (mm)', 'FontWeight', 'bold');
+            ylabel(app.AxModel, 'Y (mm)', 'FontWeight', 'bold');
+            zlabel(app.AxModel, 'Z (mm)', 'FontWeight', 'bold');
 
-            grid(app.AxModel,'on');
-            view(app.AxModel,3);
+            grid(app.AxModel, 'on');
+            view(app.AxModel, 3);
 
-            delete(findall(app.AxModel,'Type','light'));
-            camlight(app.AxModel,'headlight');
-            lighting(app.AxModel,'gouraud');
+            delete(findall(app.AxModel, 'Type', 'light'));
+            camlight(app.AxModel, 'headlight');
+            lighting(app.AxModel, 'gouraud');
 
+            %% --- 3. INITIALIZE STATE & VIEWS ---
             % ONLY reset the manual lock on a brand new file import
             app.IsBilletUserModified = false;
+
             app.autoFitView();
             drawnow;
             app.captureHomeView();
@@ -1617,31 +1640,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.BilletRefYMin = app.ModelYMin;
             app.BilletRefZMin = app.ModelZMin;
 
+            % Invalidate downstream tabs
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
-
         end
 
         function autoFitView(app)
+            % Purpose: Automatically scales and centers the 3D camera view
+            %          to perfectly fit the current model dimensions.
+
             if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch), return; end
 
-            % 1. Get geometry bounds from physical vertices
+            %% --- 1. CALCULATE GEOMETRY BOUNDS ---
             V      = app.ModelPatch.Vertices;
-            mins   = min(V,[],1);
-            maxs   = max(V,[],1);
-            center = mean([mins; maxs],1);
+            mins   = min(V,[], 1);
+            maxs   = max(V, [], 1);
+            center = mean([mins; maxs], 1);
             span   = max(maxs - mins);
             if span <= 0, span = 1; end
 
-            % 2. Apply limits with padding
+            %% --- 2. APPLY LIMITS WITH PADDING ---
             pad = app.AutoFitPaddingFactor * span;
-            xlim(app.AxModel, [mins(1)-pad, maxs(1)+pad]);
-            ylim(app.AxModel, [mins(2)-pad, maxs(2)+pad]);
-            zlim(app.AxModel, [mins(3)-pad, maxs(3)+pad]);
+            xlim(app.AxModel,[mins(1)-pad, maxs(1)+pad]);
+            ylim(app.AxModel,[mins(2)-pad, maxs(2)+pad]);
+            zlim(app.AxModel,[mins(3)-pad, maxs(3)+pad]);
 
-            % --- RE-STABILIZE VIEWPORT (Fix for Reset button) ---
+            %% --- 3. RE-STABILIZE VIEWPORT ---
             % Lock 1:1:1 internal scaling
-            app.AxModel.DataAspectRatio = [1 1 1];
+            app.AxModel.DataAspectRatio =[1 1 1];
             app.AxModel.DataAspectRatioMode = 'manual';
 
             % Allow the axes box to match model proportions (prevents squashing)
@@ -1654,23 +1680,26 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Move camera to comfortable distance based on model span
             camPos = app.AxModel.CameraPosition;
             dirVec = (camPos - center) / norm(camPos - center);
-            if any(isnan(dirVec)), dirVec = [1 1 1]/sqrt(3); end
+            if any(isnan(dirVec)), dirVec =[1 1 1]/sqrt(3); end
             app.AxModel.CameraPosition = center + dirVec * (span * 2.5);
 
             % Refresh lighting
-            delete(findall(app.AxModel,'Type','light'));
-            camlight(app.AxModel,'headlight');
-            lighting(app.AxModel,'gouraud');
+            delete(findall(app.AxModel, 'Type', 'light'));
+            camlight(app.AxModel, 'headlight');
+            lighting(app.AxModel, 'gouraud');
 
             drawnow limitrate;
         end
 
         function captureHomeView(app)
+            % Purpose: Stores the current camera and axes limits as the "Home" view.
+            %          Used by the "Reset Plot View" button.
+
             if isempty(app.AxModel) || ~isvalid(app.AxModel), return; end
             ax = app.AxModel;
-            app.DefaultXLim  = xlim(ax);
-            app.DefaultYLim  = ylim(ax);
-            app.DefaultZLim  = zlim(ax);
+            app.DefaultXLim               = xlim(ax);
+            app.DefaultYLim               = ylim(ax);
+            app.DefaultZLim               = zlim(ax);
             app.DefaultDataAspectRatio    = ax.DataAspectRatio;
             app.DefaultPlotBoxAspectRatio = ax.PlotBoxAspectRatio;
             app.DefaultCameraPosition     = ax.CameraPosition;
@@ -1680,11 +1709,20 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function resetPlotView(app)
-            if isempty(app.DefaultXLim), app.autoFitView(); return; end
+            % Purpose: Restores the 3D axes to the previously captured "Home" view.
+
+            if isempty(app.DefaultXLim)
+                app.autoFitView();
+                return;
+            end
+
             ax = app.AxModel;
 
-            % Restore viewing frustration
-            xlim(ax, app.DefaultXLim); ylim(ax, app.DefaultYLim); zlim(ax, app.DefaultZLim);
+            %% --- 1. RESTORE VIEWING FRUSTUM ---
+            xlim(ax, app.DefaultXLim);
+            ylim(ax, app.DefaultYLim);
+            zlim(ax, app.DefaultZLim);
+
             ax.DataAspectRatio    = app.DefaultDataAspectRatio;
             ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
             ax.CameraPosition     = app.DefaultCameraPosition;
@@ -1692,11 +1730,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             ax.CameraUpVector     = app.DefaultCameraUpVector;
             ax.CameraViewAngle    = app.DefaultCameraViewAngle; % Restore zoom
 
-            delete(findall(ax,'Type','light'));
-            camlight(ax,'headlight'); lighting(ax,'gouraud');
+            %% --- 2. REFRESH LIGHTING ---
+            delete(findall(ax, 'Type', 'light'));
+            camlight(ax, 'headlight');
+            lighting(ax, 'gouraud');
+
             drawnow limitrate;
         end
-
+        
         % ===========================================================
         % ROTATION
         % ===========================================================
