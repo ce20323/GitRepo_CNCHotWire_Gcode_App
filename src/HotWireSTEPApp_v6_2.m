@@ -322,92 +322,44 @@ classdef HotWireSTEPApp_v6_2 < handle
 
     methods
 
-        function app = HotWireSTEPApp_v6_2()
-            % Constructor: close any existing instance of this app and
-            % build a fresh UI.
+        %% ===========================================================
+        %% --- GROUP 1: LIFECYCLE & INITIALIZATION ---
+        %% ===========================================================
 
-            old = findall(0,'Type','figure','Name','Hot Wire STEP App v6.2');
+        function app = HotWireSTEPApp_v6_2()
+            % Constructor: Called when the app is launched.
+            % Closes any existing instances of the app to prevent duplicates,
+            % then triggers the UI build process.
+
+            old = findall(0, 'Type', 'figure', 'Name', 'Hot Wire STEP App v6.2');
             if ~isempty(old)
                 delete(old);
             end
 
-            %clc;
             app.buildUI();
-
-            % ===========================================================
-            % DEV AUTO-LOAD TEST MODEL (REMOVE BEFORE RELEASE)
-            % ===========================================================
-            % try
-            %     testFile = "C:\Users\ce20323\OneDrive - University of Bristol\Documents\MATLAB\CNCHotWire_GCode_App\examples\RibTemplate_NewCNCTest1.step";
-            %
-            %     if isfile(testFile)
-            %         disp("DEV AUTOLOAD: Loading test STEP model...");
-            %
-            %         % --- Use the existing helper to import STEP via FreeCAD ---
-            %         [V,F] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD( ...
-            %             testFile, app.FreeCADExe);
-            %
-            %         if isempty(V)
-            %             warning("DEV AUTOLOAD: STEP import returned empty data.");
-            %         else
-            %             % Store original vertices for rotation resets
-            %             app.ModelVerticesOriginal = V;
-            %             app.CurrentModelName      = "AUTOLOADED: RibTemplate_NewCNCTest1.step";
-            %
-            %             % Reset orientation
-            %             app.RotAngles = [0 0 0];
-            %             for i = 1:3
-            %                 app.RotEdit(i).Value = 0;
-            %             end
-            %
-            %             % Reset plane offsets
-            %             app.NumLeftOffset.Value  = 0;
-            %             app.NumRightOffset.Value = 0;
-            %
-            %             % --- Plot mesh and planes ---
-            %             app.plotMesh(V,F);
-            %             app.enterState0();
-            %
-            %             disp("DEV AUTOLOAD: Completed.");
-            %         end
-            %     else
-            %         warning("DEV AUTOLOAD: File not found:\n%s", testFile);
-            %     end
-            %
-            % catch ME
-            %     warning('DEV_AUTOLOAD:Error','%s', ME.message);
-            % end
         end
 
-        % ===========================================================
-        % BUILD UI (Modular Construction)
-        % ===========================================================
         function buildUI(app)
             % Purpose: Main entry point for constructing the user interface.
-            % Note: To prevent this function from becoming a monolithic, unreadable 
-            % block of code, the actual construction of each tab is delegated to 
+            % HOW: To prevent this function from becoming a monolithic, unreadable
+            % block of code, the actual construction of each tab is delegated to
             % private methods located at the bottom of this class (e.g., createWelcomeTab).
-            % This prevents variable shadowing and allows code folding.
 
             %% --- MAIN WINDOW SETUP ---
-            app.UIFigure = uifigure('Name','Hot Wire STEP App v6.2');
+            app.UIFigure = uifigure('Name', 'Hot Wire STEP App v6.2');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
             app.UIFigure.WindowState = 'maximized';
-            app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event); %key press on post tab to scroll code
+
+            % Key press listener used primarily for scrolling G-Code on the Post tab
+            app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event);
 
             % --- Theme & Colors ---
             t = app.getTheme();
-            sideBg   = t.sideBg;
-            panelBg  = t.panelBg;
-            labelCol = t.labelCol;
-            inputBg  = t.inputBg;
-            inputTxt = t.inputTxt;
-
-            app.UIFigure.Color = sideBg;
+            app.UIFigure.Color = t.sideBg;
 
             %% --- Tab Group Container ---
             app.TabGroup = uitabgroup(app.UIFigure, ...
-                'Units','normalized', ...
+                'Units', 'normalized', ...
                 'Position',[0 0 1 1], ...
                 'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt));
 
@@ -423,18 +375,507 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.createPostProcessTab(); % TAB 8: POST-PROCESS
 
             %% --- Set Initial State and Theme ---
-            
             app.onTaperModeChanged();   % Force initial UI state sync
-            
-            app.applyTheme();           % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
+            app.applyTheme();           % Sweeps the UI to replace hardcoded colors with active theme
         end
 
-        % ===========================================================
-        % STATE & PROFILE HELPERS
-        % ===========================================================
+        function delete(app)
+            % Destructor: Ensures background timers are killed when the app object is destroyed.
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
+                stop(app.SimTimer);
+                delete(app.SimTimer);
+            end
+        end
+
+        function onAppClose(app, src)
+            % Callback: Triggered when the user clicks the 'X' to close the window.
+            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
+                stop(app.SimTimer);
+                delete(app.SimTimer);
+            end
+            delete(src); % Close window
+        end
+
+        %% ===========================================================
+        %% --- GROUP 2: GLOBAL STATE & NAVIGATION ---
+        %% ===========================================================
+
+        function onTabChanged(app, ~, evt)
+            % Purpose: The "Gatekeeper" of the application.
+            % WHY: Because this is a linear workflow (CAD -> CAM -> GCode),
+            %      users cannot jump to the Simulation tab if they haven't loaded a model.
+            % HOW: Every time a tab is clicked, this function intercepts the change.
+            %      It checks if the prerequisites for the target tab are met.
+            %      If not, it blocks the transition and offers to Auto-Calculate the missing steps.
+
+            targetTab = evt.NewValue;
+            oldTab    = evt.OldValue;
+
+            % Safely check tab equivalence (handles uninitialized tabs during dev/testing)
+            isWelcome  = isequal(targetTab, app.TabWelcome);
+            isGuide    = isequal(targetTab, app.TabGuide);
+            isModel    = isequal(targetTab, app.TabModel);
+            isProfiles = isequal(targetTab, app.TabProfiles);
+            isBillet   = isequal(targetTab, app.TabBillet);
+            isMachine  = isequal(targetTab, app.TabMachine);
+            isCutting  = isequal(targetTab, app.TabCutting);
+            isSim      = isequal(targetTab, app.TabSimulation);
+            isPost     = isequal(targetTab, app.TabPostProcess);
+
+            % Determine what data the target tab requires
+            needsProfiles = ~isModel && ~isGuide && ~isWelcome;
+            needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
+            needsBillet   = isBillet || isMachine || isCutting || isSim || isPost;
+            needsMachine  = isMachine || isCutting || isSim || isPost;
+            needsCutting  = isCutting || isSim || isPost;
+
+            forceAuto = false;
+
+            %% --- LEVEL 1: MODEL GATEKEEPER ---
+            hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
+            if needsProfiles && ~hasModel
+                app.TabGroup.SelectedTab = app.TabWelcome;
+                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
+                return;
+            end
+
+            %% --- LEVEL 2: PROFILES & KERF GATEKEEPER ---
+            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
+            hasKerf = app.KerfEnabled;
+            missingProfiles = needsProfiles && ~hasProfiles;
+            missingKerf     = needsKerf && ~hasKerf;
+
+            if missingProfiles || missingKerf
+                if ~forceAuto
+                    if missingProfiles
+                        manTab = app.TabModel;
+                        msg = 'The cutting profiles have not been generated yet.';
+                    else
+                        manTab = app.TabProfiles;
+                        msg = 'Kerf compensation has not been applied.';
+                    end
+
+                    sel = uiconfirm(app.UIFigure, ...
+                        sprintf('You skipped a step! %s\n\nIt is highly recommended to do this manually.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', msg, targetTab.Title), ...
+                        'Step Skipped', ...
+                        'Options', {'Go to Manual Step', 'Auto-Configure All', 'Cancel'}, ...
+                        'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                    if strcmp(sel, 'Go to Manual Step')
+                        app.TabGroup.SelectedTab = manTab;
+                        return;
+                    elseif strcmp(sel, 'Cancel')
+                        app.TabGroup.SelectedTab = oldTab;
+                        return;
+                    else
+                        forceAuto = true;
+                    end
+                end
+
+                if forceAuto
+                    if missingProfiles
+                        app.onGenerateProfiles();
+                        drawnow; pause(0.1);
+                    end
+                    if missingKerf
+                        app.onApplyKerf();
+                        drawnow; pause(0.1);
+                    end
+                end
+            end
+
+            %% --- LEVEL 3: BILLET GATEKEEPER ---
+            if needsBillet
+                isValidBillet = app.syncBilletUI();
+
+                % 1. Size Logic: Auto-fit if size is 0 OR if not modified and invalid
+                if sum(app.BilletSize) == 0 || (~isValidBillet && ~app.IsBilletUserModified)
+                    app.onAutoFitBillet();
+                    isValidBillet = app.syncBilletUI(); % Re-check validity
+                end
+
+                % 2. Position Logic: Auto-position if lock is off and still invalid
+                if ~isValidBillet && ~app.IsBilletPosUserModified
+                    app.onAutoPositionModel();
+                    isValidBillet = app.syncBilletUI();
+                end
+
+                % 3. Safety Popups (Only if moving FORWARD past the Billet tab)
+                if targetTab ~= app.TabBillet && ~isModel && ~isProfiles && ~isWelcome
+
+                    % --- CASE A: CRITICAL ERROR (RED) ---
+                    if ~isValidBillet
+                        if ~forceAuto
+                            sel = uiconfirm(app.UIFigure, ...
+                                sprintf('The model is currently outside your manual billet bounds.\n\nWould you like to Auto-Fit the billet/position now, or return to adjust it manually?'), ...
+                                'Billet Collision', ...
+                                'Options', {'Auto-Fit All', 'Adjust Manually', 'Cancel'}, ...
+                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                            if strcmp(sel, 'Adjust Manually')
+                                app.TabGroup.SelectedTab = app.TabBillet;
+                                return;
+                            elseif strcmp(sel, 'Cancel')
+                                app.TabGroup.SelectedTab = oldTab;
+                                return;
+                            else
+                                app.onAutoFitBillet();
+                                app.onAutoPositionModel();
+                                forceAuto = true;
+                            end
+                        end
+
+                        % --- CASE B: WASTE WARNING (AMBER) ---
+                    else
+                        t = app.getTheme();
+                        isWarning = isequal(app.BilletLeftPanel.BackgroundColor, t.statWarnBg);
+
+                        if isWarning && ~forceAuto
+                            sel = uiconfirm(app.UIFigure, ...
+                                sprintf('Billet Warning: %s\n\nAcknowledge and proceed anyway, or return to Billet tab to optimize?', app.TxtBilletStatus.Value{1}), ...
+                                'Billet Warning', ...
+                                'Options', {'Acknowledge & Continue', 'Optimize Billet', 'Cancel'}, ...
+                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                            if strcmp(sel, 'Optimize Billet')
+                                app.TabGroup.SelectedTab = app.TabBillet;
+                                return;
+                            elseif strcmp(sel, 'Cancel')
+                                app.TabGroup.SelectedTab = oldTab;
+                                return;
+                            end
+                        end
+                    end
+                end
+            end
+
+            %% --- LEVEL 4: MACHINE GATEKEEPER ---
+            if needsMachine
+                % Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it
+                if ~app.IsMachineInit || ~app.IsMachineUserModified
+                    app.onResetMachineBilletPosition();
+                end
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+                isExtRed   = app.MaxPathExtension > app.WireExt_Red;
+                isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
+
+                % Case A: CRITICAL ERROR (Red) - Block movement to Sim/Post, but allow Cutting
+                if ~isValidMach || isExtRed
+                    if isSim || isPost
+                        reason = "Billet is outside machine limits.";
+                        if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
+                        uialert(app.UIFigure, reason, 'Machine Safety Error');
+                        app.TabGroup.SelectedTab = app.TabMachine;
+                        return;
+                    end
+
+                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD to Sim/Post
+                elseif isExtAmber && (isSim || isPost)
+                    if ~forceAuto
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical pulley limit.\n\nProceed anyway, or return to Machine tab to optimize?', app.MaxPathExtension), ...
+                            'Pulley Travel Warning', ...
+                            'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+
+                        if strcmp(sel, 'Return to Machine Tab')
+                            app.TabGroup.SelectedTab = app.TabMachine;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        end
+                    end
+                end
+            end
+
+            %% --- LEVEL 5: CUTTING STRATEGY GATEKEEPER ---
+            if needsCutting
+                % Auto-Trigger: Only if never setup (Init=0)
+                % If the user has manually modified the points, we respect their lock.
+                if ~app.IsCuttingInit
+                    if ~app.IsCuttingUserModified
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
+                    end
+                    app.IsCuttingInit = true;
+                end
+                [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
+
+                % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
+                if ~isValidCut && (targetTab == app.TabSimulation || isPost)
+                    if ~forceAuto
+                        sel = uiconfirm(app.UIFigure, ...
+                            sprintf('The current cutting strategy (Lead-In/Entry) is invalid.\n\nWould you like to Auto-Calculate a safe path, or return to adjust it manually?'), ...
+                            'Strategy Error', ...
+                            'Options', {'Auto-Calculate', 'Adjust Manually', 'Cancel'}, ...
+                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'error');
+
+                        if strcmp(sel, 'Adjust Manually')
+                            app.TabGroup.SelectedTab = app.TabCutting;
+                            return;
+                        elseif strcmp(sel, 'Cancel')
+                            app.TabGroup.SelectedTab = oldTab;
+                            return;
+                        else
+                            % User chose 'Auto-Calculate'
+                            app.onAutoStart(false);
+                            app.onAutoEntry(false);
+                            forceAuto = true;
+                        end
+                    end
+                end
+            end
+
+            %% --- EXECUTE SAFE TAB TRANSITION ---
+            % If we made it here, the transition is approved.
+            % We now trigger the specific render/update functions for the target tab.
+
+            app.resetInteractionState();
+            drawnow; pause(0.05);
+
+            if targetTab == app.TabBillet
+                if ~app.IsBilletUserModified
+                    app.onAutoFitBillet();
+                end
+                if ~app.IsBilletPosUserModified
+                    app.onAutoPositionModel();
+                end
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+
+            elseif targetTab == app.TabMachine
+                app.syncMachineUI();[ isValidMachF, pColF, tColF, msgLinesF ] = app.checkMachineState();
+                app.MachineLeftPanel.BackgroundColor = pColF;
+                app.TxtMachineStatus.Value = msgLinesF;
+                app.TxtMachineStatus.FontColor = tColF;
+                app.BtnMachineContinue.Enable = 'on';
+                app.refreshMachinePlot();
+
+            elseif targetTab == app.TabCutting[ isValidCutF, pColCF, tColCF, msgLinesCF ] = app.validateCuttingStrategy();
+                app.CuttingLeftPanel.BackgroundColor = pColCF;
+                app.TxtCuttingStatus.Value = msgLinesCF;
+                app.TxtCuttingStatus.FontColor = tColCF;
+                if isValidCutF, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+                app.updateCuttingPlots();
+                app.onResetCuttingViewBillet();
+
+            elseif isequal(targetTab, app.TabSimulation)
+                if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
+                    app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);
+                end
+                app.generateSimulationData();
+
+            elseif isequal(targetTab, app.TabPostProcess)
+                app.updatePostProcessUI();
+                app.generateSimulationData();
+                app.onPostProcess();
+            end
+        end
+
+        function onContinue(app)
+            % Purpose: Handles the "Continue ->" button clicks found at the bottom
+            %          of the left-hand control panels. It programmatically advances
+            %          the UI to the next logical tab, which triggers the Gatekeeper.
+
+            currTab = app.TabGroup.SelectedTab;
+
+            % --- Pre-Model Navigation (Welcome & Guide) ---
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                if isequal(currTab, app.TabWelcome)
+                    nextTab = app.TabGuide;
+                elseif isequal(currTab, app.TabGuide)
+                    nextTab = app.TabModel;
+                else
+                    return;
+                end
+
+                if ~isempty(nextTab) && isgraphics(nextTab)
+                    app.TabGroup.SelectedTab = nextTab;
+                    evt = struct('OldValue', currTab, 'NewValue', nextTab);
+                    app.onTabChanged(app.TabGroup, evt);
+                end
+                return;
+            end
+
+            % --- Post-Model Navigation Sequence ---
+            if isequal(currTab, app.TabWelcome)
+                nextTab = app.TabGuide;
+            elseif isequal(currTab, app.TabGuide)
+                nextTab = app.TabModel;
+            elseif isequal(currTab, app.TabModel)
+                nextTab = app.TabProfiles;
+            elseif isequal(currTab, app.TabProfiles)
+                nextTab = app.TabBillet;
+            elseif isequal(currTab, app.TabBillet)
+                nextTab = app.TabMachine;
+            elseif isequal(currTab, app.TabMachine)
+                nextTab = app.TabCutting;
+            elseif isequal(currTab, app.TabCutting)
+                nextTab = app.TabSimulation;
+            elseif isequal(currTab, app.TabSimulation)
+                nextTab = app.TabPostProcess;
+            else
+                return;
+            end
+
+            % Safety catch if the tab hasn't been built
+            if isempty(nextTab) || ~isgraphics(nextTab)
+                uialert(app.UIFigure, 'The next tab has not been built yet.', 'Navigation Error');
+                return;
+            end
+
+            % Visually switch the tab and trigger Gatekeeper
+            app.TabGroup.SelectedTab = nextTab;
+            evt = struct('OldValue', currTab, 'NewValue', nextTab);
+            app.onTabChanged(app.TabGroup, evt);
+        end
+
+        function enterState0(app)
+            % Purpose: Resets the app to "State 0" (Model loaded, but no planes/profiles).
+            % WHY: Used when a new model is imported, invalidating previous work.
+
+            app.AppState = 0;
+
+            app.clearPlanes();
+            app.clearProfiles();
+            app.clearProfiles2D();
+            app.invalidateKerf();
+
+            % Disable the Continue button visually
+            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
+                app.BtnContinue.Enable          = 'off';
+                app.BtnContinue.BackgroundColor =[0.3 0.3 0.3];
+                app.BtnContinue.FontColor       =[0.8 0.8 0.8];
+            end
+        end
+
+        function enterState1(app)
+            % Purpose: Advances the app to "State 1" (Planes and Profiles are active).
+            % WHY: Triggered when the user clicks "Generate Profiles".
+
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return; % No model → nothing to do
+            end
+
+            app.AppState = 1;
+
+            % Enable the Continue button visually
+            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
+                app.BtnContinue.Enable          = 'on';
+                app.BtnContinue.BackgroundColor =[0.1 0.6 0.1];
+                app.BtnContinue.FontColor       =[1 1 1];
+            end
+
+            % Draw planes (which indirectly triggers profile computation)
+            app.updatePlanes();
+        end
+
+        %% to be cleaned up
+        %%
+        %%
+
+        %% ===========================================================
+        %% --- GROUP 5: TAB 3 - PROFILES & KERF (Partial) ---
+        %% ===========================================================
+
+        function invalidateKerf(app)
+            % Purpose: Central reset for Kerf logic.
+            % WHY: Called whenever the model is rotated, planes are moved, or
+            %      taper mode changes, as these actions invalidate the current kerf paths.
+
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
+
+            % Mute the Continue button visually
+            if ~isempty(app.BtnProfilesContinue) && isgraphics(app.BtnProfilesContinue)
+                app.BtnProfilesContinue.Enable = 'off';
+                app.BtnProfilesContinue.BackgroundColor =[0.3 0.3 0.3];
+                app.BtnProfilesContinue.FontColor       =[0.8 0.8 0.8];
+            end
+        end
+
+        %% ===========================================================
+        %% --- GROUP 7: TAB 5 - MACHINE SETUP (Partial) ---
+        %% ===========================================================
+
+        %parserbug
+        function [ isValid, panelCol, textCol, msgLines ] = checkMachineState(app)
+            % Purpose: Validates the billet's physical placement on the machine bed.
+            % HOW: Checks for bed overhangs, Z-travel limits, and wire extension collisions.
+            %      Returns color codes and status messages for the UI.
+
+            bPos  = app.MachineBilletPos;
+            bSize = app.BilletSize;
+            bMin = bPos;
+            bMax = bPos + bSize;
+            bedMin = app.MachineBedPos;
+            bedMax = app.MachineBedPos + app.MachineBedSize;
+            limZ = [0, app.MachineLimitZ];
+
+            t = app.getTheme(); % Master Palette
+
+            crit = strings(0);
+
+            %% --- 1. Hard Physical Limits ---
+            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
+            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
+            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
+            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
+
+            %% --- 2. Wire Extension Collision Check ---
+            % The brass joint connects the hot wire to the tension wire.
+            % Its neutral position is defined by BrassJointOffsetRight (-50mm).
+            rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
+            neutralJointX = rightBedEdge + app.BrassJointOffsetRight;
+            minJointX = neutralJointX - app.MaxPathExtension;
+
+            % The gap between the right face of the billet and the brass joint
+            % must not be less than the safety buffer.
+            if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
+                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
+            end
+
+            if ~isempty(crit)
+                isValid = false;
+                panelCol = t.statErrBg;
+                textCol = t.statErrTxt;
+                msgLines = ["CRITICAL ERROR:"; crit'];
+                return;
+            end
+
+            warn = strings(0);
+            buf = app.SafetyBuffer_BedEdge;
+
+            %% --- 3. Soft Warnings (Proximity) ---
+            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
+            if (bedMax(1) - bMax(1) < buf)
+                warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
+                if strcmp(app.TaperToggle.Value, 'Tapered')
+                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
+                end
+            end
+            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
+
+            if ~isempty(warn)
+                isValid = true;
+                panelCol = t.statWarnBg;
+                textCol = t.statWarnTxt;
+                msgLines = ["Warning: Proximity to bed edge."; warn'];
+            else
+                isValid = true;
+                panelCol = t.statPassBg;
+                textCol = t.statPassTxt;
+                msgLines = ["Machine configuration valid.", "Ready to proceed."];
+            end
+        end
+
+        %% ===========================================================
+        %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS (Partial) ---
+        %% ===========================================================
 
         function clearPlanes(app)
-            % Deletes any existing plane graphics and resets handles
+            % Purpose: Deletes any existing 3D plane graphics and resets handles.
             if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
                 delete(app.LeftPlanePatch);
             end
@@ -470,7 +911,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         end
 
         function clearProfiles2D(app)
-            % Deletes 2D profile lines on the Profiles tab
+            % Purpose: Deletes 2D profile lines on the Profiles tab
 
             % Main resampled profiles
             if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
@@ -503,17 +944,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightProfile2DMeshLine = gobjects(0);
             app.LeftKerf2DLine         = gobjects(0);
             app.RightKerf2DLine        = gobjects(0);
-
-            % NOTE:
-            % We deliberately do NOT change app.KerfEnabled or the
-            % 'Continue' button state here. This is a graphics-only function.
-            % Logic resets (like rotation or plane movement) should call
-            % app.invalidateKerf() instead.
-
         end
 
         function clearKerfPaths(app)
-            % Delete only the kerf paths on the Profiles tab.
+            % Purpose: Delete only the kerf paths on the Profiles tab.
             if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
                 delete(app.LeftKerf2DLine);
             end
@@ -522,56 +956,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
             app.LeftKerf2DLine  = gobjects(0);
             app.RightKerf2DLine = gobjects(0);
-        end
-
-        function invalidateKerf(app)
-            % This is the "Central Reset" for Kerf logic
-            app.KerfEnabled = false;
-            app.clearKerfPaths();
-
-            % Mute the Continue button
-            if ~isempty(app.BtnProfilesContinue) && isgraphics(app.BtnProfilesContinue)
-                app.BtnProfilesContinue.Enable = 'off';
-                app.BtnProfilesContinue.BackgroundColor = [0.3 0.3 0.3];
-                app.BtnProfilesContinue.FontColor       = [0.8 0.8 0.8];
-            end
-        end
-
-        function enterState0(app)
-            % STATE 0: model only, no planes, no profiles
-            app.AppState = 0;
-
-            % Clear planes and profiles
-            app.clearPlanes();
-            app.clearProfiles();
-            app.clearProfiles2D();
-            app.invalidateKerf();
-
-            % Continue button disabled and visually muted
-            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
-                app.BtnContinue.Enable          = 'off';
-                app.BtnContinue.BackgroundColor = [0.3 0.3 0.3];
-                app.BtnContinue.FontColor       = [0.8 0.8 0.8];
-            end
-        end
-
-        function enterState1(app)
-            % STATE 1: planes + profiles are live
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return; % no model → nothing to do
-            end
-
-            app.AppState = 1;
-
-            % Continue button becomes active
-            if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
-                app.BtnContinue.Enable          = 'on';
-                app.BtnContinue.BackgroundColor = [0.1 0.6 0.1];
-                app.BtnContinue.FontColor       = [1 1 1];
-            end
-
-            % Draw planes (and indirectly profiles once computeProfiles is wired)
-            app.updatePlanes();
         end
 
         function computeProfiles(app)
@@ -920,287 +1304,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % TAB CHANGE HANDLER
         % ===========================================================
-        function onTabChanged(app, ~, evt)
-            % DEBUG: Trace the lock state on every tab click
-            fprintf('--- TAB CHANGE: To %s | ManualLock is currently: %d ---\n', evt.NewValue.Title, app.IsBilletUserModified);
-            targetTab = evt.NewValue;
-            oldTab    = evt.OldValue;
-
-            % Safely check tab equivalence (handles uninitialized tabs during dev/testing)
-            isWelcome  = isequal(targetTab, app.TabWelcome);
-            isGuide    = isequal(targetTab, app.TabGuide);
-            isModel    = isequal(targetTab, app.TabModel);
-            isProfiles = isequal(targetTab, app.TabProfiles);
-            isBillet   = isequal(targetTab, app.TabBillet);
-            isMachine  = isequal(targetTab, app.TabMachine);
-            isCutting  = isequal(targetTab, app.TabCutting);
-            isSim      = isequal(targetTab, app.TabSimulation);
-            isPost     = isequal(targetTab, app.TabPostProcess);
-
-            needsProfiles = ~isModel && ~isGuide && ~isWelcome;
-            needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
-            needsBillet   = isBillet || isMachine || isCutting || isSim || isPost;
-            needsMachine  = isMachine || isCutting || isSim || isPost;
-            needsCutting  = isCutting || isSim || isPost;
-
-            forceAuto = false;
-
-            % --- LEVEL 1: MODEL ---
-            hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
-            % Fix: Only block if moving forward and model is missing
-            if needsProfiles && ~hasModel
-                app.TabGroup.SelectedTab = app.TabWelcome;
-                uialert(app.UIFigure, 'Please load a 3D Model first.', 'Step 1 Missing', 'Icon','warning');
-                return;
-            end
-
-            % --- LEVEL 2: PROFILES & KERF ---
-            hasProfiles = ~isempty(app.LeftProfilePoints) || ~isempty(app.RightProfilePoints);
-            hasKerf = app.KerfEnabled;
-            missingProfiles = needsProfiles && ~hasProfiles;
-            missingKerf     = needsKerf && ~hasKerf;
-
-            if missingProfiles || missingKerf
-                if ~forceAuto
-                    if missingProfiles
-                        manTab = app.TabModel;
-                        msg = 'The cutting profiles have not been generated yet.';
-                    else
-                        manTab = app.TabProfiles;
-                        msg = 'Kerf compensation has not been applied.';
-                    end
-
-                    sel = uiconfirm(app.UIFigure, ...
-                        sprintf('You skipped a step! %s\n\nIt is highly recommended to do this manually.\n\nAlternatively, the app can auto-configure all missing steps up to the %s tab.', msg, targetTab.Title), ...
-                        'Step Skipped', ...
-                        'Options', {'Go to Manual Step', 'Auto-Configure All', 'Cancel'}, ...
-                        'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
-
-                    if strcmp(sel, 'Go to Manual Step')
-                        app.TabGroup.SelectedTab = manTab;
-                        return;
-                    elseif strcmp(sel, 'Cancel')
-                        app.TabGroup.SelectedTab = oldTab;
-                        return;
-                    else
-                        forceAuto = true;
-                    end
-                end
-
-                if forceAuto
-                    if missingProfiles
-                        app.onGenerateProfiles();
-                        drawnow; pause(0.1);
-                    end
-                    if missingKerf
-                        app.onApplyKerf();
-                        drawnow; pause(0.1);
-                    end
-                end
-            end
-
-            % --- LEVEL 3: BILLET ---
-            if needsBillet
-                isValidBillet = app.syncBilletUI();
-
-                % 1. Size Logic: Auto-fit if size is 0 OR if not modified and invalid
-                if sum(app.BilletSize) == 0 || (~isValidBillet && ~app.IsBilletUserModified)
-                    app.onAutoFitBillet();
-                    isValidBillet = app.syncBilletUI(); % Re-check validity
-                end
-
-                % 2. Position Logic: Auto-position if lock is off and still invalid
-                if ~isValidBillet && ~app.IsBilletPosUserModified
-                    app.onAutoPositionModel();
-                    isValidBillet = app.syncBilletUI();
-                end
-
-                % 3. Safety Popups (Only if moving FORWARD past the Billet tab)
-                if targetTab ~= app.TabBillet && ~isModel && ~isProfiles && ~isWelcome
-
-                    % --- CASE A: CRITICAL ERROR (RED) ---
-                    if ~isValidBillet
-                        if ~forceAuto
-                            sel = uiconfirm(app.UIFigure, ...
-                                sprintf('The model is currently outside your manual billet bounds.\n\nWould you like to Auto-Fit the billet/position now, or return to adjust it manually?'), ...
-                                'Billet Collision', ...
-                                'Options', {'Auto-Fit All', 'Adjust Manually', 'Cancel'}, ...
-                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
-
-                            if strcmp(sel, 'Adjust Manually')
-                                app.TabGroup.SelectedTab = app.TabBillet;
-                                return;
-                            elseif strcmp(sel, 'Cancel')
-                                app.TabGroup.SelectedTab = oldTab;
-                                return;
-                            else
-                                app.onAutoFitBillet();
-                                app.onAutoPositionModel();
-                                forceAuto = true;
-                            end
-                        end
-
-                        % --- CASE B: WASTE WARNING (AMBER) ---
-                    else
-                        t = app.getTheme();
-                        isWarning = isequal(app.BilletLeftPanel.BackgroundColor, t.statWarnBg);
-
-                        if isWarning && ~forceAuto
-                            sel = uiconfirm(app.UIFigure, ...
-                                sprintf('Billet Warning: %s\n\nAcknowledge and proceed anyway, or return to Billet tab to optimize?', app.TxtBilletStatus.Value{1}), ...
-                                'Billet Warning', ...
-                                'Options', {'Acknowledge & Continue', 'Optimize Billet', 'Cancel'}, ...
-                                'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
-
-                            if strcmp(sel, 'Optimize Billet')
-                                app.TabGroup.SelectedTab = app.TabBillet;
-                                return;
-                            elseif strcmp(sel, 'Cancel')
-                                app.TabGroup.SelectedTab = oldTab;
-                                return;
-                            end
-                            % If 'Acknowledge & Continue', we simply don't 'return',
-                            % allowing the tab change to proceed.
-                        end
-                    end
-                end
-            end
-
-            % --- LEVEL 4: MACHINE GATEKEEPER ---
-            if needsMachine
-                % 1. Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it (UserModified=0)
-                if ~app.IsMachineInit || ~app.IsMachineUserModified
-                    app.onResetMachineBilletPosition();
-                end
-
-                [isValidMach, pCol, tCol, msgLines] = app.checkMachineState();
-                isExtRed   = app.MaxPathExtension > app.WireExt_Red;
-                isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
-
-                % Case A: CRITICAL ERROR (Red) - Block movement to Sim/Post, but allow Cutting
-                if ~isValidMach || isExtRed
-                    if isSim || isPost
-                        reason = "Billet is outside machine limits.";
-                        if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
-                        uialert(app.UIFigure, reason, 'Machine Safety Error');
-                        app.TabGroup.SelectedTab = app.TabMachine;
-                        return;
-                    end
-
-                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD to Sim/Post
-                elseif isExtAmber && (isSim || isPost)
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical pulley limit.\n\nProceed anyway, or return to Machine tab to optimize?', app.MaxPathExtension), ...
-                            'Pulley Travel Warning', ...
-                            'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
-
-                        if strcmp(sel, 'Return to Machine Tab')
-                            app.TabGroup.SelectedTab = app.TabMachine;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        end
-                    end
-                end
-            end
-
-            % --- LEVEL 5: CUTTING STRATEGY GATEKEEPER ---
-            if needsCutting
-                % 1. Auto-Trigger: Only if never setup (Init=0)
-                % If the user has manually modified the points, we respect their lock and do NOT auto-override.
-                if ~app.IsCuttingInit
-                    if ~app.IsCuttingUserModified
-                        app.onAutoStart(false);
-                        app.onAutoEntry(false);
-                    end
-                    app.IsCuttingInit = true;
-                end
-
-                [isValidCut, pColC, tColC, msgLinesC] = app.validateCuttingStrategy();
-
-                % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
-                if ~isValidCut && (targetTab == app.TabSimulation || isPost)
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('The current cutting strategy (Lead-In/Entry) is invalid.\n\nWould you like to Auto-Calculate a safe path, or return to adjust it manually?'), ...
-                            'Strategy Error', ...
-                            'Options', {'Auto-Calculate', 'Adjust Manually', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'error');
-
-                        if strcmp(sel, 'Adjust Manually')
-                            app.TabGroup.SelectedTab = app.TabCutting;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        else
-                            % User chose 'Auto-Calculate'
-                            app.onAutoStart(false);
-                            app.onAutoEntry(false);
-                            forceAuto = true;
-                        end
-                    end
-                end
-            end
-
-            % --- EXECUTE SAFE TAB TRANSITION ---
-            app.resetInteractionState();
-            drawnow; pause(0.05);
-
-            if targetTab == app.TabBillet
-                % Landing on Billet tab: Handle Size and Position independently
-                if ~app.IsBilletUserModified
-                    app.onAutoFitBillet();
-                end
-
-                if ~app.IsBilletPosUserModified
-                    app.onAutoPositionModel();
-                end
-
-                app.syncBilletUI();
-                app.refreshBilletPlots();
-
-            elseif targetTab == app.TabMachine
-                app.syncMachineUI();
-
-                d3 = 0;
-                [ isValidMachF, pColF, tColF, msgLinesF ] = app.checkMachineState();
-
-                app.MachineLeftPanel.BackgroundColor = pColF;
-                app.TxtMachineStatus.Value = msgLinesF;
-                app.TxtMachineStatus.FontColor = tColF;
-                app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
-                app.refreshMachinePlot();
-
-            elseif targetTab == app.TabCutting
-
-                d4 = 0;
-                [ isValidCutF, pColCF, tColCF, msgLinesCF ] = app.validateCuttingStrategy();
-
-                app.CuttingLeftPanel.BackgroundColor = pColCF;
-                app.TxtCuttingStatus.Value = msgLinesCF;
-                app.TxtCuttingStatus.FontColor = tColCF;
-                if isValidCutF, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
-
-                app.updateCuttingPlots();
-                app.onResetCuttingViewBillet();
-
-            elseif isequal(targetTab, app.TabSimulation)
-                % Safely fetch the feed rate if the Post-Process tab exists
-                if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
-                    app.LblBaseFeed.Text = sprintf('%.0f', app.SpinFeedRate.Value);
-                end
-                app.generateSimulationData();
-
-            elseif isequal(targetTab, app.TabPostProcess)
-                app.updatePostProcessUI();
-                app.generateSimulationData();
-                app.onPostProcess();
-            end
-        end
 
         function onProfileToleranceChanged(app, src)
             val = src.Value;
@@ -1936,60 +2039,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        function onContinue(app)
-            currTab = app.TabGroup.SelectedTab;
-
-            % --- Pre-Model Navigation (Welcome & Guide) ---
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                if isequal(currTab, app.TabWelcome)
-                    nextTab = app.TabGuide;
-                elseif isequal(currTab, app.TabGuide)
-                    nextTab = app.TabModel;
-                else
-                    return;
-                end
-
-                if ~isempty(nextTab) && isgraphics(nextTab)
-                    app.TabGroup.SelectedTab = nextTab;
-                    evt = struct('OldValue', currTab, 'NewValue', nextTab);
-                    app.onTabChanged(app.TabGroup, evt);
-                end
-                return;
-            end
-
-            % --- Post-Model Navigation Sequence ---
-            if isequal(currTab, app.TabWelcome)
-                nextTab = app.TabGuide;
-            elseif isequal(currTab, app.TabGuide)
-                nextTab = app.TabModel;
-            elseif isequal(currTab, app.TabModel)
-                nextTab = app.TabProfiles;
-            elseif isequal(currTab, app.TabProfiles)
-                nextTab = app.TabBillet;
-            elseif isequal(currTab, app.TabBillet)
-                nextTab = app.TabMachine;
-            elseif isequal(currTab, app.TabMachine)
-                nextTab = app.TabCutting;
-            elseif isequal(currTab, app.TabCutting)
-                nextTab = app.TabSimulation;
-            elseif isequal(currTab, app.TabSimulation)
-                nextTab = app.TabPostProcess;
-            else
-                return;
-            end
-
-            % Safety catch if the tab hasn't been built
-            if isempty(nextTab) || ~isgraphics(nextTab)
-                uialert(app.UIFigure, 'The next tab has not been built yet.', 'Navigation Error');
-                return;
-            end
-
-            % Visually switch the tab and trigger Gatekeeper
-            app.TabGroup.SelectedTab = nextTab;
-            evt = struct('OldValue', currTab, 'NewValue', nextTab);
-            app.onTabChanged(app.TabGroup, evt);
-        end
-
         % ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================
@@ -2420,75 +2469,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
-        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
-            % Purpose: Validates the billet's physical placement on the machine bed.
-            % Checks for bed overhangs, Z-travel limits, and wire extension collisions.
-
-            bPos  = app.MachineBilletPos;
-            bSize = app.BilletSize;
-            bMin = bPos;
-            bMax = bPos + bSize;
-            bedMin = app.MachineBedPos;
-            bedMax = app.MachineBedPos + app.MachineBedSize;
-            limZ =[0, app.MachineLimitZ];
-
-            t = app.getTheme(); % Master Palette
-
-            crit = strings(0);
-
-            %% --- 1. Hard Physical Limits ---
-            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
-            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
-            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
-            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
-
-            %% --- 2. Wire Extension Collision Check ---
-            % The brass joint connects the hot wire to the tension wire.
-            % Its neutral position is defined by BrassJointOffsetRight (-50mm).
-            % Adding this negative value moves it 50mm left (inward) of the right bed edge.
-            rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
-            neutralJointX = rightBedEdge + app.BrassJointOffsetRight;
-            minJointX = neutralJointX - app.MaxPathExtension;
-            
-            % The gap between the right face of the billet and the brass joint
-            % must not be less than the safety buffer.
-            if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
-                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
-            end
-
-            if ~isempty(crit)
-                isValid = false;
-                panelCol = t.statErrBg;
-                textCol = t.statErrTxt;
-                msgLines =["CRITICAL ERROR:"; crit'];
-                return;
-            end
-
-            warn = strings(0);
-            buf = app.SafetyBuffer_BedEdge; % <--- This defines 'buf' for the warnings below!
-
-            %% --- 3. Soft Warnings (Proximity) ---
-            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
-            if (bedMax(1) - bMax(1) < buf)
-                warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
-                if strcmp(app.TaperToggle.Value, 'Tapered')
-                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
-                end
-            end
-            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
-
-            if ~isempty(warn)
-                isValid = true;
-                panelCol = t.statWarnBg;
-                textCol = t.statWarnTxt;
-                msgLines =["Warning: Proximity to bed edge."; warn'];
-            else
-                isValid = true;
-                panelCol = t.statPassBg;
-                textCol = t.statPassTxt;
-                msgLines =["Machine configuration valid.", "Ready to proceed."];
-            end
-        end
 
         function onMachinePosEdited(app, axisIdx, src)
             val = src.Value;
@@ -4696,26 +4676,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 2 3 7 6; % Right
                 3 4 8 7; % Back
                 4 1 5 8]; % Left
-        end
-
-        % ===========================================================
-        % APP LIFECYCLE (Must be at the end)
-        % ===========================================================
-        function delete(app)
-            % Ensure Timer is killed when app closes
-            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
-                stop(app.SimTimer);
-                delete(app.SimTimer);
-            end
-        end
-
-        function onAppClose(app, src)
-            % Cleanup Timer and Close Window
-            if ~isempty(app.SimTimer) && isvalid(app.SimTimer)
-                stop(app.SimTimer);
-                delete(app.SimTimer);
-            end
-            delete(src); % Close window
         end
 
         % ===========================================================
