@@ -432,75 +432,6 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % STATE & PROFILE HELPERS
         % ===========================================================
-        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
-            % Purpose: Validates the billet's physical placement on the machine bed.
-            % Checks for bed overhangs, Z-travel limits, and wire extension collisions.
-
-            bPos  = app.MachineBilletPos;
-            bSize = app.BilletSize;
-            bMin = bPos;
-            bMax = bPos + bSize;
-            bedMin = app.MachineBedPos;
-            bedMax = app.MachineBedPos + app.MachineBedSize;
-            limZ =[0, app.MachineLimitZ];
-
-            t = app.getTheme(); % Master Palette
-
-            crit = strings(0);
-
-            %% --- 1. Hard Physical Limits ---
-            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
-            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
-            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
-            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
-
-            %% --- 2. Wire Extension Collision Check ---
-            % The brass joint connects the hot wire to the tension wire.
-            % Its neutral position is defined by BrassJointOffsetRight (-50mm).
-            % Adding this negative value moves it 50mm left (inward) of the right bed edge.
-            rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
-            neutralJointX = rightBedEdge + app.BrassJointOffsetRight;
-            minJointX = neutralJointX - app.MaxPathExtension;
-            
-            % The gap between the right face of the billet and the brass joint
-            % must not be less than the safety buffer.
-            if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
-                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
-            end
-
-            if ~isempty(crit)
-                isValid = false;
-                panelCol = t.statErrBg;
-                textCol = t.statErrTxt;
-                msgLines =["CRITICAL ERROR:"; crit'];
-                return;
-            end
-
-            warn = strings(0);
-            buf = app.SafetyBuffer_BedEdge; % <--- This defines 'buf' for the warnings below!
-
-            %% --- 3. Soft Warnings (Proximity) ---
-            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
-            if (bedMax(1) - bMax(1) < buf)
-                warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
-                if strcmp(app.TaperToggle.Value, 'Tapered')
-                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
-                end
-            end
-            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
-
-            if ~isempty(warn)
-                isValid = true;
-                panelCol = t.statWarnBg;
-                textCol = t.statWarnTxt;
-                msgLines =["Warning: Proximity to bed edge."; warn'];
-            else
-                isValid = true;
-                panelCol = t.statPassBg;
-                textCol = t.statPassTxt;
-                msgLines =["Machine configuration valid.", "Ready to proceed."];
-            end
-        end
 
         function clearPlanes(app)
             % Deletes any existing plane graphics and resets handles
@@ -2489,6 +2420,75 @@ classdef HotWireSTEPApp_v6_2 < handle
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
+        function [isValid, panelCol, textCol, msgLines] = checkMachineState(app)
+            % Purpose: Validates the billet's physical placement on the machine bed.
+            % Checks for bed overhangs, Z-travel limits, and wire extension collisions.
+
+            bPos  = app.MachineBilletPos;
+            bSize = app.BilletSize;
+            bMin = bPos;
+            bMax = bPos + bSize;
+            bedMin = app.MachineBedPos;
+            bedMax = app.MachineBedPos + app.MachineBedSize;
+            limZ =[0, app.MachineLimitZ];
+
+            t = app.getTheme(); % Master Palette
+
+            crit = strings(0);
+
+            %% --- 1. Hard Physical Limits ---
+            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
+            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
+            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
+            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
+
+            %% --- 2. Wire Extension Collision Check ---
+            % The brass joint connects the hot wire to the tension wire.
+            % Its neutral position is defined by BrassJointOffsetRight (-50mm).
+            % Adding this negative value moves it 50mm left (inward) of the right bed edge.
+            rightBedEdge = app.MachineBedPos(1) + app.MachineBedSize(1);
+            neutralJointX = rightBedEdge + app.BrassJointOffsetRight;
+            minJointX = neutralJointX - app.MaxPathExtension;
+            
+            % The gap between the right face of the billet and the brass joint
+            % must not be less than the safety buffer.
+            if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
+                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
+            end
+
+            if ~isempty(crit)
+                isValid = false;
+                panelCol = t.statErrBg;
+                textCol = t.statErrTxt;
+                msgLines =["CRITICAL ERROR:"; crit'];
+                return;
+            end
+
+            warn = strings(0);
+            buf = app.SafetyBuffer_BedEdge; % <--- This defines 'buf' for the warnings below!
+
+            %% --- 3. Soft Warnings (Proximity) ---
+            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
+            if (bedMax(1) - bMax(1) < buf)
+                warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
+                if strcmp(app.TaperToggle.Value, 'Tapered')
+                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
+                end
+            end
+            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
+
+            if ~isempty(warn)
+                isValid = true;
+                panelCol = t.statWarnBg;
+                textCol = t.statWarnTxt;
+                msgLines =["Warning: Proximity to bed edge."; warn'];
+            else
+                isValid = true;
+                panelCol = t.statPassBg;
+                textCol = t.statPassTxt;
+                msgLines =["Machine configuration valid.", "Ready to proceed."];
+            end
+        end
 
         function onMachinePosEdited(app, axisIdx, src)
             val = src.Value;
