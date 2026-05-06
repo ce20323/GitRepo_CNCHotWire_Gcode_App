@@ -804,7 +804,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group 
         % (provided in the first patch).
 
-        %% ------------ IMPORT STEP / STL ------
+        %%                    - IMPORT STEP / STL -
         function onImportSTEP(app)
             % Purpose: Handles the selection and import of STEP files.
             %          Validates FreeCAD configuration, displays a progress dialog,
@@ -951,7 +951,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
 
-        %% ------------ ROTATION ------
+        %%                    - ROTATION -
         function updateRotation(app, axisChar, newVal)
             % Purpose: Rotates the 3D model to a specific absolute angle.
             % WHY: Triggered when the user types a specific degree into the rotation edit fields.
@@ -1103,7 +1103,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
        
-        %% ------------ PLANES ------
+        %%                    - PLANES -
         
         function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
             % Purpose: Calculates the physical bounding box of the model and updates the UI plane spinners.
@@ -1235,7 +1235,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.computeProfiles();
         end
 
-        %% ------------ PROFILE GENERATION (TAB 2 ACTIONS) ------
+        %%                    - PROFILE GENERATION (TAB 2 ACTIONS) -
 
         function onGenerateProfiles(app)
             % Purpose: Transitions the app from State 0 (Model Only) to State 1 (Planes & Profiles Active).
@@ -1569,7 +1569,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfilePointCountLabel.Text = txt;
         end
 
-        %% ------------ KERF & TOLERANCE CALLBACKS ------
+        %%                    - KERF & TOLERANCE CALLBACKS -
 
         function onProfileToleranceChanged(app, src)
             % Purpose: Updates the resampling tolerance and triggers a recompute.
@@ -1745,7 +1745,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %% ------------ KERF MATH HELPERS ------
+        %%                    - KERF MATH HELPERS -
 
         function [ yL, zL, yR, zR ] = getSyncedKerfProfiles(app)
             % Purpose: Centralized Kerf & Sync logic to guarantee exact 1:1 topology.
@@ -2871,7 +2871,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% --- GROUP 8: TAB 6 - CUTTING STRATEGY ---
         %% ===========================================================
 
-        %% ------------ CORE LOGIC & VALIDATION ------
+        %%                    - CORE LOGIC & VALIDATION ------
         function[ isValid, pCol, tCol, msgLines ] = validateCuttingStrategy(app)
             % Purpose: Validates the cutting path against physical constraints and model geometry.
             % WHY: Prevents the machine from dragging the wire through solid foam during a rapid move,
@@ -3048,7 +3048,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %% ------------ PLOTTING & VISUALIZATION ------
+        %%                    - PLOTTING & VISUALIZATION ------
         function updateCuttingPlots(app)
             % Purpose: Renders the 2D cutting paths (Left and Right) including
             %          rapid moves, lead-ins, the profile cut, and lead-outs.
@@ -3369,7 +3369,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
         end
 
-        %% ------------ UI CALLBACKS & INTERACTION ------
+        %%                    - UI CALLBACKS & INTERACTION ------
         function onCutDirectionChanged(app)
             % Purpose: Triggered when switching between CW (Top First) and CCW (Bottom First).
             app.updateCuttingPlots();
@@ -3561,7 +3561,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %% ------------ AUTO TOOLS & ACTIONS ------
+        %%                    - AUTO TOOLS & ACTIONS ------
         function onAutoStart(app, doPlot)
             % Purpose: Automatically selects the start point closest to the front of the machine.
             if nargin < 2
@@ -3722,7 +3722,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% --- GROUP 9: TAB 7 - SIMULATION ---
         %% ===========================================================
 
-        %% ------------ DATA GENERATION ------
+        %%                    - DATA GENERATION ------
 
         function generateSimulationData(app)
             % Purpose: Generates high-resolution, interpolated 3D paths for the simulation playback.
@@ -3996,7 +3996,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             idx = min(idx, size(app.SimPathL, 1));
         end
 
-        %% ------------ PLOTTING & VISUALIZATION ------
+        %%                    - PLOTTING & VISUALIZATION ------
 
         function initSimulationPlot(app)
             % Purpose: Initializes the 3D simulation plot with static geometry
@@ -4183,7 +4183,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.resetViewToBillet(app.AxSim);
         end
 
-        %% ------------ PLAYBACK CONTROLS ------
+        %%                    - PLAYBACK CONTROLS ------
 
         function onSimPlay(app)
             % Purpose: Starts the real-time simulation timer.
@@ -4249,7 +4249,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isDone, app.onSimPause(); end
         end
 
-        %% ------------ UI SYNC & SCRUBBING ------
+        %%                    - UI SYNC & SCRUBBING ------
 
         function onSimSliderChanging(app, src)
             % Purpose: Handles user scrubbing the timeline slider.
@@ -4296,11 +4296,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
         
-        
-        %% to be cleaned up --->
-
         %% ===========================================================
-        %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS (Partial) ---
+        %% --- to be cleaned up ---> ---
         %% ===========================================================
 
         function clearPlanes(app)
