@@ -804,7 +804,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group 
         % (provided in the first patch).
 
-        %% --- IMPORT STEP / STL ---
+        %% ---  IMPORT STEP / STL ---
         function onImportSTEP(app)
             % Purpose: Handles the selection and import of STEP files.
             %          Validates FreeCAD configuration, displays a progress dialog,
@@ -951,7 +951,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
 
-        %% --- ROTATION ---
+        %% ---  ROTATION ---
         function updateRotation(app, axisChar, newVal)
             % Purpose: Rotates the 3D model to a specific absolute angle.
             % WHY: Triggered when the user types a specific degree into the rotation edit fields.
@@ -1103,7 +1103,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
        
-        %% --- PLANES ---
+        %% ---  PLANES ---
         
         function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
             % Purpose: Calculates the physical bounding box of the model and updates the UI plane spinners.
@@ -1193,11 +1193,11 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 1. Setup Theme and Geometry
             t = app.getTheme();
             V = app.ModelPatch.Vertices;
-            
-            [ mins ] = min(V, [], 1); 
+
+            [ mins ] = min(V, [], 1);
             [ maxs ] = max(V,[], 1);
-            
-            span = max(maxs - mins); 
+
+            span = max(maxs - mins);
             if span <= 0, span = 1; end
             pad  = app.PlanePaddingFactor * span;
 
@@ -1230,17 +1230,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 5. Maintain Layers and Compute
             if isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
             if isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
-            
+
             % Now that planes are visually updated, extract the intersection profiles
             app.computeProfiles();
         end
 
-        %% --- PROFILE GENERATION (TAB 2 ACTIONS) ---
-        
+        %% ---  PROFILE GENERATION (TAB 2 ACTIONS) ---
+
         function onGenerateProfiles(app)
             % Purpose: Transitions the app from State 0 (Model Only) to State 1 (Planes & Profiles Active).
             % WHY: Triggered by the "Generate Profiles" button on the Model tab.
-            
+
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
@@ -1260,7 +1260,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function computeProfiles(app)
             % Purpose: Slices the 3D mesh at the Left and Right planes to extract 2D profiles.
             % WHY: This is the core CAM operation converting a 3D CAD model into 2D wire paths.
-            % HOW: Uses the helper class to intersect the mesh, build continuous loops, 
+            % HOW: Uses the helper class to intersect the mesh, build continuous loops,
             %      resample them to a specific tolerance, and store the 3D coordinates.
 
             if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
@@ -1269,9 +1269,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             t = app.getTheme();
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
 
-            app.clearProfiles(); 
+            app.clearProfiles();
             app.clearProfiles2D();
-            app.SelectedStartIdxL = 1; 
+            app.SelectedStartIdxL = 1;
             app.SelectedStartIdxR = 1;
 
             V = app.ModelPatch.Vertices;
@@ -1288,7 +1288,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
 
             if ~isempty(ysL) && any(~isnan(ysL))
-                app.LeftProfileRawYZ =[ysL(:), zsL(:)]; 
+                app.LeftProfileRawYZ =[ysL(:), zsL(:)];
             end
 
             loopL = cell(1,2);
@@ -1303,7 +1303,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
 
                 if ~isempty(ysR) && any(~isnan(ysR))
-                    app.RightProfileRawYZ = [ysR(:), zsR(:)]; 
+                    app.RightProfileRawYZ = [ysR(:), zsR(:)];
                 end
 
                 loopR = cell(1,2);
@@ -1356,10 +1356,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                     sprintf('Right: %d pts', numel(yLoopR));
                     'Ready to apply Kerf.'
                     };
-                app.TxtProfileStatus.FontColor = t.labelCol; 
+                app.TxtProfileStatus.FontColor = t.labelCol;
             else
                 app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
-                app.TxtProfileStatus.FontColor = t.statErrTxt; 
+                app.TxtProfileStatus.FontColor = t.statErrTxt;
             end
 
             drawnow limitrate nocallbacks;
@@ -1607,9 +1607,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function invalidateKerf(app)
             % Purpose: Central reset for Kerf logic.
-            % WHY: Called whenever the model is rotated, planes are moved, or 
+            % WHY: Called whenever the model is rotated, planes are moved, or
             %      taper mode changes, as these actions invalidate the current kerf paths.
-            
+
             app.KerfEnabled = false;
             app.clearKerfPaths();
 
@@ -1697,7 +1697,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onApplyKerf(app)
             % Purpose: Applies the current kerf offset values to the extracted profiles.
             % WHY: Triggered by the "Apply Kerf" button. Unlocks the Continue button.
-            
+
             if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
                 return;
             end
@@ -1751,7 +1751,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Centralized Kerf & Sync logic to guarantee exact 1:1 topology.
             % WHY: Downstream tabs (Cutting, Sim, Post) rely on this function to get
             %      the absolute "Truth Data" for the toolpaths.
-            
+
             if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
                 yL=[]; zL=[]; yR=[]; zR=[];
                 return;
@@ -1782,13 +1782,13 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function[ yOut, zOut ] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
             % Purpose: Applies machine offsets, user start index, and direction to a synced array.
-            % WHY: Used by the Cutting Tab and Simulation to transform the raw profiles 
+            % WHY: Used by the Cutting Tab and Simulation to transform the raw profiles
             %      into the final machine-ready toolpath.
-            
+
             if isempty(yIn)
                 yOut=[]; zOut=[]; return;
             end
-            
+
             yOut = yIn + offY;
             zOut = zIn + offZ;
 
@@ -1813,6 +1813,450 @@ classdef HotWireSTEPApp_v6_2 < handle
                 yOut(end+1) = yOut(1);
                 zOut(end+1) = zOut(1);
             end
+        end
+
+        %% ===========================================================
+        %% --- GROUP 6: TAB 4 - BILLET CONFIGURATION ---
+        %% ===========================================================
+
+        function updateBilletDefaultsFromMesh(app)
+            % Purpose: Initializes the billet size and position when a new model is loaded.
+            % WHY: Gives the user a sensible starting point rather than a 0x0x0 block.
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+            app.onAutoFitBillet();
+            app.onAutoPositionModel();
+        end
+
+        function isValid = syncBilletUI(app)
+            % Purpose: Validates the model's position within the billet and updates UI fields/colors.
+            % WHY: Ensures the user hasn't positioned the model outside the stock material,
+            %      and warns them if they are wasting foam or too close to the edge.
+            % HOW: Calculates the bounding box of the profiles (or mesh), compares it against
+            %      the billet dimensions, and applies traffic-light colors to the UI panel.
+
+            if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch)
+                isValid = false;
+                return;
+            end
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [ app.LeftProfilePoints; app.RightProfilePoints ];
+            else
+                P = app.ModelPatch.Vertices;
+            end
+
+            
+            [ localMins ] = min(P,[], 1);
+            [ localMaxs ] = max(P,[], 1);
+
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            mMin =[ min(xL, xR), localMins(2), localMins(3) ];
+            mMax =[ max(xL, xR), localMaxs(2), localMaxs(3) ];
+            mDim = mMax - mMin;
+
+            workMin = app.BilletShift + mMin;
+            workMax = workMin + mDim;
+            bSize = app.BilletSize;
+
+            % Update UI Edit Fields
+            for i = 1:3
+                app.BilletSizeEdits(i).Value = bSize(i);
+                app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
+                app.BilletNegOffsetEdits(i).Value = workMin(i);
+                app.BilletPosOffsetEdits(i).Value = bSize(i) - workMax(i);
+                app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
+            end
+
+            tol = app.ModelContainmentTol;
+            buf = app.ModelEdgeWarningBuffer;
+            wasteLimit = app.MaxWasteBuffer;
+
+            % Explicitly calculate gaps for logic clarity
+            gapNeg = workMin;           % [X Y Z] gaps at the start side
+            gapPos = bSize - workMax;   % [X Y Z] gaps at the end side
+            slack  = bSize - mDim;      % Total extra foam in each axis
+
+            %% --- SAFETY CHECKS ---
+            % 1. CRITICAL: Outside Bounds (Red)
+            isOutside = any(gapNeg < -tol) || any(gapPos < -tol);
+
+            % 2. WARNING: Too Close (Amber) - Only for Y and Z (X=0 is allowed)
+            isTooCloseYZ = any(gapNeg(2:3) < buf - 1e-4) || any(gapPos(2:3) < buf - 1e-4);
+
+            % 3. WARNING: Floating (Amber) - Both sides > buf (Y and Z)
+            isFloatingY = (gapNeg(2) > buf + 1e-4) && (gapPos(2) > buf + 1e-4);
+            isFloatingZ = (gapNeg(3) > buf + 1e-4) && (gapPos(3) > buf + 1e-4);
+
+            % 4. WARNING: Foam Waste (Amber)
+            isWasteX = slack(1) > wasteLimit;
+            isWasteY = slack(2) > (buf + wasteLimit);
+            isWasteZ = slack(3) > (buf + wasteLimit);
+
+            t = app.getTheme();
+
+            if isOutside
+                app.BilletLeftPanel.BackgroundColor = t.statErrBg;
+                app.TxtBilletStatus.Value = {'CRITICAL ERROR:', 'Model is outside stock!', 'Adjust billet size or model position.'};
+                app.TxtBilletStatus.FontColor = t.statErrTxt;
+                isValid = false;
+            elseif isTooCloseYZ
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
+                app.TxtBilletStatus.Value = {sprintf('WARNING: Model is <%.0fmm from Y/Z edges.', buf), 'Check wire clearance.'};
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
+                isValid = true;
+            elseif isFloatingY || isFloatingZ
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
+                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Model is floating in the middle of the block.', 'Nudge model to one edge in Y/Z.'};
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
+                isValid = true;
+            elseif isWasteX || isWasteY || isWasteZ
+                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
+                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Billet is significantly larger than model.', 'Consider using a smaller scrap block.'};
+                app.TxtBilletStatus.FontColor = t.statWarnTxt;
+                isValid = true;
+            else
+                app.BilletLeftPanel.BackgroundColor = t.statPassBg;
+                app.TxtBilletStatus.Value = {'Billet configuration valid.'};
+                app.TxtBilletStatus.FontColor = t.statPassTxt;
+                isValid = true;
+            end
+        end
+
+        function onResetBilletViewModel(app)
+            % Purpose: Switches the 4-way plot to focus tightly on the model.
+            app.BilletViewMode = "Model";
+            app.refreshBilletPlots();
+        end
+
+        function onResetBilletViewBillet(app)
+            % Purpose: Switches the 4-way plot to show the entire billet.
+            app.BilletViewMode = "Billet";
+            app.refreshBilletPlots();
+        end
+
+        function onAutoFitBillet(app)
+            % Purpose: Automatically sizes the billet to perfectly wrap the model plus a safety buffer.
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P = [ app.LeftProfilePoints; app.RightProfilePoints ];
+            else
+                P = app.ModelPatch.Vertices;
+            end
+
+            [ localMins ] = min(P, [], 1);
+            [ localMaxs ] = max(P,[], 1);
+
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            buf = app.ModelEdgeWarningBuffer;
+            tinyBuf = app.ModelXPlacementBuffer;
+
+            bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
+            bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
+            bSizeZ = ceil((localMaxs(3) - localMins(3)) + (2.0 * buf));
+
+            app.BilletSize =[ bSizeX, bSizeY, bSizeZ ];
+            app.BilletShift = [ 0 0 0 ];
+
+            app.IsBilletUserModified = false; % Unlock Size auto-calculation
+
+            % Mark downstream tabs as stale so they re-calculate if not locked
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function onAutoPositionModel(app)
+            % Purpose: Automatically shifts the model to sit safely inside the billet.
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P =[ app.LeftProfilePoints; app.RightProfilePoints ];
+            else
+                P = app.ModelPatch.Vertices;
+            end
+
+            [ localMins ] = min(P,[], 1);
+            [ localMaxs ] = max(P,[], 1);
+
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            planeMinX = min(xL, xR);
+            tinyBuf = app.ModelXPlacementBuffer;
+
+            oldShift = app.BilletShift;
+
+            app.BilletShift(1) = tinyBuf - planeMinX;
+            app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
+            app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
+
+            diffShift = max(abs(oldShift - app.BilletShift));
+
+            if diffShift > 1e-4
+                app.IsCuttingInit = false;
+            end
+
+            app.IsBilletPosUserModified = false; % Unlock Position auto-calculation
+
+            % Mark downstream tabs as stale
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+
+            if app.TabGroup.SelectedTab == app.TabMachine
+                app.refreshMachinePlot();
+            end
+        end
+
+        function onResetPosition(app)
+            % Purpose: Resets the model shift back to [0,0,0].
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            app.BilletShift = [ 0 0 0 ];
+            app.IsCuttingInit = false;
+            app.IsBilletUserModified = true; % User forced a reset
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function onBilletSizeStep(app, axisIdx, direction)
+            % Purpose: Increments or decrements the billet size via the +/- buttons.
+            delta = direction * app.BilletSizeStep;
+            app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
+
+            app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function onBilletSizeEdited(app, axisIdx, src)
+            % Purpose: Handles manual text entry for the billet size.
+            val = src.Value;
+            minVal = 1.0;
+            maxVal = app.MachineLimitZ;
+            if axisIdx == 1, maxVal = app.MachineBedSize(1); end
+            if axisIdx == 2, maxVal = app.MachineBedSize(2); end
+
+            if val < minVal
+                val = minVal;
+            elseif val > maxVal
+                val = maxVal;
+            end
+
+            src.Value = val;
+            app.BilletSize(axisIdx) = val;
+
+            app.IsCuttingInit = false;
+            app.IsBilletUserModified = true;
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function onBilletOffsetEdited(app, axisIdx, whichField, src)
+            % Purpose: Handles manual text entry for the model position gaps/shifts.
+            val = src.Value;
+
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+                P =[ app.LeftProfilePoints; app.RightProfilePoints ];
+            else
+                if isempty(app.ModelPatch), return; end
+                P = app.ModelPatch.Vertices;
+            end
+
+            [ localMins ] = min(P, [], 1);
+            [ localMaxs ] = max(P,[], 1);
+
+            xL = app.ModelXMin + app.NumLeftOffset.Value;
+            xR = app.ModelXMin + app.NumRightOffset.Value;
+
+            mMin =[ min(xL,xR), localMins(2), localMins(3) ];
+            mMax =[ max(xL,xR), localMaxs(2), localMaxs(3) ];
+
+            oldShift = app.BilletShift;
+
+            if strcmp(whichField, 'neg')
+                app.BilletShift(axisIdx) = val - mMin(axisIdx);
+            elseif strcmp(whichField, 'pos')
+                app.BilletShift(axisIdx) = app.BilletSize(axisIdx) - mMax(axisIdx) - val;
+            elseif strcmp(whichField, 'center')
+                app.BilletShift(axisIdx) = val;
+            end
+
+            % Shift Entry points to match model movement within billet
+            dY = app.BilletShift(2) - oldShift(2);
+            dZ = app.BilletShift(3) - oldShift(3);
+            app.shiftEntryPoints(dY, dZ);
+
+            app.IsCuttingInit = false;
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+        end
+
+        function moveModelInSpace(app, axisIdx, delta)
+            % Purpose: Helper to shift the model and update dependent entry points.
+            app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
+
+            dY = 0;
+            dZ = 0;
+            if axisIdx == 2
+                dY = delta(1);
+            end
+            if axisIdx == 3
+                dZ = delta(1);
+            end
+            app.shiftEntryPoints(dY, dZ);
+
+            app.IsCuttingInit = false;
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
+
+            app.syncBilletUI();
+            app.refreshBilletPlots();
+
+            if app.TabGroup.SelectedTab == app.TabMachine
+                app.refreshMachinePlot();
+            end
+        end
+
+        function onBilletShift(app, axisIdx, delta)
+            % Purpose: Handles the +/- buttons for shifting the model position.
+            app.moveModelInSpace(axisIdx, delta);
+            app.IsBilletPosUserModified = true; % Lock the position, but not the size
+        end
+
+        function refreshBilletPlots(app)
+            % Purpose: Updates the 4-way split view on the Billet tab.
+            % HOW: Iterates over the 4 axes (Top, Front, Right, Iso), drawing the
+            %      model, billet bounding box, and extracted profiles.
+
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            V     = app.ModelPatch.Vertices;
+            F     = app.ModelPatch.Faces;
+            bSize = app.BilletSize;
+            shift = app.BilletShift;
+
+            t = app.getTheme(); % Master Palette
+
+            V_shifted = V + shift;
+
+            if app.BilletViewMode == "Model"
+                [ allMin ] = min(V_shifted,[], 1);
+                [ allMax ] = max(V_shifted,[], 1);
+            else
+                allMin = [ 0, 0, 0 ];
+                allMax = bSize;
+            end
+
+            span = max(allMax - allMin);
+            if span < 1, span = 100; end
+
+            center = (allMin + allMax) / 2.0;
+            limitRange = span * 0.6;
+
+            commonX =[ center(1)-limitRange, center(1)+limitRange ];
+            commonY =[ center(2)-limitRange, center(2)+limitRange ];
+            commonZ =[ center(3)-limitRange, center(3)+limitRange ];
+
+            hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
+
+            if hasProfiles
+                pL_shifted = app.LeftProfilePoints + shift;
+                pR_shifted = app.RightProfilePoints + shift;
+            end
+
+            axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
+            dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ], [ 1 2 3 ]};
+            labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
+
+            for i = 1:4
+                ax = axs{i};
+                d = dims{i};
+
+                if isempty(ax) || ~isgraphics(ax), continue; end
+
+                cla(ax);
+                hold(ax,'on');
+
+                if i < 4
+                    % --- 2D ORTHOGRAPHIC VIEWS ---
+                    % 1. Draw Model
+                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
+                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
+
+                    % 2. Draw Billet Outline FIRST (so it sits behind the profiles)
+                    bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
+                    by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
+                    plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5);
+
+                    % 3. Draw Profiles LAST (Thicker, fully opaque)
+                    if hasProfiles
+                        patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                        patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                    end
+                else
+                    % --- 3D ISOMETRIC VIEW ---
+                    % 1. Draw Model
+                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
+                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
+
+                    % 2. Draw Billet Outline FIRST
+                    [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
+                    patch(ax, 'Vertices', [ bx, by, bz ], 'Faces', app.boxFaces, ...
+                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.8, 'EdgeAlpha', 0.3);
+
+                    % 3. Draw Profiles LAST
+                    if hasProfiles
+                        patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
+                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                        patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
+                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
+                    end
+                    view(ax, 3);
+                end
+
+                axis(ax, 'equal');
+                grid(ax, 'on');
+                ax.BackgroundColor = t.panelBg;
+
+                if i==1, xlim(ax, commonX); ylim(ax, commonY); end
+                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
+                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
+                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
+
+                xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
+                if i==4, zlabel(ax, labs{i}{3}); end
+
+                set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
+            end
+
+            drawnow limitrate;
         end
 
         %% to be cleaned up --->
@@ -2133,433 +2577,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow limitrate;
         end
         
-        % ===========================================================
-        % BILLET TAB CALLBACKS
-        % ===========================================================
-        function updateBilletDefaultsFromMesh(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
-            % Simply trigger the smart auto-tools!
-            app.onAutoFitBillet();
-            app.onAutoPositionModel();
-        end
-
-        function isValid = syncBilletUI(app)
-            if isempty(app.BilletSizeEdits) || isempty(app.ModelPatch)
-                isValid = false;
-                return;
-            end
-
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P =[app.LeftProfilePoints; app.RightProfilePoints];
-            else
-                P = app.ModelPatch.Vertices;
-            end
-
-            localMins = min(P,[], 1);
-            localMaxs = max(P,[], 1);
-
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            mMin =[min(xL, xR), localMins(2), localMins(3)];
-            mMax =[max(xL, xR), localMaxs(2), localMaxs(3)];
-            mDim = mMax - mMin;
-
-            workMin = app.BilletShift + mMin;
-            workMax = workMin + mDim;
-            bSize = app.BilletSize;
-
-            for i = 1:3
-                app.BilletSizeEdits(i).Value = bSize(i);
-                app.BilletModelDimLabels(i).Text = sprintf('%.2f mm', mDim(i));
-                app.BilletNegOffsetEdits(i).Value = workMin(i);
-                app.BilletPosOffsetEdits(i).Value = bSize(i) - workMax(i);
-                app.BilletCenterOffsetEdits(i).Value = app.BilletShift(i);
-            end
-
-            tol = app.ModelContainmentTol;
-            buf = app.ModelEdgeWarningBuffer;
-            wasteLimit = app.MaxWasteBuffer;
-
-            % Explicitly calculate gaps for logic clarity
-            gapNeg = workMin;           % [X Y Z] gaps at the start side
-            gapPos = bSize - workMax;   % [X Y Z] gaps at the end side
-            slack  = bSize - mDim;      % Total extra foam in each axis
-
-            % 1. CRITICAL: Outside Bounds (Red)
-            isOutside = any(gapNeg < -tol) || any(gapPos < -tol);
-
-            % 2. WARNING: Too Close (Amber) - Only for Y and Z (X=0 is allowed)
-            isTooCloseYZ = any(gapNeg(2:3) < buf - 1e-4) || any(gapPos(2:3) < buf - 1e-4);
-
-            % 3. WARNING: Floating (Amber) - Both sides > buf (Y and Z)
-            % User should nudge model to at least one edge to save foam.
-            isFloatingY = (gapNeg(2) > buf + 1e-4) && (gapPos(2) > buf + 1e-4);
-            isFloatingZ = (gapNeg(3) > buf + 1e-4) && (gapPos(3) > buf + 1e-4);
-
-            % 4. WARNING: Foam Waste (Amber)
-            % X: Allowed to be 0, so waste triggers if total slack > wasteLimit
-            % Y/Z: Trigger if total slack > (required buffer + wasteLimit)
-            isWasteX = slack(1) > wasteLimit;
-            isWasteY = slack(2) > (buf + wasteLimit);
-            isWasteZ = slack(3) > (buf + wasteLimit);
-
-            t = app.getTheme();
-
-            if isOutside
-                app.BilletLeftPanel.BackgroundColor = t.statErrBg;
-                app.TxtBilletStatus.Value = {'CRITICAL ERROR:', 'Model is outside stock!', 'Adjust billet size or model position.'};
-                app.TxtBilletStatus.FontColor = t.statErrTxt;
-                isValid = false;
-            elseif isTooCloseYZ
-                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
-                app.TxtBilletStatus.Value = {sprintf('WARNING: Model is <%.0fmm from Y/Z edges.', buf), 'Check wire clearance.'};
-                app.TxtBilletStatus.FontColor = t.statWarnTxt;
-                isValid = true;
-            elseif isFloatingY || isFloatingZ
-                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
-                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Model is floating in the middle of the block.', 'Nudge model to one edge in Y/Z.'};
-                app.TxtBilletStatus.FontColor = t.statWarnTxt;
-                isValid = true;
-            elseif isWasteX || isWasteY || isWasteZ
-                app.BilletLeftPanel.BackgroundColor = t.statWarnBg;
-                app.TxtBilletStatus.Value = {'REDUCE FOAM WASTE!', 'Billet is significantly larger than model.', 'Consider using a smaller scrap block.'};
-                app.TxtBilletStatus.FontColor = t.statWarnTxt;
-                isValid = true;
-            else
-                app.BilletLeftPanel.BackgroundColor = t.statPassBg;
-                app.TxtBilletStatus.Value = {'Billet configuration valid.'};
-                app.TxtBilletStatus.FontColor = t.statPassTxt;
-                isValid = true;
-            end
-        end
-
-        function onResetBilletViewModel(app)
-            app.BilletViewMode = "Model";
-            app.refreshBilletPlots();
-        end
-
-        function onResetBilletViewBillet(app)
-            app.BilletViewMode = "Billet";
-            app.refreshBilletPlots();
-        end
-
-        function onAutoFitBillet(app)
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
-            else
-                P = app.ModelPatch.Vertices;
-            end
-
-            localMins = min(P);
-            localMaxs = max(P);
-
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            buf = app.ModelEdgeWarningBuffer;
-            tinyBuf = app.ModelXPlacementBuffer;
-
-            bSizeX = abs(xR - xL) + (2.0 * tinyBuf);
-            bSizeY = ceil((localMaxs(2) - localMins(2)) + (2.0 * buf));
-
-            % FIX: Round Z up to the nearest millimeter just like Y!
-            bSizeZ = ceil((localMaxs(3) - localMins(3)) + (2.0 * buf));
-
-            app.BilletSize = [bSizeX, bSizeY, bSizeZ];
-            app.BilletShift =[0 0 0];
-
-            app.IsBilletUserModified = false; % Unlock Size auto-calculation
-
-            % Mark downstream tabs as stale so they re-calculate if not locked
-            app.IsMachineInit = false;
-            app.IsCuttingInit = false;
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function onAutoPositionModel(app)
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
-            else
-                P = app.ModelPatch.Vertices;
-            end
-
-            localMins = min(P);
-            localMaxs = max(P);
-
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            planeMinX = min(xL, xR);
-            tinyBuf = app.ModelXPlacementBuffer;
-
-            oldShift = app.BilletShift;
-
-            app.BilletShift(1) = tinyBuf - planeMinX;
-            app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
-            app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
-
-            diffShift = max(abs(oldShift - app.BilletShift));
-
-            if diffShift > 1e-4
-                app.IsCuttingInit = false;
-            end
-
-            app.IsBilletPosUserModified = false; % Unlock Position auto-calculation
-
-            % Mark downstream tabs as stale
-            app.IsMachineInit = false;
-            app.IsCuttingInit = false;
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-
-            if app.TabGroup.SelectedTab == app.TabMachine
-                app.refreshMachinePlot();
-            end
-        end
-
-        function onResetPosition(app)
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            app.BilletShift = [0 0 0];
-            app.IsCuttingInit = false;
-            app.IsBilletUserModified = true; % User forced a reset
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function onBilletSizeStep(app, axisIdx, direction)
-            delta = direction * app.BilletSizeStep;
-            app.BilletSize(axisIdx) = max(0, app.BilletSize(axisIdx) + delta);
-
-            app.IsCuttingInit = false;
-            app.IsBilletUserModified = true;
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function onBilletSizeEdited(app, axisIdx, src)
-            val = src.Value;
-            minVal = 1.0;
-            maxVal = app.MachineLimitZ;
-            if axisIdx == 1, maxVal = app.MachineBedSize(1); end
-            if axisIdx == 2, maxVal = app.MachineBedSize(2); end
-
-            if val < minVal
-                val = minVal;
-            elseif val > maxVal
-                val = maxVal;
-            end
-
-            src.Value = val;
-            app.BilletSize(axisIdx) = val;
-
-            app.IsCuttingInit = false;
-            app.IsBilletUserModified = true;
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function onBilletOffsetEdited(app, axisIdx, whichField, src)
-            val = src.Value;
-
-            % FIX: Use the exact same profile-aware bounds as syncBilletUI!
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                P = [app.LeftProfilePoints; app.RightProfilePoints];
-            else
-                if isempty(app.ModelPatch), return; end
-                P = app.ModelPatch.Vertices;
-            end
-
-            % Use '1' flag for safe column minimums
-            localMins = min(P,[], 1);
-            localMaxs = max(P,[], 1);
-
-            xL = app.ModelXMin + app.NumLeftOffset.Value;
-            xR = app.ModelXMin + app.NumRightOffset.Value;
-
-            mMin =[min(xL,xR), localMins(2), localMins(3)];
-            mMax =[max(xL,xR), localMaxs(2), localMaxs(3)];
-
-            oldShift = app.BilletShift;
-
-            if strcmp(whichField, 'neg')
-                app.BilletShift(axisIdx) = val - mMin(axisIdx);
-            elseif strcmp(whichField, 'pos')
-                app.BilletShift(axisIdx) = app.BilletSize(axisIdx) - mMax(axisIdx) - val;
-            elseif strcmp(whichField, 'center')
-                app.BilletShift(axisIdx) = val;
-            end
-
-            % Shift Entry points to match model movement within billet
-            dY = app.BilletShift(2) - oldShift(2);
-            dZ = app.BilletShift(3) - oldShift(3);
-            app.shiftEntryPoints(dY, dZ);
-
-            app.IsCuttingInit = false;
-            app.IsBilletPosUserModified = true; % Lock the position, but not the size
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-        end
-
-        function moveModelInSpace(app, axisIdx, delta)
-            app.BilletShift(axisIdx) = app.BilletShift(axisIdx) + delta(1);
-
-            dY = 0;
-            dZ = 0;
-            if axisIdx == 2
-                dY = delta(1);
-            end
-            if axisIdx == 3
-                dZ = delta(1);
-            end
-            app.shiftEntryPoints(dY, dZ);
-
-            app.IsCuttingInit = false;
-            app.IsBilletPosUserModified = true; % Lock the position, but not the size
-
-            app.syncBilletUI();
-            app.refreshBilletPlots();
-
-            if app.TabGroup.SelectedTab == app.TabMachine
-                app.refreshMachinePlot();
-            end
-        end
-
-        function onBilletShift(app, axisIdx, delta)
-            app.moveModelInSpace(axisIdx, delta);
-            app.IsBilletPosUserModified = true; % Lock the position, but not the size
-        end
-
-        function refreshBilletPlots(app)
-            % Purpose: Updates the 4-way split view on the Billet tab.
-
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            V     = app.ModelPatch.Vertices;
-            F     = app.ModelPatch.Faces;
-            bSize = app.BilletSize;
-            shift = app.BilletShift;
-
-            t = app.getTheme(); % Master Palette
-
-            V_shifted = V + shift;
-
-            if app.BilletViewMode == "Model"
-                allMin = min(V_shifted,[], 1);
-                allMax = max(V_shifted,[], 1);
-            else
-                allMin = [ 0, 0, 0 ];
-                allMax = bSize;
-            end
-
-            span = max(allMax - allMin);
-            if span < 1, span = 100; end
-
-            center = (allMin + allMax) / 2.0;
-            limitRange = span * 0.6;
-
-            commonX =[ center(1)-limitRange, center(1)+limitRange ];
-            commonY =[ center(2)-limitRange, center(2)+limitRange ];
-            commonZ = [ center(3)-limitRange, center(3)+limitRange ];
-
-            hasProfiles = ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints);
-
-            if hasProfiles
-                pL_shifted = app.LeftProfilePoints + shift;
-                pR_shifted = app.RightProfilePoints + shift;
-            end
-
-            axs  = {app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso};
-            dims = {[ 1 2 ], [ 1 3 ], [ 2 3 ], [ 1 2 3 ]};
-            labs = {{'X (mm)','Y (mm)'}; {'X (mm)','Z (mm)'}; {'Y (mm)','Z (mm)'}; {'X','Y','Z'}};
-
-            for i = 1:4
-                ax = axs{i};
-                d = dims{i};
-
-                if isempty(ax) || ~isgraphics(ax), continue; end
-
-                cla(ax);
-                hold(ax,'on');
-
-                if i < 4
-                    % 1. Draw Model
-                    patch(ax, 'Vertices', V_shifted(:,d), 'Faces', F, ...
-                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
-
-                    % 2. Draw Billet Outline FIRST (so it sits behind the profiles)
-                    bx =[ 0, bSize(d(1)), bSize(d(1)), 0, 0 ];
-                    by =[ 0, 0, bSize(d(2)), bSize(d(2)), 0 ];
-                    plot(ax, bx, by, 'Color', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5);
-
-                    % 3. Draw Profiles LAST (Thicker, fully opaque)
-                    if hasProfiles
-                        patch(ax, 'XData', pL_shifted(:,d(1)), 'YData', pL_shifted(:,d(2)), 'ZData', zeros(size(pL_shifted,1),1), ...
-                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
-                        patch(ax, 'XData', pR_shifted(:,d(1)), 'YData', pR_shifted(:,d(2)), 'ZData', zeros(size(pR_shifted,1),1), ...
-                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
-                    end
-                else
-                    % 1. Draw Model
-                    patch(ax, 'Vertices', V_shifted, 'Faces', F, ...
-                        'FaceColor', t.modelColor, 'EdgeColor', 'none', 'FaceAlpha', t.modelAlpha);
-
-                    % 2. Draw Billet Outline FIRST
-                    [ bx, by, bz ] = app.makeBoxVertices(0, 0, 0, bSize(1), bSize(2), bSize(3));
-                    patch(ax, 'Vertices', [ bx, by, bz ], 'Faces', app.boxFaces, ...
-                        'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.8, 'EdgeAlpha', 0.3);
-
-                    % 3. Draw Profiles LAST
-                    if hasProfiles
-                        patch(ax, 'XData', pL_shifted(:, 1), 'YData', pL_shifted(:, 2), 'ZData', pL_shifted(:, 3), ...
-                            'EdgeColor', t.planeRed, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
-                        patch(ax, 'XData', pR_shifted(:, 1), 'YData', pR_shifted(:, 2), 'ZData', pR_shifted(:, 3), ...
-                            'EdgeColor', t.planeGreen, 'EdgeAlpha', 1.0, 'FaceColor', 'none', 'LineWidth', 1.0);
-                    end
-                    view(ax, 3);
-                end
-
-                axis(ax, 'equal');
-                grid(ax, 'on');
-                ax.BackgroundColor = t.panelBg;
-
-                if i==1, xlim(ax, commonX); ylim(ax, commonY); end
-                if i==2, xlim(ax, commonX); ylim(ax, commonZ); end
-                if i==3, xlim(ax, commonY); ylim(ax, commonZ); end
-                if i==4, xlim(ax, commonX); ylim(ax, commonY); zlim(ax, commonZ); end
-
-                xlabel(ax, labs{i}{1}); ylabel(ax, labs{i}{2});
-                if i==4, zlabel(ax, labs{i}{3}); end
-
-                set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
-            end
-
-            drawnow limitrate;
-        end
-
         % ===========================================================
         % MACHINE TAB CALLBACKS
         % ===========================================================
