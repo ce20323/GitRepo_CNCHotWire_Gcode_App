@@ -771,19 +771,845 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
 
-        %% to be cleaned up
-        %%
-        %%
+        %% ===========================================================
+        %% --- GROUP 3: TAB 0 - WELCOME & SETUP ---
+        %% ===========================================================
+
+        function onBrowseFreeCAD(app)
+            % Purpose: Opens a file dialog for the user to locate the FreeCAD executable.
+            % WHY: FreeCAD is required in the background to accurately mesh STEP files.
+
+            [ file, path ] = uigetfile({'*.exe', 'Executables (*.exe)'}, 'Locate FreeCADCmd.exe', 'C:\Program Files\');
+            if isequal(file, 0), return; end % User cancelled
+
+            fullPath = fullfile(path, file);
+            app.FreeCADExe = string(fullPath);
+            app.FieldFreeCADPath.Value = app.FreeCADExe;
+
+            % Save to user's MATLAB profile permanently so they only do this once
+            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
+
+            uialert(app.UIFigure, 'FreeCAD path saved successfully!', 'Setup Complete', 'Icon', 'success');
+        end
+
+        function onFreeCADPathEdited(app, src)
+            % Purpose: Handles manual text entry for the FreeCAD path.
+            app.FreeCADExe = string(src.Value);
+            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
+        end
 
         %% ===========================================================
-        %% --- GROUP 5: TAB 3 - PROFILES & KERF (Partial) ---
+        %% --- GROUP 4: TAB 2 - MODEL IMPORT & ORIENTATION ---
         %% ===========================================================
+        % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group 
+        % (provided in the first patch).
+
+        %% --- IMPORT STEP / STL ---
+        function onImportSTEP(app)
+            % Purpose: Handles the selection and import of STEP files.
+            %          Validates FreeCAD configuration, displays a progress dialog,
+            %          and delegates the actual parsing to the helpers class.
+
+            %% --- 1. FREECAD VALIDATION ---
+            if ~isfile(app.FreeCADExe)
+                uialert(app.UIFigure, 'FreeCADCmd.exe not found at the configured path! Please locate it on the Welcome Tab first.', 'FreeCAD Missing', 'Icon', 'error');
+                app.TabGroup.SelectedTab = app.TabWelcome;
+                return;
+            end
+
+            %% --- 2. FILE SELECTION ---
+            [ file, path ] = uigetfile({'*.step;*.stp'},'Select STEP file');
+            if isequal(file, 0), return; end
+
+            d = uiprogressdlg(app.UIFigure, ...
+                'Title','Loading STEP File...', ...
+                'Message','Converting and loading model. Please wait...', ...
+                'Indeterminate','on');
+
+            %% --- 3. IMPORT & INITIALIZE ---
+            try
+                app.CurrentModelName = string(file);
+
+                % Delegate STEP import to the helpers class
+                [ V, F ] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
+
+                if isempty(V)
+                    close(d);
+                    return;
+                end
+
+                app.ModelVerticesOriginal = V;
+
+                % Reset rotation state
+                app.RotAngles = [0 0 0];
+                for i = 1:3
+                    app.RotEdit(i).Value = 0;
+                end
+
+                % Reset plane offsets (will be updated from model extents)
+                app.NumLeftOffset.Value  = 0;
+                app.NumRightOffset.Value = 0;
+
+                % Render the mesh
+                app.plotMesh(V, F);
+
+            catch ME
+                close(d);
+                rethrow(ME);
+            end
+
+            app.enterState0();
+            close(d);
+        end
+
+        function onImportSTL(app)
+            % Purpose: Handles the selection and import of STL files.
+            %          Reads the mesh data directly and initializes the model state.
+
+            %% --- 1. FILE SELECTION ---
+            [ file, path ] = uigetfile({'*.stl'},'Select STL file');
+            if isequal(file, 0), return; end
+
+            d = uiprogressdlg(app.UIFigure, ...
+                'Title','Loading STL File...', ...
+                'Message','Reading mesh. Please wait...', ...
+                'Indeterminate','on');
+
+            %% --- 2. IMPORT & INITIALIZE ---
+            try
+                raw = stlread(fullfile(path, file));
+                if isa(raw, "triangulation")
+                    F = raw.ConnectivityList;
+                    V = raw.Points;
+                else
+                    [ F, V ] = stlread(fullfile(path, file));
+                end
+                V = double(V);
+                F = double(F);
+
+                app.CurrentModelName      = string(file);
+                app.ModelVerticesOriginal = V;
+
+                % Reset rotation state
+                app.RotAngles = [0 0 0];
+                for i = 1:3
+                    app.RotEdit(i).Value = 0;
+                end
+
+                % Reset plane offsets
+                app.NumLeftOffset.Value  = 0;
+                app.NumRightOffset.Value = 0;
+
+                % Render the mesh
+                app.plotMesh(V, F);
+
+            catch ME
+                close(d);
+                rethrow(ME);
+            end
+
+            app.enterState0();
+            close(d);
+        end
+
+        function onTaperModeChanged(app)
+            % Purpose: Handles switching between Straight (Prismatic) and Tapered cuts.
+            % WHY: Straight cuts enforce coupled kerf and disable dynamic feed.
+            %      Tapered cuts allow independent kerf and dynamic feed scaling.
+
+            % --- 1. UI LOGIC (Always run this, regardless of model state) ---
+            isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
+
+            if ~isTaper
+                % Straight Mode: Must be Coupled Kerf and NO Dynamic Feed
+                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
+                    app.KerfModeSwitch.Value = 'Coupled';
+                    app.onKerfModeChanged(app.KerfModeSwitch);
+                    app.KerfModeSwitch.Enable = 'off';
+                end
+                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
+                    app.ChkDynamicFeed.Value = false;
+                    app.ChkDynamicFeed.Enable = 'off';
+                end
+            else
+                % Taper Mode: Allow Independent choice
+                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
+                    app.KerfModeSwitch.Enable = 'on';
+                end
+                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
+                    app.ChkDynamicFeed.Enable = 'on';
+                end
+            end
+
+            % --- 2. CALCULATION LOGIC (Only if model exists) ---
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+
+            % Re-run planes + profiles under the new taper mode
+            app.invalidateKerf();
+            app.updatePlanes();
+        end
+
+        %% --- ROTATION ---
+        function updateRotation(app, axisChar, newVal)
+            % Purpose: Rotates the 3D model to a specific absolute angle.
+            % WHY: Triggered when the user types a specific degree into the rotation edit fields.
+            % HOW: Calculates the delta from the current angle, builds a transformation matrix,
+            %      and applies it to the mesh vertices around their centroid.
+
+            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
+                return
+            end
+
+            % Determine which rotation axis this is
+            switch axisChar
+                case 'X', idx = 1;
+                case 'Y', idx = 2;
+                case 'Z', idx = 3;
+                otherwise, return;
+            end
+
+            oldVal = app.RotAngles(idx);
+            delta  = newVal - oldVal;
+            if delta == 0
+                return
+            end
+
+            % Update stored rotation angle
+            app.RotAngles(idx) = newVal;
+
+            % Build rotation matrix (Z is inverted for UI intuition so + is clockwise)
+            switch axisChar
+                case 'X'
+                    R = makehgtform('xrotate', deg2rad(delta));
+                case 'Y'
+                    R = makehgtform('yrotate', deg2rad(delta));
+                case 'Z'
+                    R = makehgtform('zrotate', deg2rad(-delta)); 
+            end
+
+            % Rotate mesh vertices about their centroid
+            V = app.ModelPatch.Vertices;
+            C = mean(V, 1);
+            V = V - C;
+            
+            % Apply 4x4 transformation matrix
+            V =[ V, ones(size(V,1),1) ] * R.';
+            V = V(:, 1:3) + C;
+            app.ModelPatch.Vertices = V;
+
+            % Refocus view
+            app.autoFitView();
+
+            % Recompute model bounds and reset offsets so planes snap to the new extents
+            app.updateModelBoundsAndDefaultOffsets(true);
+            
+            % Rotation defines a new "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
+            
+            app.updatePlanes();
+        end
+
+        function rotateModel(app, cmd)
+            % Purpose: Increments/Decrements the model rotation by 90 degrees.
+            % WHY: Triggered by the +/- 90 buttons for quick orthogonal alignment.
+            
+            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
+                return
+            end
+
+            ax = cmd(1);
+            d  = cmd(2);
+            
+            % 'p' = plus (+90), 'm' = minus (-90)
+            theta = 90*(d=='p') - 90*(d=='m');
+
+            % Build rotation matrix for the requested axis
+            switch ax
+                case 'X'
+                    R   = makehgtform('xrotate', deg2rad(theta));
+                    idx = 1;
+                case 'Y'
+                    R   = makehgtform('yrotate', deg2rad(theta));
+                    idx = 2;
+                case 'Z'
+                    R   = makehgtform('zrotate', deg2rad(-theta));
+                    idx = 3;
+                otherwise
+                    return;
+            end
+
+            % Update stored angle and edit field (keep within 0-360)
+            app.RotAngles(idx)     = mod(app.RotAngles(idx) + theta, 360);
+            app.RotEdit(idx).Value = app.RotAngles(idx);
+
+            % Rotate mesh vertices about their centroid
+            V = app.ModelPatch.Vertices;
+            C = mean(V, 1);
+            V = V - C;
+            V =[ V, ones(size(V,1),1) ] * R.';
+            V = V(:, 1:3) + C;
+            app.ModelPatch.Vertices = V;
+
+            % Update view and store as new "home" orientation
+            app.autoFitView();
+            app.captureHomeView();
+            
+            % Rotation changes the geometry → invalidate kerf
+            app.invalidateKerf();
+            
+            app.updateModelBoundsAndDefaultOffsets(true);
+            
+            % Rotation defines a new "Home" position for the Billet tab
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; 
+            
+            app.updatePlanes();
+        end
+
+        function resetOrientation(app)
+            % Purpose: Restores the model to its original imported orientation.
+            
+            if isempty(app.ModelVerticesOriginal) || isempty(app.ModelPatch)
+                return
+            end
+
+            app.ModelPatch.Vertices = app.ModelVerticesOriginal;
+
+            app.RotAngles = [0 0 0];
+            for i = 1:3
+                app.RotEdit(i).Value = 0;
+            end
+
+            app.autoFitView();
+            app.captureHomeView();
+
+            app.invalidateKerf();
+
+            % Reset model bounds & plane offsets to defaults
+            app.updateModelBoundsAndDefaultOffsets(true); 
+            
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+            app.BilletShift   = [0 0 0]; 
+            
+            app.updatePlanes();
+        end
+       
+        %% --- PLANES ---
+        
+        function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
+            % Purpose: Calculates the physical bounding box of the model and updates the UI plane spinners.
+            % WHY: The cutting planes are constrained to the physical width of the model.
+            % HOW: Finds the min/max of the vertices. The UI displays '0' as the left face 
+            %      and 'Model Width' as the right face.
+
+            if isempty(app.ModelPatch), return; end
+            V = app.ModelPatch.Vertices;
+
+            % Force SCALAR extraction for bounds
+            [ mins ] = min(V, [], 1);
+            [ maxs ] = max(V,[], 1);
+
+            app.ModelXMin = mins(1); app.ModelXMax = maxs(1);
+            app.ModelYMin = mins(2); app.ModelYMax = maxs(2);
+            app.ModelZMin = mins(3); app.ModelZMax = maxs(3);
+
+            % Calculate Model Width
+            modelWidth = app.ModelXMax - app.ModelXMin;
+            if modelWidth < 1, modelWidth = 1; end % Safety fallback
+
+            % Update Limits (0 to Width)
+            % User sees 0 as Left Face, Width as Right Face
+            app.NumLeftOffset.Limits  = [0, modelWidth];
+            app.NumRightOffset.Limits =[0, modelWidth];
+
+            t = app.getTheme(); 
+
+            if nargin < 2, resetOffsets = true; end
+
+            if resetOffsets
+                app.NumLeftOffset.Value  = 0;
+                app.NumRightOffset.Value = modelWidth;
+
+                if ~isempty(app.TxtModelStatus)
+                    app.TxtModelStatus.Value = {'Model loaded.', sprintf('Size: %.1f x %.1f x %.1f mm', ...
+                        modelWidth, app.ModelYMax-app.ModelYMin, app.ModelZMax-app.ModelZMin)};
+                    app.TxtModelStatus.FontColor = t.statPassTxt; 
+                end
+            else
+                % Clamp values if the model was rotated and became narrower
+                if app.NumLeftOffset.Value > modelWidth, app.NumLeftOffset.Value = modelWidth; end
+                if app.NumRightOffset.Value > modelWidth, app.NumRightOffset.Value = modelWidth; end
+
+                if ~isempty(app.TxtModelStatus)
+                    app.TxtModelStatus.Value = {'Model re-oriented.', 'Check plane positions.'};
+                    app.TxtModelStatus.FontColor = t.statWarnTxt; 
+                end
+            end
+        end
+
+        function onPlaneOffsetChanged(app, ~, ~)
+            % Purpose: Callback for when the user manually adjusts the Left/Right plane spinners.
+            
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return
+            end
+
+            % Moving the planes changes the extracted geometry, so kerf must be recalculated
+            app.invalidateKerf();
+            
+            % Redraw planes (which indirectly calls computeProfiles in State 1)
+            app.updatePlanes();  
+        end
+
+        function resetPlanes(app)
+            % Purpose: Snaps the cutting planes back to the absolute left and right faces of the model.
+            
+            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
+                return
+            end
+
+            app.invalidateKerf();
+            app.updateModelBoundsAndDefaultOffsets(true);
+            app.updatePlanes();
+        end
+
+        function updatePlanes(app)
+            % Purpose: Renders the semi-transparent red and green cutting planes in the 3D view.
+            % HOW: Calculates a bounding box slightly larger than the model, creates patch objects
+            %      at the specified X offsets, and then triggers profile extraction.
+
+            app.clearPlanes();
+            if app.AppState == 0 || isempty(app.ModelPatch), return; end
+
+            % 1. Setup Theme and Geometry
+            t = app.getTheme();
+            V = app.ModelPatch.Vertices;
+            
+            [ mins ] = min(V, [], 1); 
+            [ maxs ] = max(V,[], 1);
+            
+            span = max(maxs - mins); 
+            if span <= 0, span = 1; end
+            pad  = app.PlanePaddingFactor * span;
+
+            % Create a Y-Z bounding box for the planes
+            yLims =[mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
+            zLims =[mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
+
+            % Calculate absolute X positions based on UI offsets
+            xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
+            xR = app.ModelXMin(1) + app.NumRightOffset.Value;
+
+            % 2. Math for Label Positions (Keep labels near the top corners)
+            tY_L = (maxs(2)+pad) - 0.02*((maxs(2)+pad) - (mins(2)-pad));
+            tZ_L = (maxs(3)+pad) - 0.50*(maxs(3) - mins(3));
+            tY_R = (mins(2)-pad) + 0.02*((maxs(2)+pad) - (mins(2)-pad));
+            tZ_R = (maxs(3)+pad) - 0.10*(maxs(3) - mins(3));
+
+            % 3. Draw Left Plane (Red)
+            app.LeftPlanePatch = patch(app.AxModel, 'XData',[xL;xL;xL;xL], 'YData', yLims, 'ZData', zLims, ...
+                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle','--', 'HandleVisibility','off');
+            app.LeftPlaneText = text(app.AxModel, xL, tY_L, tZ_L, {'LEFT','PLANE'}, ...
+                'HorizontalAlignment','left', 'VerticalAlignment', 'top', 'Color', t.planeRedTxt, 'FontWeight','bold');
+
+            % 4. Draw Right Plane (Green)
+            app.RightPlanePatch = patch(app.AxModel, 'XData',[xR;xR;xR;xR], 'YData', yLims, 'ZData', zLims, ...
+                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle','--', 'HandleVisibility','off');
+            app.RightPlaneText = text(app.AxModel, xR, tY_R, tZ_R, {'RIGHT','PLANE '}, ...
+                'HorizontalAlignment','right', 'VerticalAlignment', 'top', 'Color', t.planeGreenTxt, 'FontWeight','bold');
+
+            % 5. Maintain Layers and Compute
+            if isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
+            if isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
+            
+            % Now that planes are visually updated, extract the intersection profiles
+            app.computeProfiles();
+        end
+
+        %% --- PROFILE GENERATION (TAB 2 ACTIONS) ---
+        
+        function onGenerateProfiles(app)
+            % Purpose: Transitions the app from State 0 (Model Only) to State 1 (Planes & Profiles Active).
+            % WHY: Triggered by the "Generate Profiles" button on the Model tab.
+            
+            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
+                return;
+            end
+
+            if app.AppState == 0
+                app.enterState1();
+            else
+                % If already in State 1, just force a refresh
+                app.updatePlanes();
+            end
+        end
+
+        %% ===========================================================
+        %% --- GROUP 5: TAB 3 - PROFILES & KERF ---
+        %% ===========================================================
+
+        function computeProfiles(app)
+            % Purpose: Slices the 3D mesh at the Left and Right planes to extract 2D profiles.
+            % WHY: This is the core CAM operation converting a 3D CAD model into 2D wire paths.
+            % HOW: Uses the helper class to intersect the mesh, build continuous loops, 
+            %      resample them to a specific tolerance, and store the 3D coordinates.
+
+            if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
+
+            %% --- 1. SETUP & INITIALIZATION ---
+            t = app.getTheme();
+            isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
+
+            app.clearProfiles(); 
+            app.clearProfiles2D();
+            app.SelectedStartIdxL = 1; 
+            app.SelectedStartIdxR = 1;
+
+            V = app.ModelPatch.Vertices;
+            F = app.ModelPatch.Faces;
+            spanX = max(V(:,1)) - min(V(:,1));
+            epsX = 1e-6 * max(spanX, 1); % Tiny offset to prevent coplanar math errors
+
+            xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
+            xRight = app.ModelXMin + app.NumRightOffset.Value;
+
+            %% --- 2. LEFT PROFILE EXTRACTION ---
+            meshL = cell(1,3);
+            [ meshL{1}, meshL{2}, meshL{3} ] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
+
+            if ~isempty(ysL) && any(~isnan(ysL))
+                app.LeftProfileRawYZ =[ysL(:), zsL(:)]; 
+            end
+
+            loopL = cell(1,2);
+            [ loopL{1}, loopL{2} ] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
+            yLoopL = loopL{1}; zLoopL = loopL{2};
+
+            %% --- 3. RIGHT PROFILE EXTRACTION ---
+            yLoopR = []; zLoopR =[];
+            if isTaper
+                meshR = cell(1,3);
+                [ meshR{1}, meshR{2}, meshR{3} ] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+                xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
+
+                if ~isempty(ysR) && any(~isnan(ysR))
+                    app.RightProfileRawYZ = [ysR(:), zsR(:)]; 
+                end
+
+                loopR = cell(1,2);
+                [ loopR{1}, loopR{2} ] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                yLoopR = loopR{1}; zLoopR = loopR{2};
+            else
+                % Prismatic cut: Right profile is identical to Left
+                yLoopR = yLoopL; zLoopR = zLoopL;
+                app.RightProfileRawYZ = app.LeftProfileRawYZ;
+            end
+
+            %% --- 4. RESAMPLING ---
+            % Resample the raw loops based on the user's tolerance setting
+            if ~isempty(yLoopL) && ~isempty(yLoopR)
+                resmp = cell(1,4);
+                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                    yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
+                yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
+            end
+
+            %% --- 5. STORAGE & 3D PLOTTING ---
+            if ~isempty(yLoopL)
+                xVecL = xLeft * ones(numel(yLoopL), 1);
+                app.LeftProfileLine3D = plot3(app.AxModel, xVecL, yLoopL, zLoopL, 'Color', t.planeRed, 'LineWidth', 1.4);
+                app.LeftProfilePoints = [xVecL, yLoopL, zLoopL];
+            else
+                app.LeftProfilePoints =[];
+            end
+
+            if ~isempty(yLoopR)
+                xVecR = xRight * ones(numel(yLoopR), 1);
+                app.RightProfileLine3D = plot3(app.AxModel, xVecR, yLoopR, zLoopR, 'Color', t.planeGreen, 'LineWidth', 1.4);
+                app.RightProfilePoints =[xVecR, yLoopR, zLoopR];
+            else
+                app.RightProfilePoints =[];
+            end
+
+            %% --- 6. UI UPDATES ---
+            nL = size(app.LeftProfilePoints, 1);
+            nR = size(app.RightProfilePoints, 1);
+            app.updateProfilePointCountLabel(nL, nR);
+
+            % Draw the 2D plots on the Profiles tab
+            app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
+
+            if ~isempty(yLoopL)
+                app.TxtProfileStatus.Value = {
+                    sprintf('Profiles extracted.');
+                    sprintf('Left: %d pts', numel(yLoopL));
+                    sprintf('Right: %d pts', numel(yLoopR));
+                    'Ready to apply Kerf.'
+                    };
+                app.TxtProfileStatus.FontColor = t.labelCol; 
+            else
+                app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
+                app.TxtProfileStatus.FontColor = t.statErrTxt; 
+            end
+
+            drawnow limitrate nocallbacks;
+        end
+
+        function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
+            % Purpose: Draws 2D Y-Z profiles on the Profiles tab with shared scaling.
+            % HOW: Calculates shared bounding boxes, applies kerf offsets if enabled,
+            %      synchronizes point counts, and renders the lines.
+
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+                return;
+            end
+
+            if isempty(yL) && isempty(yR)
+                return;
+            end
+
+            %% --- 1. CALCULATE SHARED AXES LIMITS ---
+            yAll = [yL(:); yR(:)];
+            zAll =[zL(:); zR(:)];
+            if isempty(yAll) || isempty(zAll)
+                return;
+            end
+
+            yMin = min(yAll); yMax = max(yAll);
+            zMin = min(zAll); zMax = max(zAll);
+            dy = max(yMax - yMin, 1);
+            dz = max(zMax - zMin, 1);
+
+            % SMART FIT LOGIC: Prevent wide/short profiles (like airfoils) from
+            % squishing into a tiny vertical strip. We enforce a minimum Z-span
+            % (e.g., 25% of the Y-span) to utilize the UI container's vertical space.
+            min_dz = dy * 0.25;
+            if dz < min_dz
+                dz_pad_extra = (min_dz - dz) / 2.0;
+                zMin = zMin - dz_pad_extra;
+                zMax = zMax + dz_pad_extra;
+                dz = min_dz;
+            end
+
+            % Symmetric 5% padding.
+            padY = 0.05 * dy;
+            padZ = 0.10 * dz;
+
+            yLim = [ yMin - padY, yMax + padY ];
+            zLim = [ zMin - padZ, zMax + padZ ];
+
+            t = app.getTheme();
+            app.clearProfiles2D();
+
+            %% --- 2. DETERMINE FINAL PROFILES (Raw or Kerfed) ---
+            final_yL = yL; final_zL = zL;
+            final_yR = yR; final_zR = zR;
+
+            doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
+            doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
+
+            if doKerfL
+                [ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+            end
+
+            if doKerfR
+                [ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+            end
+
+            %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
+            % Always sync the final shapes so the UI exactly matches the Simulation.
+            if ~isempty(final_yL) && ~isempty(final_yR)
+                [ final_yL, final_zL, final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+            end
+
+            nLk = numel(final_yL);
+            nRk = numel(final_yR);
+
+            %% --- 4. DRAW PLOTS ---
+            % LEFT TOWER
+            hold(app.AxLeftProfile,'on');
+            if ~isempty(app.LeftProfileRawYZ)
+                rawL = app.LeftProfileRawYZ;
+                % Thick dotted line sits visibly behind the extracted profile
+                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
+            end
+            if ~isempty(yL)
+                % Thinner line plotted AFTER the mesh so it layers on top
+                app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth', 0.4, 'linestyle','-');
+            end
+            if doKerfL && ~isempty(final_yL)
+                app.LeftKerf2DLine = plot(app.AxLeftProfile, final_yL, final_zL, 'Color', t.wireKerf, 'LineWidth', 0.75);
+            end
+            hold(app.AxLeftProfile,'off');
+
+            % RIGHT TOWER
+            hold(app.AxRightProfile,'on');
+            if ~isempty(app.RightProfileRawYZ)
+                rawR = app.RightProfileRawYZ;
+                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
+            end
+            if ~isempty(yR)
+                app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth', 0.4, 'linestyle','-');
+            end
+            if doKerfR && ~isempty(final_yR)
+                app.RightKerf2DLine = plot(app.AxRightProfile, final_yR, final_zR, 'Color', t.wireKerf, 'LineWidth', 0.75);
+            end
+            hold(app.AxRightProfile,'off');
+
+            %% --- 5. UPDATE LABELS & LEGENDS ---
+            if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
+                app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Point Count (L/R): %d / %d', nLk, nRk);
+            end
+
+            % Left Legend
+            hL = gobjects(0); txtL = {};
+            if isgraphics(app.LeftProfile2DMeshLine), hL(end+1)=app.LeftProfile2DMeshLine; txtL{end+1}='Model mesh slice'; end
+            if isgraphics(app.LeftProfile2DLine), hL(end+1)=app.LeftProfile2DLine; txtL{end+1}='Extracted profile'; end
+            if isgraphics(app.LeftKerf2DLine), hL(end+1)=app.LeftKerf2DLine; txtL{end+1}='Kerf path'; end
+            if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
+
+            % Right Legend
+            hR = gobjects(0); txtR = {};
+            if isgraphics(app.RightProfile2DMeshLine), hR(end+1)=app.RightProfile2DMeshLine; txtR{end+1}='Model mesh slice'; end
+            if isgraphics(app.RightProfile2DLine), hR(end+1)=app.RightProfile2DLine; txtR{end+1}='Extracted profile'; end
+            if isgraphics(app.RightKerf2DLine), hR(end+1)=app.RightKerf2DLine; txtR{end+1}='Kerf path'; end
+            if ~isempty(hR), l=legend(app.AxRightProfile, hR, txtR, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
+
+            %% --- 6. FORMAT AXES ---
+            if ~app.ProfileAxesLocked
+                xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
+                xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
+            end
+
+            daspect(app.AxLeftProfile, [1 1 1]);
+            daspect(app.AxRightProfile,[1 1 1]);
+
+            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', xLeft), 'Color', t.labelCol);
+            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', xRight), 'Color', t.labelCol);
+
+            xlabel(app.AxLeftProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxLeftProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            xlabel(app.AxRightProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxRightProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+
+            grid(app.AxLeftProfile,'on');
+            grid(app.AxRightProfile,'on');
+
+            app.AxLeftProfile.XColor = t.labelCol; app.AxLeftProfile.YColor = t.labelCol;
+            app.AxRightProfile.XColor = t.labelCol; app.AxRightProfile.YColor = t.labelCol;
+        end
+
+        function resetProfilesView(app)
+            % Purpose: Resets Profiles tab axes limits to fit current profiles.
+            %          Uses stored points so it does not trigger a full recompute.
+
+            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
+                return;
+            end
+
+            yL = []; zL =[];
+            yR = []; zR =[];
+            xLeft  = 0;
+            xRight = 0;
+
+            if ~isempty(app.LeftProfilePoints)
+                yL    = app.LeftProfilePoints(:,2);
+                zL    = app.LeftProfilePoints(:,3);
+                xLeft = app.LeftProfilePoints(1,1);
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                yR     = app.RightProfilePoints(:,2);
+                zR     = app.RightProfilePoints(:,3);
+                xRight = app.RightProfilePoints(1,1);
+            end
+
+            if isempty(yL) && isempty(yR)
+                return;
+            end
+
+            % Force a full relimit of axes by unlocking and calling the update function
+            app.ProfileAxesLocked = false;
+            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
+        end
+
+        function updateProfilePointCountLabel(app, nLeft, nRight, capLeft, capRight)
+            % Purpose: Updates the read-only "Points (L/R)" label in the Profiles tab.
+
+            if nargin < 2, nLeft  = 0; end
+            if nargin < 3, nRight = 0; end
+            if nargin < 4, capLeft  = false; end
+            if nargin < 5, capRight = false; end
+
+            if isempty(app.ProfilePointCountLabel) || ~isgraphics(app.ProfilePointCountLabel)
+                return;
+            end
+
+            if nLeft <= 0 && nRight <= 0
+                txt = 'Extracted Profile Point Count (L/R): -- / --';
+            else
+                txt = sprintf('Extracted Profile Point Count (L/R): %d / %d', nLeft, nRight);
+            end
+
+            if capLeft || capRight
+                txt = [txt '  (max points reached)'];
+                warning('ProfileSampler:PointCapHit', 'Profile point cap reached; further reductions in tolerance will not add detail.');
+            end
+
+            app.ProfilePointCountLabel.Text = txt;
+        end
+
+        %% --- KERF & TOLERANCE CALLBACKS ---
+
+        function onProfileToleranceChanged(app, src)
+            % Purpose: Updates the resampling tolerance and triggers a recompute.
+            val = src.Value;
+            if ~isfinite(val) || val <= 0
+                src.Value = app.ProfileTolerance;
+                return;
+            end
+
+            app.ProfileTolerance = val;
+            app.IsCuttingInit = false;
+
+            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();
+                app.ProfileAxesLocked = false;
+            end
+        end
+
+        function onResetProfileTolerance(app)
+            % Purpose: Resets tolerance to default and triggers a recompute.
+            defaultTol = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
+            app.ProfileTolerance = defaultTol;
+
+            if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
+                app.ProfileTolSpinner.Value = defaultTol;
+            end
+
+            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();
+                app.ProfileAxesLocked = false;
+            end
+        end
 
         function invalidateKerf(app)
             % Purpose: Central reset for Kerf logic.
-            % WHY: Called whenever the model is rotated, planes are moved, or
+            % WHY: Called whenever the model is rotated, planes are moved, or 
             %      taper mode changes, as these actions invalidate the current kerf paths.
-
+            
             app.KerfEnabled = false;
             app.clearKerfPaths();
 
@@ -795,11 +1621,206 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+        function onKerfModeChanged(app, src)
+            % Purpose: Toggles between Coupled (identical) and Independent kerf values.
+            mode = src.Value;
+            isCoupled = strcmp(mode, 'Coupled');
+
+            if isCoupled
+                app.KerfRightSpinner.Enable = 'off';
+                app.KerfRightValue = app.KerfLeftValue;
+                app.KerfRightSpinner.Value = app.KerfLeftValue;
+
+                app.ProfileAxesLocked = true;
+                app.onApplyKerf();
+                app.ProfileAxesLocked = false;
+            else
+                app.KerfRightSpinner.Enable = 'on';
+            end
+        end
+
+        function onKerfLeftChanged(app, src)
+            % Purpose: Updates Left Kerf value. If coupled, mirrors to Right Kerf.
+            app.KerfLeftValue = src.Value;
+
+            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
+                app.KerfRightValue = app.KerfLeftValue;
+                if isvalid(app.KerfRightSpinner)
+                    app.KerfRightSpinner.Value = app.KerfRightValue;
+                end
+            end
+
+            app.KerfValue = app.KerfLeftValue;
+            app.IsCuttingInit = false;
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
+        end
+
+        function onKerfRightChanged(app, src)
+            % Purpose: Updates Right Kerf value. If coupled, mirrors to Left Kerf.
+            app.KerfRightValue = src.Value;
+
+            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
+                app.KerfLeftValue = app.KerfRightValue;
+                app.KerfLeftSpinner.Value = app.KerfLeftValue;
+                app.KerfValue = app.KerfLeftValue;
+            end
+
+            app.IsCuttingInit = false;
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
+        end
+
+        function onResetKerf(app)
+            % Purpose: Resets kerf values to default and re-applies.
+            defaultK = HotWireSTEPApp_v6_2.DefaultKerf;
+
+            app.KerfLeftValue = defaultK;
+            app.KerfRightValue = defaultK;
+            app.KerfValue = defaultK;
+
+            if isgraphics(app.KerfLeftSpinner)
+                app.KerfLeftSpinner.Value = defaultK;
+            end
+            if isgraphics(app.KerfRightSpinner)
+                app.KerfRightSpinner.Value = defaultK;
+            end
+
+            app.IsCuttingInit = false;
+            app.ProfileAxesLocked = true;
+            app.onApplyKerf();
+            app.ProfileAxesLocked = false;
+        end
+
+        function onApplyKerf(app)
+            % Purpose: Applies the current kerf offset values to the extracted profiles.
+            % WHY: Triggered by the "Apply Kerf" button. Unlocks the Continue button.
+            
+            if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
+                return;
+            end
+
+            app.KerfEnabled = true;
+
+            app.BtnProfilesContinue.Enable = 'on';
+            app.BtnProfilesContinue.BackgroundColor =[ 0.1, 0.6, 0.1 ];
+            app.BtnProfilesContinue.FontColor       = [ 1, 1, 1 ];
+
+            yL = zeros(0,1); zL = zeros(0,1); xLeft  = 0;
+            yR = zeros(0,1); zR = zeros(0,1); xRight = 0;
+
+            if ~isempty(app.LeftProfilePoints)
+                xLeft = app.LeftProfilePoints(1,1);
+                yL    = app.LeftProfilePoints(:,2);
+                zL    = app.LeftProfilePoints(:,3);
+            end
+
+            if ~isempty(app.RightProfilePoints)
+                xRight = app.RightProfilePoints(1,1);
+                yR     = app.RightProfilePoints(:,2);
+                zR     = app.RightProfilePoints(:,3);
+            end
+
+            wasLocked = app.ProfileAxesLocked;
+            app.ProfileAxesLocked = true;
+            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
+            app.ProfileAxesLocked = wasLocked;
+
+            t = app.getTheme();
+
+            if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
+                valL = app.KerfLeftValue;
+                valR = app.KerfRightValue;
+
+                if strcmp(app.KerfModeSwitch.Value, 'Coupled')
+                    msg = sprintf('Kerf Applied: %.2f mm', valL);
+                else
+                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', valL, valR);
+                end
+
+                app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
+                app.TxtProfileStatus.FontColor = t.statPassTxt;
+            end
+        end
+
+        %% --- KERF MATH HELPERS ---
+
+        function [ yL, zL, yR, zR ] = getSyncedKerfProfiles(app)
+            % Purpose: Centralized Kerf & Sync logic to guarantee exact 1:1 topology.
+            % WHY: Downstream tabs (Cutting, Sim, Post) rely on this function to get
+            %      the absolute "Truth Data" for the toolpaths.
+            
+            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
+                yL=[]; zL=[]; yR=[]; zR=[];
+                return;
+            end
+
+            yL = app.LeftProfilePoints(:,2);
+            zL = app.LeftProfilePoints(:,3);
+            yR = app.RightProfilePoints(:,2);
+            zR = app.RightProfilePoints(:,3);
+
+            if app.KerfEnabled
+                if app.KerfLeftValue ~= 0
+                    [ yL, zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                end
+                if app.KerfRightValue ~= 0
+                    [ yR, zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                end
+            end
+
+            % ALWAYS re-align start points before syncing!
+            % This prevents twist when Kerf is 0, ensuring both profiles
+            % are anchored to the exact front face before parameter blending.
+            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+            [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+
+            [ yL, zL, yR, zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+        end
+
+        function[ yOut, zOut ] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
+            % Purpose: Applies machine offsets, user start index, and direction to a synced array.
+            % WHY: Used by the Cutting Tab and Simulation to transform the raw profiles 
+            %      into the final machine-ready toolpath.
+            
+            if isempty(yIn)
+                yOut=[]; zOut=[]; return;
+            end
+            
+            yOut = yIn + offY;
+            zOut = zIn + offZ;
+
+            if numel(yOut) > 2
+                % Clean up duplicate end point before shifting
+                if abs(yOut(1)-yOut(end)) < 1e-6 && abs(zOut(1)-zOut(end)) < 1e-6
+                    yOut(end) = [ ];
+                    zOut(end) = [ ];
+                end
+
+                N = numel(yOut);
+                idx = max(1, min(startIdx, N));
+                yOut = circshift(yOut, -(idx - 1));
+                zOut = circshift(zOut, -(idx - 1));
+
+                if isCCW
+                    yOut(2:end) = flipud(yOut(2:end));
+                    zOut(2:end) = flipud(zOut(2:end));
+                end
+
+                % Force Loop Closure
+                yOut(end+1) = yOut(1);
+                zOut(end+1) = zOut(1);
+            end
+        end
+
+        %% to be cleaned up --->
+
         %% ===========================================================
         %% --- GROUP 7: TAB 5 - MACHINE SETUP (Partial) ---
         %% ===========================================================
 
-        %parserbug
         function [ isValid, panelCol, textCol, msgLines ] = checkMachineState(app)
             % Purpose: Validates the billet's physical placement on the machine bed.
             % HOW: Checks for bed overhangs, Z-travel limits, and wire extension collisions.
@@ -958,666 +1979,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.RightKerf2DLine = gobjects(0);
         end
 
-        function computeProfiles(app)
-            % Compute and plot intersection profiles for left/right planes.
-            if app.AppState == 0 || isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch), return; end
-
-            t = app.getTheme();
-            isTaper = strcmp(app.TaperToggle.Value,'Tapered');
-
-            app.clearProfiles(); app.clearProfiles2D();
-            app.SelectedStartIdxL = 1; app.SelectedStartIdxR = 1;
-
-            V = app.ModelPatch.Vertices;
-            F = app.ModelPatch.Faces;
-            spanX = max(V(:,1)) - min(V(:,1));
-            epsX = 1e-6 * max(spanX, 1);
-
-            xLeft  = app.ModelXMin + app.NumLeftOffset.Value;
-            xRight = app.ModelXMin + app.NumRightOffset.Value;
-
-            % Left Extraction
-            meshL = cell(1,3);
-            [meshL{1}, meshL{2}, meshL{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
-            xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
-
-            if ~isempty(ysL) && any(~isnan(ysL)), app.LeftProfileRawYZ = [ysL(:), zsL(:)]; end
-
-            loopL = cell(1,2);
-            [loopL{1}, loopL{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
-            yLoopL = loopL{1}; zLoopL = loopL{2};
-
-            % Right Extraction
-            yLoopR =[]; zLoopR = [];
-            if isTaper
-                meshR = cell(1,3);
-                [meshR{1}, meshR{2}, meshR{3}] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
-                xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
-
-                if ~isempty(ysR) && any(~isnan(ysR)), app.RightProfileRawYZ =[ysR(:), zsR(:)]; end
-
-                loopR = cell(1,2);
-                [loopR{1}, loopR{2}] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
-                yLoopR = loopR{1}; zLoopR = loopR{2};
-            else
-                yLoopR = yLoopL; zLoopR = zLoopL;
-                app.RightProfileRawYZ = app.LeftProfileRawYZ;
-            end
-
-            % Resampling
-            if ~isempty(yLoopL) && ~isempty(yLoopR)
-                resmp = cell(1,4);
-                [resmp{1}, resmp{2}, resmp{3}, resmp{4}] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
-                    yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
-                yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
-            end
-
-            % Storage
-            if ~isempty(yLoopL)
-                xVecL = xLeft * ones(numel(yLoopL),1);
-                app.LeftProfileLine3D = plot3(app.AxModel, xVecL, yLoopL, zLoopL, 'Color', t.planeRed, 'LineWidth', 1.4);
-                app.LeftProfilePoints =[xVecL, yLoopL, zLoopL];
-            else
-                app.LeftProfilePoints =[];
-            end
-
-            if ~isempty(yLoopR)
-                xVecR = xRight * ones(numel(yLoopR),1);
-                app.RightProfileLine3D = plot3(app.AxModel, xVecR, yLoopR, zLoopR, 'Color', t.planeGreen, 'LineWidth', 1.4);
-                app.RightProfilePoints = [xVecR, yLoopR, zLoopR];
-            else
-                app.RightProfilePoints =[];
-            end
-
-            nL = size(app.LeftProfilePoints,1);
-            nR = size(app.RightProfilePoints,1);
-
-            if ~isempty(app.ProfilePointCountLabel) && isgraphics(app.ProfilePointCountLabel)
-                app.ProfilePointCountLabel.Text = sprintf('Extracted Profile Point Count (L/R): %d / %d', nL, nR);
-            end
-
-            app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
-
-            t = app.getTheme(); % Fetch theme
-            if ~isempty(yLoopL)
-                app.TxtProfileStatus.Value = {
-                    sprintf('Profiles extracted.');
-                    sprintf('Left: %d pts', numel(yLoopL));
-                    sprintf('Right: %d pts', numel(yLoopR));
-                    'Ready to apply Kerf.'
-                    };
-                app.TxtProfileStatus.FontColor = t.labelCol; % <--- FIX: Neutral text before kerf is applied
-            else
-                app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
-                app.TxtProfileStatus.FontColor = t.statErrTxt; % <--- FIX
-            end
-
-            drawnow limitrate nocallbacks;
-
-        end
-
-        function updateProfiles2D(app, yL, zL, yR, zR, xLeft, xRight)
-            % Purpose: Draws 2D Y-Z profiles on the Profiles tab with shared scaling.
-            %          Applies kerf offsets and synchronizes point counts if enabled.
-
-            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
-                return;
-            end
-
-            if isempty(yL) && isempty(yR)
-                return;
-            end
-
-            %% --- 1. CALCULATE SHARED AXES LIMITS ---
-            yAll = [yL(:); yR(:)];
-            zAll = [zL(:); zR(:)];
-            if isempty(yAll) || isempty(zAll)
-                return;
-            end
-
-            yMin = min(yAll); yMax = max(yAll);
-            zMin = min(zAll); zMax = max(zAll);
-            dy = max(yMax - yMin, 1);
-            dz = max(zMax - zMin, 1);
-
-            % SMART FIT LOGIC: Prevent wide/short profiles (like airfoils) from
-            % squishing into a tiny vertical strip. We enforce a minimum Z-span
-            % (e.g., 25% of the Y-span) to utilize the UI container's vertical space
-            % without breaking the 1:1 aspect ratio.
-            min_dz = dy * 0.25;
-            if dz < min_dz
-                dz_pad_extra = (min_dz - dz) / 2.0;
-                zMin = zMin - dz_pad_extra;
-                zMax = zMax + dz_pad_extra;
-                dz = min_dz;
-            end
-
-            % Symmetric 5% padding. MATLAB's 'axis equal' will automatically
-            % handle dead space for the legend based on the window size.
-            padY = 0.05 * dy;
-            padZ = 0.10 * dz;
-
-            yLim =[ yMin - padY, yMax + padY ];
-            zLim = [ zMin - padZ, zMax + padZ ];
-
-            t = app.getTheme();
-            app.clearProfiles2D();
-
-            %% --- 2. DETERMINE FINAL PROFILES (Raw or Kerfed) ---
-            final_yL = yL; final_zL = zL;
-            final_yR = yR; final_zR = zR;
-
-            doKerfL = app.KerfEnabled && ~isempty(yL) && app.KerfLeftValue ~= 0;
-            doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
-
-            if doKerfL
-                [ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
-            end
-
-            if doKerfR[ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
-            end
-
-            %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
-            % Always sync the final shapes so the UI exactly matches the Simulation.
-            if ~isempty(final_yL) && ~isempty(final_yR)[ final_yL, final_zL, final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
-            end
-
-            nLk = numel(final_yL);
-            nRk = numel(final_yR);
-
-            %% --- 4. DRAW PLOTS ---
-            % LEFT TOWER
-            hold(app.AxLeftProfile,'on');
-            if ~isempty(app.LeftProfileRawYZ)
-                rawL = app.LeftProfileRawYZ;
-                % Thick solid line (2.0) so it sits visibly behind the extracted profile
-                app.LeftProfile2DMeshLine = plot(app.AxLeftProfile, rawL(:,1), rawL(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
-            end
-            if ~isempty(yL)
-                % Thinner line (0.75) plotted AFTER the mesh so it layers on top
-                app.LeftProfile2DLine = plot(app.AxLeftProfile, yL, zL, 'Color', t.planeRed, 'LineWidth',0.75,'linestyle','-','LineWidth', 0.4);
-            end
-            if doKerfL && ~isempty(final_yL)
-                app.LeftKerf2DLine = plot(app.AxLeftProfile, final_yL, final_zL, 'Color', t.wireKerf, 'LineWidth',0.75);
-            end
-            hold(app.AxLeftProfile,'off');
-
-            % RIGHT TOWER
-            hold(app.AxRightProfile,'on');
-            if ~isempty(app.RightProfileRawYZ)
-                rawR = app.RightProfileRawYZ;
-                % Thick solid line (2.0) so it sits visibly behind the extracted profile
-                app.RightProfile2DMeshLine = plot(app.AxRightProfile, rawR(:,1), rawR(:,2), 'Color', t.rawMeshCol, 'LineStyle',':', 'LineWidth', 1.8);
-            end
-            if ~isempty(yR)
-                % Thinner line (0.75) plotted AFTER the mesh so it layers on top
-                app.RightProfile2DLine = plot(app.AxRightProfile, yR, zR, 'Color', t.planeGreen, 'LineWidth',0.75,'linestyle','-','LineWidth', 0.4);
-            end
-            if doKerfR && ~isempty(final_yR)
-                app.RightKerf2DLine = plot(app.AxRightProfile, final_yR, final_zR, 'Color', t.wireKerf, 'LineWidth',0.75);
-            end
-            hold(app.AxRightProfile,'off');
-
-            %% --- 5. UPDATE LABELS & LEGENDS ---
-            if app.KerfEnabled && ~isempty(app.KerfPointCountLabel) && all(isgraphics(app.KerfPointCountLabel))
-                app.KerfPointCountLabel.Text = sprintf('Kerf Compensated Point Count (L/R): %d / %d', nLk, nRk);
-            end
-
-            % Left Legend
-            hL = gobjects(0); txtL = {};
-            if isgraphics(app.LeftProfile2DMeshLine), hL(end+1)=app.LeftProfile2DMeshLine; txtL{end+1}='Model mesh slice'; end
-            if isgraphics(app.LeftProfile2DLine), hL(end+1)=app.LeftProfile2DLine; txtL{end+1}='Extracted profile'; end
-            if isgraphics(app.LeftKerf2DLine), hL(end+1)=app.LeftKerf2DLine; txtL{end+1}='Kerf path'; end
-            if ~isempty(hL), l=legend(app.AxLeftProfile, hL, txtL, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
-
-            % Right Legend
-            hR = gobjects(0); txtR = {};
-            if isgraphics(app.RightProfile2DMeshLine), hR(end+1)=app.RightProfile2DMeshLine; txtR{end+1}='Model mesh slice'; end
-            if isgraphics(app.RightProfile2DLine), hR(end+1)=app.RightProfile2DLine; txtR{end+1}='Extracted profile'; end
-            if isgraphics(app.RightKerf2DLine), hR(end+1)=app.RightKerf2DLine; txtR{end+1}='Kerf path'; end
-            if ~isempty(hR), l=legend(app.AxRightProfile, hR, txtR, 'Location','northeast'); l.Box='off'; l.TextColor = t.labelCol; end
-
-            %% --- 6. FORMAT AXES ---
-            if ~app.ProfileAxesLocked
-                xlim(app.AxLeftProfile, yLim); ylim(app.AxLeftProfile, zLim);
-                xlim(app.AxRightProfile, yLim); ylim(app.AxRightProfile, zLim);
-            end
-
-            daspect(app.AxLeftProfile, [1 1 1]);
-            daspect(app.AxRightProfile,[1 1 1]);
-
-            title(app.AxLeftProfile,  sprintf('Left Profile  (X offset = %.2f mm)', app.NumLeftOffset.Value), 'Color', t.labelCol);
-            title(app.AxRightProfile, sprintf('Right Profile (X offset = %.2f mm)', app.NumRightOffset.Value), 'Color', t.labelCol);
-
-            xlabel(app.AxLeftProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            ylabel(app.AxLeftProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            xlabel(app.AxRightProfile, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            ylabel(app.AxRightProfile, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-
-            grid(app.AxLeftProfile,'on');
-            grid(app.AxRightProfile,'on');
-
-            app.AxLeftProfile.XColor = t.labelCol; app.AxLeftProfile.YColor = t.labelCol;
-            app.AxRightProfile.XColor = t.labelCol; app.AxRightProfile.YColor = t.labelCol;
-        end
-
-        function resetProfilesView(app)
-            % Purpose: Resets Profiles tab axes limits to fit current profiles.
-            %          Uses stored points so it does not trigger a full recompute.
-
-            if isempty(app.AxLeftProfile) || ~isgraphics(app.AxLeftProfile) || isempty(app.AxRightProfile) || ~isgraphics(app.AxRightProfile)
-                return;
-            end
-
-            %% --- 1. FETCH STORED POINTS ---
-            yL = []; zL = [];
-            yR = []; zR =[];
-            xLeft  = 0;
-            xRight = 0;
-
-            if ~isempty(app.LeftProfilePoints)
-                yL    = app.LeftProfilePoints(:,2);
-                zL    = app.LeftProfilePoints(:,3);
-                xLeft = app.LeftProfilePoints(1,1);
-            end
-
-            if ~isempty(app.RightProfilePoints)
-                yR     = app.RightProfilePoints(:,2);
-                zR     = app.RightProfilePoints(:,3);
-                xRight = app.RightProfilePoints(1,1);
-            end
-
-            if isempty(yL) && isempty(yR)
-                return;
-            end
-
-            %% --- 2. FORCE RELIMIT ---
-            % Force a full relimit of axes by unlocking and calling the update function
-            app.ProfileAxesLocked = false;
-            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
-        end
-
-        function updateProfilePointCountLabel(app, nLeft, nRight, capLeft, capRight)
-            % Update the read-only "Points (L/R)" label in the Profiles tab.
-
-            if nargin < 2, nLeft  = 0; end
-            if nargin < 3, nRight = 0; end
-            if nargin < 4, capLeft  = false; end
-            if nargin < 5, capRight = false; end
-
-            if isempty(app.ProfilePointCountLabel) || ~isgraphics(app.ProfilePointCountLabel)
-                return;
-            end
-
-            if nLeft <= 0 && nRight <= 0
-                txt = 'Extracted Profile Point Count (L/R): -- / --';
-            else
-                txt = sprintf('Extracted Profile Point Count (L/R): %d / %d', nLeft, nRight);
-            end
-
-            if capLeft || capRight
-                txt = [txt '  (max points reached)'];
-                % For now, just warn to the command window. Later we can route
-                % this into the collapsible "messages/help" panel.
-                warning('ProfileSampler:PointCapHit', ...
-                    'Profile point cap reached; further reductions in tolerance will not add detail.');
-            end
-
-            app.ProfilePointCountLabel.Text = txt;
-        end
-
-        function onTaperModeChanged(app)
-            % 1. UI LOGIC (Always run this, regardless of model state)
-            isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
-
-            if ~isTaper
-                % Straight Mode: Must be Coupled Kerf and NO Dynamic Feed
-                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
-                    app.KerfModeSwitch.Value = 'Coupled';
-                    app.onKerfModeChanged(app.KerfModeSwitch);
-                    app.KerfModeSwitch.Enable = 'off';
-                end
-                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
-                    app.ChkDynamicFeed.Value = false;
-                    app.ChkDynamicFeed.Enable = 'off';
-                end
-            else
-                % Taper Mode: Allow Independent choice
-                if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
-                    app.KerfModeSwitch.Enable = 'on';
-                end
-                if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
-                    app.ChkDynamicFeed.Enable = 'on';
-                end
-            end
-
-            % 2. CALCULATION LOGIC (Only if model exists)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
-            % Re-run planes + profiles under the new taper mode
-            app.invalidateKerf();
-            app.updatePlanes();
-        end
-
-        % ===========================================================
-        % TAB CHANGE HANDLER
-        % ===========================================================
-
-        function onProfileToleranceChanged(app, src)
-            val = src.Value;
-            if ~isfinite(val) || val <= 0
-                src.Value = app.ProfileTolerance;
-                return;
-            end
-
-            app.ProfileTolerance = val;
-            app.IsCuttingInit = false;
-
-            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                app.IsCuttingInit = false; % <--- ADD THIS
-                app.ProfileAxesLocked = true;
-                app.updatePlanes();
-                app.ProfileAxesLocked = false;
-            end
-        end
-
-        function onResetProfileTolerance(app)
-            defaultTol = HotWireSTEPApp_v6_2.DefaultProfileTolerance;
-            app.ProfileTolerance = defaultTol;
-
-            if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
-                app.ProfileTolSpinner.Value = defaultTol;
-            end
-
-            if app.AppState == 1 && ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                app.ProfileAxesLocked = true;
-                app.updatePlanes();
-                app.ProfileAxesLocked = false;
-            end
-        end
-
-        function onKerfChanged(app, src)
-            val = src.Value;
-            if ~isfinite(val)
-                src.Value = app.KerfValue;
-                return;
-            end
-
-            app.KerfValue = val;
-
-            try
-                if isprop(app,'AppState') && app.AppState >= 1
-                    if ismethod(app,'updatePlanes')
-                        app.ProfileAxesLocked = true;
-                        app.updatePlanes();
-                        app.ProfileAxesLocked = false;
-                    end
-                end
-            catch
-            end
-        end
-
-        function onApplyKerf(app)
-            if isempty(app.LeftProfilePoints) && isempty(app.RightProfilePoints)
-                return;
-            end
-
-            app.KerfEnabled = true;
-
-            app.BtnProfilesContinue.Enable = 'on';
-
-            % Using spaces inside brackets to prevent markdown parser crashes
-            app.BtnProfilesContinue.BackgroundColor =[ 0.1, 0.6, 0.1 ];
-            app.BtnProfilesContinue.FontColor       = [ 1, 1, 1 ];
-
-            % Using zeros(0,1) instead of empty brackets to prevent truncation!
-            yL = zeros(0,1);
-            zL = zeros(0,1);
-            xLeft  = 0;
-
-            yR = zeros(0,1);
-            zR = zeros(0,1);
-            xRight = 0;
-
-            if ~isempty(app.LeftProfilePoints)
-                xLeft = app.LeftProfilePoints(1,1);
-                yL    = app.LeftProfilePoints(:,2);
-                zL    = app.LeftProfilePoints(:,3);
-            end
-
-            if ~isempty(app.RightProfilePoints)
-                xRight = app.RightProfilePoints(1,1);
-                yR     = app.RightProfilePoints(:,2);
-                zR     = app.RightProfilePoints(:,3);
-            end
-
-            wasLocked = app.ProfileAxesLocked;
-            app.ProfileAxesLocked = true;
-            app.updateProfiles2D(yL, zL, yR, zR, xLeft, xRight);
-            app.ProfileAxesLocked = wasLocked;
-
-            t = app.getTheme();
-
-            if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
-                % FIX: Use actual class properties instead of local variables
-                valL = app.KerfLeftValue;
-                valR = app.KerfRightValue;
-
-                if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                    msg = sprintf('Kerf Applied: %.2f mm', valL);
-                else
-                    msg = sprintf('Kerf Applied (L/R): %.2f / %.2f mm', valL, valR);
-                end
-
-                app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
-                app.TxtProfileStatus.FontColor = t.statPassTxt;
-            end
-        end
-
-        function onKerfModeChanged(app, src)
-            mode = src.Value;
-            isCoupled = strcmp(mode, 'Coupled');
-
-            if isCoupled
-                app.KerfRightSpinner.Enable = 'off';
-                app.KerfRightValue = app.KerfLeftValue;
-                app.KerfRightSpinner.Value = app.KerfLeftValue;
-
-                app.ProfileAxesLocked = true;
-                app.onApplyKerf();
-                app.ProfileAxesLocked = false;
-            else
-                app.KerfRightSpinner.Enable = 'on';
-            end
-        end
-
-        function onKerfLeftChanged(app, src)
-            app.KerfLeftValue = src.Value;
-
-            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                app.KerfRightValue = app.KerfLeftValue;
-                if isvalid(app.KerfRightSpinner)
-                    app.KerfRightSpinner.Value = app.KerfRightValue;
-                end
-            end
-
-            app.KerfValue = app.KerfLeftValue;
-            app.IsCuttingInit = false;
-            app.ProfileAxesLocked = true;
-            app.onApplyKerf();
-            app.ProfileAxesLocked = false;
-        end
-
-        function onKerfRightChanged(app, src)
-            app.KerfRightValue = src.Value;
-
-            if strcmp(app.KerfModeSwitch.Value, 'Coupled')
-                app.KerfLeftValue = app.KerfRightValue;
-                app.KerfLeftSpinner.Value = app.KerfLeftValue;
-                app.KerfValue = app.KerfLeftValue;
-            end
-
-            app.IsCuttingInit = false;
-            app.ProfileAxesLocked = true;
-            app.onApplyKerf();
-            app.ProfileAxesLocked = false;
-        end
-
-        function onResetKerf(app)
-            % Resets kerf values to default and re-applies
-            defaultK = HotWireSTEPApp_v6_2.DefaultKerf;
-
-            app.KerfLeftValue = defaultK;
-            app.KerfRightValue = defaultK;
-            app.KerfValue = defaultK;
-
-            if isgraphics(app.KerfLeftSpinner)
-                app.KerfLeftSpinner.Value = defaultK;
-            end
-            if isgraphics(app.KerfRightSpinner)
-                app.KerfRightSpinner.Value = defaultK;
-            end
-
-            app.IsCuttingInit = false;
-            app.ProfileAxesLocked = true;
-            app.onApplyKerf();
-            app.ProfileAxesLocked = false;
-        end
-
-        % ===========================================================
-        % WELCOME TAB CALLBACKS (FreeCAD Configuration)
-        % ===========================================================
-        function onBrowseFreeCAD(app)
-            [file, path] = uigetfile({'*.exe', 'Executables (*.exe)'}, 'Locate FreeCADCmd.exe', 'C:\Program Files\');
-            if isequal(file, 0), return; end % User cancelled
-
-            fullPath = fullfile(path, file);
-            app.FreeCADExe = string(fullPath);
-            app.FieldFreeCADPath.Value = app.FreeCADExe;
-
-            % Save to user's MATLAB profile permanently
-            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
-
-            uialert(app.UIFigure, 'FreeCAD path saved successfully!', 'Setup Complete', 'Icon', 'success');
-        end
-
-        function onFreeCADPathEdited(app, src)
-            app.FreeCADExe = string(src.Value);
-            setpref('HotWireSTEPApp', 'FreeCADPath', app.FreeCADExe);
-        end
-
-        % ===========================================================
-        % IMPORT STEP / STL
-        % ===========================================================
-        function onImportSTEP(app)
-            % Purpose: Handles the selection and import of STEP files.
-            %          Validates FreeCAD configuration, displays a progress dialog,
-            %          and delegates the actual parsing to the helpers class.
-
-            %% --- 1. FREECAD VALIDATION ---
-            if ~isfile(app.FreeCADExe)
-                uialert(app.UIFigure, 'FreeCADCmd.exe not found at the configured path! Please locate it on the Welcome Tab first.', 'FreeCAD Missing', 'Icon', 'error');
-                app.TabGroup.SelectedTab = app.TabWelcome;
-                return;
-            end
-
-            %% --- 2. FILE SELECTION ---
-            [ file, path ] = uigetfile({'*.step;*.stp'},'Select STEP file');
-            if isequal(file, 0), return; end
-
-            d = uiprogressdlg(app.UIFigure, ...
-                'Title','Loading STEP File...', ...
-                'Message','Converting and loading model. Please wait...', ...
-                'Indeterminate','on');
-
-            %% --- 3. IMPORT & INITIALIZE ---
-            try
-                app.CurrentModelName = string(file);
-
-                % Delegate STEP import to the helpers class
-                [ V, F ] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
-
-                if isempty(V)
-                    close(d);
-                    return;
-                end
-
-                app.ModelVerticesOriginal = V;
-
-                % Reset rotation state
-                app.RotAngles = [0 0 0];
-                for i = 1:3
-                    app.RotEdit(i).Value = 0;
-                end
-
-                % Reset plane offsets (will be updated from model extents)
-                app.NumLeftOffset.Value  = 0;
-                app.NumRightOffset.Value = 0;
-
-                % Render the mesh
-                app.plotMesh(V, F);
-
-            catch ME
-                close(d);
-                rethrow(ME);
-            end
-
-            app.enterState0();
-            close(d);
-        end
-
-        function onImportSTL(app)
-            % Purpose: Handles the selection and import of STL files.
-            %          Reads the mesh data directly and initializes the model state.
-
-            %% --- 1. FILE SELECTION ---
-            [ file, path ] = uigetfile({'*.stl'},'Select STL file');
-            if isequal(file, 0), return; end
-
-            d = uiprogressdlg(app.UIFigure, ...
-                'Title','Loading STL File...', ...
-                'Message','Reading mesh. Please wait...', ...
-                'Indeterminate','on');
-
-            %% --- 2. IMPORT & INITIALIZE ---
-            try
-                raw = stlread(fullfile(path, file));
-                if isa(raw, "triangulation")
-                    F = raw.ConnectivityList;
-                    V = raw.Points;
-                else
-                    [ F, V ] = stlread(fullfile(path, file));
-                end
-                V = double(V);
-                F = double(F);
-
-                app.CurrentModelName      = string(file);
-                app.ModelVerticesOriginal = V;
-
-                % Reset rotation state
-                app.RotAngles = [0 0 0];
-                for i = 1:3
-                    app.RotEdit(i).Value = 0;
-                end
-
-                % Reset plane offsets
-                app.NumLeftOffset.Value  = 0;
-                app.NumRightOffset.Value = 0;
-
-                % Render the mesh
-                app.plotMesh(V, F);
-
-            catch ME
-                close(d);
-                rethrow(ME);
-            end
-
-            app.enterState0();
-            close(d);
-        end
-
         % ===========================================================
         % PLOTTING (MODEL + PLANES)
         % ===========================================================
@@ -1772,273 +2133,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow limitrate;
         end
         
-        % ===========================================================
-        % ROTATION
-        % ===========================================================
-        function updateRotation(app, axisChar, newVal)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
-
-            % Determine which rotation axis this is
-            switch axisChar
-                case 'X', idx = 1;
-                case 'Y', idx = 2;
-                case 'Z', idx = 3;
-                otherwise, return;
-            end
-
-            oldVal = app.RotAngles(idx);
-            delta  = newVal - oldVal;
-            if delta == 0
-                return
-            end
-
-            % Update stored rotation angle
-            app.RotAngles(idx) = newVal;
-
-            % Build rotation matrix
-            switch axisChar
-                case 'X'
-                    R = makehgtform('xrotate',deg2rad(delta));
-                case 'Y'
-                    R = makehgtform('yrotate',deg2rad(delta));
-                case 'Z'
-                    R = makehgtform('zrotate',deg2rad(-delta)); % inverted Z for UI intuition
-            end
-
-            % Rotate mesh vertices about their centroid
-            V = app.ModelPatch.Vertices;
-            C = mean(V,1);
-            V = V - C;
-            V = [V,ones(size(V,1),1)] * R.';
-            V = V(:,1:3) + C;
-            app.ModelPatch.Vertices = V;
-
-            % Refocus view
-            app.autoFitView();
-
-            % OPTION A: After rotation, behave like Reset Planes
-            % Recompute model bounds and reset offsets so:
-            %   LeftOffset  = 0 (left face)
-            %   RightOffset = width (right face)
-            app.updateModelBoundsAndDefaultOffsets(true);
-            % Rotation/Reset defines a new "Home" position for the Billet tab
-            app.BilletRefXMin = app.ModelXMin;
-            app.BilletRefYMin = app.ModelYMin;
-            app.BilletRefZMin = app.ModelZMin;
-            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
-            app.updatePlanes();
-
-        end
-
-        function rotateModel(app,cmd)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
-
-            ax = cmd(1);
-            d  = cmd(2);
-            theta = 90*(d=='p') - 90*(d=='m');
-
-            % Build rotation matrix for the requested axis
-            switch ax
-                case 'X'
-                    R   = makehgtform('xrotate',deg2rad(theta));
-                    idx = 1;
-                case 'Y'
-                    R   = makehgtform('yrotate',deg2rad(theta));
-                    idx = 2;
-                case 'Z'
-                    R   = makehgtform('zrotate',deg2rad(-theta));
-                    idx = 3;
-                otherwise
-                    return;
-            end
-
-            % Update stored angle and edit field
-            app.RotAngles(idx)     = mod(app.RotAngles(idx) + theta,360);
-            app.RotEdit(idx).Value = app.RotAngles(idx);
-
-            % Rotate mesh vertices about their centroid
-            V = app.ModelPatch.Vertices;
-            C = mean(V,1);
-            V = V - C;
-            V = [V,ones(size(V,1),1)] * R.';
-            V = V(:,1:3) + C;
-            app.ModelPatch.Vertices = V;
-
-            % Update view and store as new "home" orientation
-            app.autoFitView();
-            app.captureHomeView();
-            % Rotation changes the geometry → invalidate kerf
-            app.invalidateKerf();
-            % OPTION A: After rotation, behave like Reset Planes
-            app.updateModelBoundsAndDefaultOffsets(true);
-            % Rotation/Reset defines a new "Home" position for the Billet tab
-            app.BilletRefXMin = app.ModelXMin;
-            app.BilletRefYMin = app.ModelYMin;
-            app.BilletRefZMin = app.ModelZMin;
-            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
-            app.updatePlanes();
-
-        end
-
-        function resetOrientation(app)
-            if isempty(app.ModelVerticesOriginal) || isempty(app.ModelPatch)
-                return
-            end
-
-            app.ModelPatch.Vertices = app.ModelVerticesOriginal;
-
-            app.RotAngles = [0 0 0];
-            for i = 1:3
-                app.RotEdit(i).Value = 0;
-            end
-
-            app.autoFitView();
-            app.captureHomeView();
-
-            app.invalidateKerf();
-
-            % Reset model bounds & plane offsets to defaults
-            app.updateModelBoundsAndDefaultOffsets(true); % reset offsets
-            % Rotation/Reset defines a new "Home" position for the Billet tab
-            app.BilletRefXMin = app.ModelXMin;
-            app.BilletRefYMin = app.ModelYMin;
-            app.BilletRefZMin = app.ModelZMin;
-            app.BilletShift   = [0 0 0]; % Reset the UI offset counter
-            app.updatePlanes();
-
-        end
-
-        % ===========================================================
-        % PLANES
-        % ===========================================================
-        function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
-            if isempty(app.ModelPatch), return; end
-            V = app.ModelPatch.Vertices;
-
-            % Force SCALAR extraction
-            mins = min(V, [], 1);
-            maxs = max(V, [], 1);
-
-            app.ModelXMin = mins(1); app.ModelXMax = maxs(1);
-            app.ModelYMin = mins(2); app.ModelYMax = maxs(2);
-            app.ModelZMin = mins(3); app.ModelZMax = maxs(3);
-
-            % Calculate Model Width
-            modelWidth = app.ModelXMax - app.ModelXMin;
-            if modelWidth < 1, modelWidth = 1; end % Safety
-
-            % Update Limits (0 to Width)
-            % User sees 0 as Left Face, Width as Right Face
-            app.NumLeftOffset.Limits  = [0, modelWidth];
-            app.NumRightOffset.Limits = [0, modelWidth];
-
-            t = app.getTheme(); % <--- FIX: Get theme
-
-            if nargin < 2, resetOffsets = true; end
-
-            if resetOffsets
-                app.NumLeftOffset.Value  = 0;
-                app.NumRightOffset.Value = modelWidth;
-
-                if ~isempty(app.TxtModelStatus)
-                    app.TxtModelStatus.Value = {'Model loaded.', sprintf('Size: %.1f x %.1f x %.1f mm', ...
-                        modelWidth, app.ModelYMax-app.ModelYMin, app.ModelZMax-app.ModelZMin)};
-                    app.TxtModelStatus.FontColor = t.statPassTxt; % <--- FIX
-                end
-            else
-                if app.NumLeftOffset.Value > modelWidth, app.NumLeftOffset.Value = modelWidth; end
-                if app.NumRightOffset.Value > modelWidth, app.NumRightOffset.Value = modelWidth; end
-
-                if ~isempty(app.TxtModelStatus)
-                    app.TxtModelStatus.Value = {'Model re-oriented.', 'Check plane positions.'};
-                    app.TxtModelStatus.FontColor = t.statWarnTxt; % <--- FIX
-                end
-            end
-        end
-
-        function onPlaneOffsetChanged(app, ~, ~)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return
-            end
-
-            % Plane movement invalidates kerf
-            app.invalidateKerf();
-            app.updatePlanes();  % this will also call computeProfiles() in STATE 1
-
-        end
-
-        function resetPlanes(app)
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
-                return
-            end
-
-            app.invalidateKerf();
-
-            app.updateModelBoundsAndDefaultOffsets(true);
-            app.updatePlanes();
-
-        end
-
-        function updatePlanes(app)
-            app.clearPlanes();
-            if app.AppState == 0 || isempty(app.ModelPatch), return; end
-
-            % 1. Setup Theme and Geometry
-            t = app.getTheme();
-            V = app.ModelPatch.Vertices;
-            mins = min(V,[],1); maxs = max(V,[],1);
-            span = max(maxs - mins); if span <= 0, span = 1; end
-            pad  = app.PlanePaddingFactor * span;
-
-            yLims = [mins(2)-pad; maxs(2)+pad; maxs(2)+pad; mins(2)-pad];
-            zLims = [mins(3)-pad; mins(3)-pad; maxs(3)+pad; maxs(3)+pad];
-
-            xL = app.ModelXMin(1) + app.NumLeftOffset.Value;
-            xR = app.ModelXMin(1) + app.NumRightOffset.Value;
-
-            % 2. Math for Label Positions
-            tY_L = (maxs(2)+pad) - 0.02*((maxs(2)+pad) - (mins(2)-pad));
-            tZ_L = (maxs(3)+pad) - 0.50*(maxs(3) - mins(3));
-            tY_R = (mins(2)-pad) + 0.02*((maxs(2)+pad) - (mins(2)-pad));
-            tZ_R = (maxs(3)+pad) - 0.10*(maxs(3) - mins(3));
-
-            % 3. Draw Left Plane
-            app.LeftPlanePatch = patch(app.AxModel, 'XData', [xL;xL;xL;xL], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', t.planeRed, 'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle','--', 'HandleVisibility','off');
-            app.LeftPlaneText = text(app.AxModel, xL, tY_L, tZ_L, {'LEFT','PLANE'}, ...
-                'HorizontalAlignment','left', 'VerticalAlignment', 'top', 'Color', t.planeRedTxt, 'FontWeight','bold');
-
-            % 4. Draw Right Plane
-            app.RightPlanePatch = patch(app.AxModel, 'XData', [xR;xR;xR;xR], 'YData', yLims, 'ZData', zLims, ...
-                'FaceColor', t.planeGreen, 'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle','--', 'HandleVisibility','off');
-            app.RightPlaneText = text(app.AxModel, xR, tY_R, tZ_R, {'RIGHT','PLANE '}, ...
-                'HorizontalAlignment','right', 'VerticalAlignment', 'top', 'Color', t.planeGreenTxt, 'FontWeight','bold');
-
-            % 5. Maintain Layers and Compute
-            if isgraphics(app.LeftPlaneText), uistack(app.LeftPlaneText, 'top'); end
-            if isgraphics(app.RightPlaneText), uistack(app.RightPlaneText, 'top'); end
-            app.computeProfiles();
-        end
-
-        % ===========================================================
-        % PROFILE BUTTONS (stubs for now)
-        % ===========================================================
-        function onGenerateProfiles(app)
-            if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
-                return;
-            end
-
-            if app.AppState == 0
-                app.enterState1();
-            else
-                app.updatePlanes();
-            end
-        end
-
         % ===========================================================
         % BILLET TAB CALLBACKS
         % ===========================================================
@@ -3441,63 +3535,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight,[ 1 1 1 ]);
-        end
-
-        function[yL, zL, yR, zR] = getSyncedKerfProfiles(app)
-            % Centralized Kerf & Sync logic to guarantee exact 1:1 topology
-            if isempty(app.LeftProfilePoints) || isempty(app.RightProfilePoints)
-                yL=[]; zL=[]; yR=[]; zR=[];
-                return;
-            end
-
-            yL = app.LeftProfilePoints(:,2);
-            zL = app.LeftProfilePoints(:,3);
-            yR = app.RightProfilePoints(:,2);
-            zR = app.RightProfilePoints(:,3);
-
-            if app.KerfEnabled
-                if app.KerfLeftValue ~= 0
-                    [yL, zL] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
-                end
-                if app.KerfRightValue ~= 0
-                    [yR, zR] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
-                end
-            end
-
-            % --- FIX: ALWAYS re-align start points before syncing! ---
-            % This prevents twist when Kerf is 0, ensuring both profiles
-            % are anchored to the exact front face before parameter blending.
-            [yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
-
-            [yL, zL, yR, zR] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
-        end
-
-        function [yOut, zOut] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
-            % Applies offsets, user start index, and direction to a synced array
-            if isempty(yIn)
-                yOut=[]; zOut=[]; return;
-            end
-            yOut = yIn + offY;
-            zOut = zIn + offZ;
-
-            if numel(yOut) > 2
-                if abs(yOut(1)-yOut(end)) < 1e-6 && abs(zOut(1)-zOut(end)) < 1e-6
-                    yOut(end)=[]; zOut(end)=[];
-                end
-
-                N = numel(yOut);
-                idx = max(1, min(startIdx, N));
-                yOut = circshift(yOut, -(idx - 1));
-                zOut = circshift(zOut, -(idx - 1));
-
-                if isCCW
-                    yOut(2:end) = flipud(yOut(2:end));
-                    zOut(2:end) = flipud(zOut(2:end));
-                end
-
-                yOut(end+1) = yOut(1);
-                zOut(end+1) = zOut(1);
-            end
         end
 
         function onCutDirectionChanged(app)
