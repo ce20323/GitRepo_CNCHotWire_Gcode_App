@@ -2867,6 +2867,857 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
+        %% ===========================================================
+        %% --- GROUP 8: TAB 6 - CUTTING STRATEGY ---
+        %% ===========================================================
+
+        %% --- CORE LOGIC & VALIDATION ---
+        function[ isValid, pCol, tCol, msgLines ] = validateCuttingStrategy(app)
+            % Purpose: Validates the cutting path against physical constraints and model geometry.
+            % WHY: Prevents the machine from dragging the wire through solid foam during a rapid move,
+            %      and ensures the lead-in cut doesn't slice through the actual part.
+            % HOW: Uses a custom 2D line-intersection algorithm to check the rapid paths against 
+            %      the billet bounding box, and the lead-in path against the model profile polygon.
+
+            isValid = true;
+            crit = strings(0);
+            warn = strings(0);
+
+            %% --- 1. SETUP GEOMETRY ---
+            bMinY = app.MachineBilletPos(2);
+            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
+            bMinZ = app.MachineBilletPos(3);
+            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
+
+            % Billet Polygon (for intersection checks)
+            billetBoxY =[ bMinY; bMaxY; bMaxY; bMinY; bMinY ];
+            billetBoxZ =[ bMinZ; bMinZ; bMaxZ; bMaxZ; bMinZ ];
+
+            % Get Final Profiles (Machine Absolute) to check for gouging
+            offsetY = app.BilletShift(2) + bMinY;
+            offsetZ = app.BilletShift(3) + bMinZ;
+                        
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();            
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);            
+            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
+
+            %% --- NESTED HELPER: INTERSECTION MATH ---
+            function [ xi, zi ] = intersectSegPoly(p1, p2, polyY, polyZ)
+                % Custom Intersection Helper (Replaces polyxpoly to avoid Mapping Toolbox dependency).
+                % Checks a single line segment (p1 -> p2) against a polyline.
+                xi = [ ];
+                zi = [ ];
+                y1 = p1(1); z1 = p1(2);
+                y2 = p2(1); z2 = p2(2);
+                dy1 = y2 - y1; dz1 = z2 - z1;
+
+                for i = 1:(numel(polyY)-1)
+                    y3 = polyY(i); z3 = polyZ(i);
+                    y4 = polyY(i+1); z4 = polyZ(i+1);
+                    dy2 = y4 - y3; dz2 = z4 - z3;
+
+                    den = dy1*dz2 - dz1*dy2;
+                    if abs(den) < 1e-9 % Parallel or collinear
+                        continue;
+                    end
+
+                    t1 = ((y3 - y1)*dz2 - (z3 - z1)*dy2) / den;
+                    t2 = ((y3 - y1)*dz1 - (z3 - z1)*dy1) / den;
+
+                    % Use a tiny tolerance to avoid floating point misses on perfect corners
+                    if t1 >= -1e-6 && t1 <= 1+1e-6 && t2 >= -1e-6 && t2 <= 1+1e-6
+                        xi(end+1) = y1 + t1 * dy1;
+                        zi(end+1) = z1 + t1 * dz1;
+                    end
+                end
+            end
+
+            %% --- NESTED HELPER: SIDE VALIDATION ---
+            function checkSide(sideName, lead, link1, link2, profY, profZ)
+                % Catch empty lead points (e.g. from Clear Pts button)
+                if isempty(lead)
+                    crit(end+1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
+                    return;
+                end
+
+                % A. Check Proximity (<5mm from Bed or Billet)
+                if lead(2) < 5.0
+                    warn(end+1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
+                end
+
+                distY = max(0, max(bMinY - lead(1), lead(1) - bMaxY));
+                distZ = max(0, max(bMinZ - lead(2), lead(2) - bMaxZ));
+                if (distY < 5.0 && distZ < 5.0) && (distY > 0 || distZ > 0)
+                    warn(end+1) = sprintf("%s: Lead In <5mm from Billet.", sideName);
+                end
+
+                % B. CRITICAL: Link Line Collision with Billet
+                pRet = [ bMinY - 10, bMaxZ/2 ];
+                pathPts =[ pRet; link1; link2; lead ];
+                pathPts = pathPts(~all(pathPts==0, 2), :);
+
+                for k = 1:size(pathPts, 1)-1
+                    p1 = pathPts(k,:);
+                    p2 = pathPts(k+1,:);
+                                        
+                    [ xi, zi ] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
+
+                    if ~isempty(xi)
+                        crit(end+1) = sprintf("%s: Rapid move passes THROUGH the billet!", sideName);
+                        break;
+                    end
+                end
+
+                % C. CRITICAL: Lead-In Gouging (Bisecting) Model
+                if ~isempty(profY)
+                    startPt = [ profY(1), profZ(1) ];
+                                        
+                    [ xi, zi ] = intersectSegPoly([ lead(1), lead(2) ],[ startPt(1), startPt(2) ], profY, profZ);
+
+                    validHit = false;
+                    for k = 1:numel(xi)
+                        distS = hypot(xi(k)-startPt(1), zi(k)-startPt(2));
+                        if distS > 1e-3
+                            validHit = true;
+                        end
+                    end
+
+                    if validHit
+                        crit(end+1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
+                    end
+
+                    midPt = (lead + startPt) / 2;
+                    if inpolygon(midPt(1), midPt(2), profY, profZ)
+                        crit(end+1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
+                    end
+                end
+            end
+
+            %% --- 2. EXECUTE CHECKS ---
+            checkSide("Left", app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L, yL, zL);
+            if ~isempty(app.EntryPointR)
+                checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
+            end
+
+            t = app.getTheme(); 
+
+            if ~isempty(crit)
+                isValid = false;
+                pCol = t.statErrBg;
+                tCol = t.statErrTxt;
+                msgLines = ["CRITICAL ERROR:"; crit(1)];
+            elseif ~isempty(warn)
+                isValid = true;
+                pCol = t.statWarnBg;
+                tCol = t.statWarnTxt;
+                msgLines = ["Warning:"; warn(1)];
+            else
+                isValid = true;
+                pCol = t.statPassBg;
+                tCol = t.statPassTxt;
+                msgLines = ["Strategy valid.", "Ready to cut."];
+            end
+        end
+
+        function shiftEntryPoints(app, dY, dZ)
+            % Purpose: Shifts all manual entry points by a given delta.
+            % WHY: Ensures the entry points "stick" to the billet if the user moves it.
+            if dY == 0 && dZ == 0
+                return;
+            end
+
+            shift2D =[ dY, dZ ];
+
+            if ~isempty(app.EntryPointL)
+                app.EntryPointL = app.EntryPointL + shift2D;
+            end
+            if ~isempty(app.EntryPointR)
+                app.EntryPointR = app.EntryPointR + shift2D;
+            end
+            if ~isempty(app.EntryPoint2L)
+                app.EntryPoint2L = app.EntryPoint2L + shift2D;
+            end
+            if ~isempty(app.EntryPoint2R)
+                app.EntryPoint2R = app.EntryPoint2R + shift2D;
+            end
+            if ~isempty(app.EntryPoint3L)
+                app.EntryPoint3L = app.EntryPoint3L + shift2D;
+            end
+            if ~isempty(app.EntryPoint3R)
+                app.EntryPoint3R = app.EntryPoint3R + shift2D;
+            end
+        end
+
+        %% --- PLOTTING & VISUALIZATION ---
+        function updateCuttingPlots(app)
+            % Purpose: Renders the 2D cutting paths (Left and Right) including
+            %          rapid moves, lead-ins, the profile cut, and lead-outs.
+
+            if isempty(app.AxCutLeft) || isempty(app.AxCutRight)
+                return;
+            end
+
+            t = app.getTheme();
+
+            %% --- 1. PRESERVE VIEW STATE ---
+            curXL = xlim(app.AxCutLeft);
+            isInitialized = ~isequal(curXL,[ 0 1 ]);
+
+            limsL = [ ]; limsR = [ ];
+
+            if isInitialized
+                limsL =[ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
+                limsR =[ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
+            end
+
+            cla(app.AxCutLeft); cla(app.AxCutRight);
+            hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
+
+            %% --- 2. SETUP GEOMETRY & OFFSETS ---
+            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+
+            % Draw Bed
+            bedY =[ 50, 750, 750, 50 ];
+            bedZ =[ -20, -20, 0, 0 ];
+            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
+            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
+
+            % Draw Machine Limits
+            mBoxY =[ 0, app.MachineLimitY, app.MachineLimitY, 0, 0 ];
+            mBoxZ =[ 0, 0, app.MachineLimitZ, app.MachineLimitZ, 0 ];
+            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
+            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
+
+            % Draw Packing Block (If Billet is raised)
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2);
+            bH = app.BilletSize(3);
+
+            if bZ > 0
+                packY =[ bY, bY+bW, bY+bW, bY, bY ];
+                packZ = [ 0, 0, bZ, bZ, 0 ];
+                patch(app.AxCutLeft, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
+                patch(app.AxCutRight, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
+            end
+
+            % Draw Billet (Thin solid line with EdgeAlpha to prevent aliasing)
+            boxY =[ bY, bY+bW, bY+bW, bY, bY ];
+            boxZ =[ bZ, bZ, bZ+bH, bZ+bH, bZ ];
+            hBilletL = patch(app.AxCutLeft, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
+            hBilletR = patch(app.AxCutRight, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
+
+            %% --- 3. PROCESS PATH DATA ---
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+
+            hGhostL = gobjects(0); hGhostR = gobjects(0);
+
+            if ~isempty(app.LeftProfilePoints)
+                hGhostL = plot(app.AxCutLeft, app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
+            end
+            if ~isempty(app.RightProfilePoints)
+                hGhostR = plot(app.AxCutRight, app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
+            end
+
+            % Apply Start Index Shift and Direction Reversal
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
+            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
+
+            %% --- 4. DRAW CUT PATHS ---
+            function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
+                if nargin < 5, lWidth = 1.0; end
+                hD = plot(ax, NaN, NaN, style, 'Color', color, 'MarkerFaceColor', mFace, 'LineWidth', lWidth);
+            end
+
+            % Left Path
+            hRapidL = gobjects(0); hLeadL = gobjects(0); hStartL = gobjects(0); hPathDummyL = gobjects(0); hEntryDotL = gobjects(0); hLoadL = gobjects(0);
+            if ~isempty(yL)
+                c = (1:numel(yL))';
+                patch(app.AxCutLeft, 'XData',[ yL; NaN ], 'YData',[ zL; NaN ], 'CData', [ c; NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-', [ 0 0.5 1 ], 'none', 1.0);
+                [ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft,[ yL(1), zL(1) ], [ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
+
+                if numel(yL) > 1
+                    idxNext = 2;
+                    while idxNext < numel(yL) && norm([ yL(idxNext),zL(idxNext) ] - [ yL(1),zL(1) ]) < 1e-4
+                        idxNext = idxNext + 1;
+                    end
+                    app.drawRotatedMarker(app.AxCutLeft, [ yL(1), zL(1) ],[ yL(idxNext), zL(idxNext) ], 'start');
+                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^', [ 0 1 0 ], 'none');
+                end
+            end
+
+            % Right Path
+            hRapidR = gobjects(0); hLeadR = gobjects(0); hStartR = gobjects(0); hPathDummyR = gobjects(0); hEntryDotR = gobjects(0); hLoadR = gobjects(0);
+            if ~isempty(yR)
+                c = (1:numel(yR))';
+                patch(app.AxCutRight, 'XData', [ yR; NaN ], 'YData',[ zR; NaN ], 'CData', [ c; NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
+                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);
+
+                [ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight, [ yR(1), zR(1) ],[ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
+
+                if numel(yR) > 1
+                    idxNext = 2;
+                    while idxNext < numel(yR) && norm([ yR(idxNext),zR(idxNext) ] -[ yR(1),zR(1) ]) < 1e-4
+                        idxNext = idxNext + 1;
+                    end
+                    app.drawRotatedMarker(app.AxCutRight,[ yR(1), zR(1) ], [ yR(idxNext), zR(idxNext) ], 'start');
+                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^',[ 0 1 0 ], 'none');
+                end
+            end
+
+            %% --- 5. LEGENDS & UI STATUS ---
+            function buildLegend(axTarget, hs, hl, hp, hr, hld, he, hm, hg, tCol)
+                hList = [ ]; lList = {};
+                if isgraphics(hs),  hList(end+1)=hs;  lList{end+1}='Start Point'; end
+                if isgraphics(hl),  hList(end+1)=hl;  lList{end+1}='Load Point'; end
+                if isgraphics(hp),  hList(end+1)=hp;  lList{end+1}='Cut Path'; end
+                if isgraphics(hr),  hList(end+1)=hr;  lList{end+1}='Rapid Links'; end
+                if isgraphics(hld), hList(end+1)=hld; lList{end+1}='Lead In'; end
+                if isgraphics(he),  hList(end+1)=he;  lList{end+1}='Entry Point'; end
+                if isgraphics(hm),  hList(end+1)=hm;  lList{end+1}='Machine Limits'; end
+                if isgraphics(hg),  hList(end+1)=hg;  lList{end+1}='Raw Profile'; end
+
+                if ~isempty(hList)
+                    lgd = legend(axTarget, hList, lList, 'Location','northeast');
+                    lgd.Box = 'off'; lgd.TextColor = tCol;
+                end
+            end
+
+            if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', t.wireLead, t.wireLead, 1.0); end
+            if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0); end
+
+            buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
+            buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);
+            [ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
+
+            app.CuttingLeftPanel.BackgroundColor = pCol;
+            app.TxtCuttingStatus.Value = msgLines;
+            app.TxtCuttingStatus.FontColor = tCol;
+            if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+
+            %% --- 6. FORMAT AXES ---
+            title(app.AxCutLeft,'Left Tower', 'Color', t.labelCol);
+            title(app.AxCutRight,'Right Tower', 'Color', t.labelCol);
+            colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
+
+            xlabel(app.AxCutLeft, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxCutLeft, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            xlabel(app.AxCutRight, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+            ylabel(app.AxCutRight, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
+
+            app.AxCutLeft.XColor = t.labelCol; app.AxCutLeft.YColor = t.labelCol;
+            app.AxCutRight.XColor = t.labelCol; app.AxCutRight.YColor = t.labelCol;
+
+            if isInitialized
+                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
+                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
+            else
+                axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
+            end
+
+            daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight,[ 1 1 1 ]);
+        end
+
+        function onResetCuttingViewMachine(app)
+            % Purpose: Resets the Cutting Tab view to show the entire machine bed.
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            limits =[-50, mLimY+50, -50, mLimZ+50];
+            axis(app.AxCutLeft, limits);
+            axis(app.AxCutRight, limits);
+        end
+
+        function onResetCuttingViewBillet(app)
+            % Purpose: Zooms the Cutting Tab view tightly onto the billet with a safe margin.
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3);
+            bW = app.BilletSize(2);
+            bH = app.BilletSize(3);
+
+            % Use a 10% proportional buffer PLUS a fixed 25mm buffer.
+            % The fixed 25mm ensures the standard 10mm retracts and load points
+            % are never cropped, even on very small billets.
+            buffer = max(bW, bH) * 0.10 + 25.0;
+
+            % ASYMMETRIC LEGEND PADDING: Add 35% extra space to the right side
+            % so the legend doesn't cover the toolpaths.
+            legendBuffer = buffer + max(bW, bH) * 0.35;
+
+            xLims =[ bY - buffer, bY + bW + legendBuffer ];
+            yLims =[ bZ - buffer, bZ + bH + buffer ];
+
+            xlim(app.AxCutLeft, xLims);
+            ylim(app.AxCutLeft, yLims);
+            daspect(app.AxCutLeft, [ 1 1 1 ]);
+
+            xlim(app.AxCutRight, xLims);
+            ylim(app.AxCutRight, yLims);
+            daspect(app.AxCutRight,[ 1 1 1 ]);
+
+            drawnow limitrate;
+        end
+
+        function[ hRapid, hLead, hDot, hLoad ] = drawTravelPath(app, ax, startPt, endPt, lead, link1, link2)
+            % Purpose: Helper function to draw the yellow rapid lines and orange lead-in lines.
+
+            hRapid = gobjects(0);
+            hLead = gobjects(0);
+            hDot = gobjects(0);
+            hLoad = gobjects(0);
+
+            if isempty(startPt) || isempty(lead)
+                return;
+            end
+
+            pZero    =[ 0, 0 ];
+            pSafe    =[ 10, 10 ];
+            pLoad    =[ app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
+            pRetract =[ pLoad(1)-10, pLoad(2) ];
+
+            hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [ 1 0 1 ], 'LineWidth', 1.5, 'HitTest','off');
+
+            t = app.getTheme();
+
+            % --- INBOUND PATH ---
+            pts =[ pZero; pSafe; pLoad; pRetract ];
+            if ~isempty(link1)
+                pts =[ pts; link1 ];
+            end
+            if ~isempty(link2)
+                pts =[ pts; link2 ];
+            end
+            pts =[ pts; lead ];
+
+            if size(pts,1) > 1
+                hRapid = plot(ax, pts(:,1), pts(:,2), '-', 'Color',[ 0.9 0.8 0 ], 'LineWidth',0.5, 'HitTest','off');
+            end
+
+            hLead = plot(ax, [ lead(1), startPt(1) ],[ lead(2), startPt(2) ], '-', 'Color', t.wireLead, 'LineWidth',0.5, 'HitTest','off');
+
+            % --- OUTBOUND PATH (Retrace) ---
+            plot(ax,[ endPt(1), lead(1) ], [ endPt(2), lead(2) ], '--', 'Color', t.wireLead, 'LineWidth',1.0, 'HitTest','off');
+
+            ptsOut = lead;
+            if ~isempty(link2)
+                ptsOut =[ ptsOut; link2 ];
+            end
+            if ~isempty(link1)
+                ptsOut =[ ptsOut; link1 ];
+            end
+
+            % Retract back to safe point in front of block
+            ptsOut =[ ptsOut; pRetract ];
+
+            % Home Y First for safety
+            pHomeY =[ 0, pRetract(2) ];
+            ptsOut =[ ptsOut; pHomeY; pZero ];
+
+            plot(ax, ptsOut(:,1), ptsOut(:,2), '--', 'Color',[ 0.9 0.8 0 ], 'LineWidth',0.5, 'HitTest','off');
+
+            % --- DOTS ---
+            hDot = plot(ax, lead(1), lead(2), '.', 'Color',[ 1 0.5 0 ], 'MarkerSize', 10, 'HitTest', 'off');
+
+            if ~isempty(link1)
+                plot(ax, link1(1), link1(2), '.', 'Color',[ 0.9 0.8 0 ], 'MarkerSize',10, 'HitTest','off');
+            end
+            if ~isempty(link2)
+                plot(ax, link2(1), link2(2), '.', 'Color',[ 0.9 0.8 0 ], 'MarkerSize',10, 'HitTest','off');
+            end
+        end
+
+        function hMarker = drawRotatedMarker(app, ax, pCurrent, pNext, type)
+            % Purpose: Draws a rotated triangle at the start point to indicate cut direction.
+
+            hMarker = gobjects(0);
+            v = pNext - pCurrent;
+            len = norm(v);
+
+            if len < 1e-6
+                return;
+            end
+
+            u = v / len;
+            scale = 4; % Size mm
+
+            if strcmp(type, 'start')
+                % Forward pointing triangle (Green)
+                xPoly =[ 0, -1, -1 ] * scale;
+                yPoly =[ 0, 0.5, -0.5 ] * scale;
+                colFill = 'none'; colEdge =[ 0 1 0 ];
+            else
+                % Exit Triangle (Red)
+                xPoly =[ 0, -1, -1 ] * scale;
+                yPoly =[ 0, 0.5, -0.5 ] * scale;
+                colFill = 'none'; colEdge =[ 1 0 0 ];
+            end
+
+            % Rotation
+            theta = atan2(u(2), u(1));
+            R =[ cos(theta), -sin(theta); sin(theta), cos(theta) ];
+            ptsRot = R * [ xPoly; yPoly ];
+
+            % Translate
+            ptsFinal = ptsRot + pCurrent(:);
+
+            % Z-Buffer Safety: Lift it slightly towards camera so it sits on top of lines
+            zLift = 0.1;
+
+            hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), ptsFinal(2,:)*0 + zLift, ...
+                'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
+        end
+
+        %% --- UI CALLBACKS & INTERACTION ---
+        function onCutDirectionChanged(app)
+            % Purpose: Triggered when switching between CW (Top First) and CCW (Bottom First).
+            app.updateCuttingPlots();
+        end
+
+        function onInteractionStatsChanged(app, src)
+            % Purpose: Handles mutual exclusivity and color updates for the interactive plot buttons.
+            % WHY: Ensures only one "Pick Point" mode is active at a time.
+
+            c = app.getInteractionColors();
+            wantsToEnable = src.Value;
+
+            % Reset ALL buttons to OFF/Inactive (Clean Slate)
+            app.resetInteractionState();
+
+            % If the user wanted to enable a button, turn THAT one back on
+            if wantsToEnable
+                src.Value = true; 
+                app.UIFigure.Pointer = 'crosshair';
+
+                % Enable Click Listeners
+                app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
+                app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
+
+                % Apply Active Colors
+                if src == app.BtnPickStart
+                    src.BackgroundColor = c.StartActive;
+                    src.FontColor = c.TextActive;
+                elseif src == app.BtnPickEntry
+                    src.BackgroundColor = c.EntryActive;
+                    src.FontColor = c.TextActive;
+                elseif src == app.BtnPickEntry2
+                    src.BackgroundColor = c.LinkActive;
+                    src.FontColor = c.TextActive;
+                elseif isprop(app, 'BtnPickEntry3') && src == app.BtnPickEntry3
+                    src.BackgroundColor = c.LinkActive;
+                    src.FontColor = c.TextActive;
+                end
+            end
+        end
+
+        function resetInteractionState(app)
+            % Purpose: Turns off all interaction buttons and resets the mouse cursor.
+            c = app.getInteractionColors();
+
+            % 1. Reset Toggle States
+            app.BtnPickStart.Value = false;
+            app.BtnPickEntry.Value = false;
+            app.BtnPickEntry2.Value = false;
+            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
+                app.BtnPickEntry3.Value = false;
+            end
+
+            % 2. Reset Background Colors
+            app.BtnPickStart.BackgroundColor = c.StartInactive;
+            app.BtnPickEntry.BackgroundColor = c.EntryInactive;
+            app.BtnPickEntry2.BackgroundColor = c.LinkInactive;
+            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
+                app.BtnPickEntry3.BackgroundColor = c.LinkInactive;
+            end
+
+            % 3. Reset Font Colors
+            app.BtnPickStart.FontColor = c.TextInactive;
+            app.BtnPickEntry.FontColor = c.TextInactive;
+            app.BtnPickEntry2.FontColor = c.TextInactive;
+            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
+                app.BtnPickEntry3.FontColor = c.TextInactive;
+            end
+
+            % 4. Remove Plot Listeners & Reset Cursor
+            if isgraphics(app.AxCutLeft), app.AxCutLeft.ButtonDownFcn = [ ]; end
+            if isgraphics(app.AxCutRight), app.AxCutRight.ButtonDownFcn = [ ]; end
+            app.UIFigure.Pointer = 'arrow';
+        end
+
+        function onCutAxesClick(app, ax, ~, side)
+            % Purpose: Handles user clicks on the 2D plots to set Start, Entry, or Link points.
+            
+            cp = ax.CurrentPoint(1, 1:2);
+            clickY = cp(1);
+            clickZ = cp(2);
+
+            % --- CASE 1: SET START POINT ---
+            if app.BtnPickStart.Value
+
+                chkP = cell(1,4);
+                [ chkP{1}, chkP{2}, chkP{3}, chkP{4} ] = app.getSyncedKerfProfiles();
+                syncY_L = chkP{1}; syncZ_L = chkP{2}; syncY_R = chkP{3}; syncZ_R = chkP{4};
+
+                yData = [ ];
+                zData = [ ];
+                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
+                offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
+
+                if strcmp(side, 'Left')
+                    if ~isempty(syncY_L)
+                        yData = syncY_L + offsetY;
+                        zData = syncZ_L + offsetZ;
+                    end
+                else
+                    if ~isempty(syncY_R)
+                        yData = syncY_R + offsetY;
+                        zData = syncZ_R + offsetZ;
+                    end
+                end
+
+                if isempty(yData)
+                    return;
+                end
+
+                distances = (yData - clickY).^2 + (zData - clickZ).^2;
+                
+                [ ~, minIdx ] = min(distances);
+
+                if strcmp(app.SwitchSyncStart.Value, 'Coupled')
+                    app.SelectedStartIdxL = minIdx;
+                    app.SelectedStartIdxR = minIdx;
+                else
+                    if strcmp(side, 'Left')
+                        app.SelectedStartIdxL = minIdx;
+                    else
+                        app.SelectedStartIdxR = minIdx;
+                    end
+                end
+
+            % --- CASE 2: LEAD IN ---
+            elseif app.BtnPickEntry.Value
+                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                    app.EntryPointL = cp;
+                    app.EntryPointR = cp;
+                else
+                    if strcmp(side, 'Left')
+                        app.EntryPointL = cp;
+                    else
+                        app.EntryPointR = cp;
+                    end
+                end
+
+            % --- CASE 3: LINK 1 ---
+            elseif app.BtnPickEntry2.Value
+                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                    app.EntryPoint2L = cp;
+                    app.EntryPoint2R = cp;
+                else
+                    if strcmp(side, 'Left')
+                        app.EntryPoint2L = cp;
+                    else
+                        app.EntryPoint2R = cp;
+                    end
+                end
+
+            % --- CASE 4: LINK 2 ---
+            elseif isprop(app, 'BtnPickEntry3') && app.BtnPickEntry3.Value
+                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                    app.EntryPoint3L = cp;
+                    app.EntryPoint3R = cp;
+                else
+                    if strcmp(side, 'Left')
+                        app.EntryPoint3L = cp;
+                    else
+                        app.EntryPoint3R = cp;
+                    end
+                end
+            end
+
+            % Tell the Gatekeeper the user has manually set up the tab!
+            app.IsCuttingUserModified = true;
+            app.IsCuttingInit = true;
+            app.updateCuttingPlots();
+        end
+
+        function onSyncToggleChanged(app, src)
+            % Purpose: Handles the Start Point coupling toggle.
+            if strcmp(src.Value, 'Coupled')
+                app.SelectedStartIdxR = app.SelectedStartIdxL;
+                app.IsCuttingInit = true;
+                app.updateCuttingPlots();
+            end
+        end
+
+        function onSyncEntryToggleChanged(app, src)
+            % Purpose: Handles the Entry Point coupling toggle.
+            if strcmp(src.Value, 'Coupled')
+                app.EntryPointR = app.EntryPointL;
+                app.EntryPoint2R = app.EntryPoint2L;
+                app.EntryPoint3R = app.EntryPoint3L;
+                app.IsCuttingInit = true;
+                app.updateCuttingPlots();
+            end
+        end
+
+        %% --- AUTO TOOLS & ACTIONS ---
+        function onAutoStart(app, doPlot)
+            % Purpose: Automatically selects the start point closest to the front of the machine.
+            if nargin < 2
+                doPlot = true;
+            end
+
+            chkP = cell(1,4);
+            [ chkP{1}, chkP{2}, chkP{3}, chkP{4} ] = app.getSyncedKerfProfiles();
+            yL_b = chkP{1}; yR_b = chkP{3};
+
+            if isempty(yL_b)
+                return;
+            end
+            
+            [ ~, idxL ] = min(yL_b);            
+            [ ~, idxR ] = min(yR_b);
+
+            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxL;
+            else
+                app.SelectedStartIdxL = idxL;
+                app.SelectedStartIdxR = idxR;
+            end
+
+            % Tell the Gatekeeper Auto-Start succeeded!
+            app.IsCuttingUserModified = false;
+            app.IsCuttingInit = true;
+            if doPlot
+                app.updateCuttingPlots();
+            end
+        end
+
+        function onAutoEntry(app, doPlot)
+            % Purpose: Automatically calculates a safe, perpendicular entry path from outside the billet.
+            % HOW: Calculates the normal vector at the start point, extends it outwards until it clears
+            %      the billet bounding box, and creates a lead-in point there.
+
+            if nargin < 2
+                doPlot = true;
+            end
+
+            chkP = cell(1,4);
+            [ chkP{1}, chkP{2}, chkP{3}, chkP{4} ] = app.getSyncedKerfProfiles();
+            yL = chkP{1}; zL = chkP{2}; yR = chkP{3}; zR = chkP{4};
+
+            if isempty(yL), return; end
+
+            bMinY = app.MachineBilletPos(2);
+            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
+            bMinZ = app.MachineBilletPos(3);
+            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
+
+            offY = app.BilletShift(2) + bMinY;
+            offZ = app.BilletShift(3) + bMinZ;
+
+            %% --- NESTED HELPER: ENTRY LOGIC ---
+            function [ lead, link1, link2 ] = calcEntryLogic(y, z, startIdx)
+                lead = [ ]; link1 = [ ]; link2 = [ ];
+                N = numel(y);
+                if startIdx > N || startIdx < 1, startIdx = 1; end
+
+                idxS = startIdx;
+                idxP = mod(startIdx-2, N) + 1;
+                idxN = mod(startIdx, N) + 1;
+
+                S =[ y(idxS), z(idxS) ];
+                P = [ y(idxP), z(idxP) ];
+                N_pt = [ y(idxN), z(idxN) ];
+
+                % Calculate bisecting normal vector
+                vIn  = (S - P) / (norm(S - P) + 1e-9);
+                vOut = (N_pt - S) / (norm(N_pt - S) + 1e-9);
+
+                vBisect =[ -vIn(2), vIn(1) ] +[ -vOut(2), vOut(1) ];
+                if norm(vBisect) < 1e-3
+                    vBisect =[ -vIn(2), vIn(1) ];
+                end
+                vBisect = vBisect / norm(vBisect);
+
+                % Ensure vector points OUTWARD from the polygon
+                testPt = S + vBisect * 0.1;
+                if inpolygon(testPt(1), testPt(2), y, z)
+                    vBisect = -vBisect;
+                end
+
+                boxMinY = bMinY - 5.0; boxMaxY = bMaxY + 5.0;
+                boxMinZ = bMinZ - 5.0; boxMaxZ = bMaxZ + 5.0;
+
+                t_hits = [ ];
+                if abs(vBisect(1)) > 1e-6
+                    t1 = (boxMinY - S(1)) / vBisect(1);
+                    t2 = (boxMaxY - S(1)) / vBisect(1);
+                    if t1 > 1e-3, t_hits(end+1) = t1; end
+                    if t2 > 1e-3, t_hits(end+1) = t2; end
+                end
+
+                if abs(vBisect(2)) > 1e-6
+                    t3 = (boxMinZ - S(2)) / vBisect(2);
+                    t4 = (boxMaxZ - S(2)) / vBisect(2);
+                    if t3 > 1e-3, t_hits(end+1) = t3; end
+                    if t4 > 1e-3, t_hits(end+1) = t4; end
+                end
+
+                if isempty(t_hits)
+                    t_final = 20.0;
+                else
+                    t_final = min(t_hits);
+                end
+
+                lead = S + vBisect * t_final;
+                if lead(2) < 5.0, lead(2) = 5.0; end
+
+                % If the lead point is above or behind the block, route a safe link path over the top
+                needsRouting = (lead(2) >= bMaxZ) || (lead(1) >= bMaxY);
+                if needsRouting
+                    safeZ = bMaxZ + app.MachineSafeHeight;
+                    link2 =[ lead(1), max(safeZ, lead(2)) ];
+                    link1 =[ bMinY - 10.0, safeZ ];
+                end
+            end
+
+            yL_s = yL + offY; zL_s = zL + offZ;
+            
+            [ eL, l1L, l2L ] = calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
+            
+            app.EntryPointL=eL; app.EntryPoint2L=l1L; app.EntryPoint3L=l2L;
+
+            if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
+                app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
+            else
+                yR_s = yR + offY; zR_s = zR + offZ;
+                
+                [ eR, l1R, l2R ] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
+                
+                app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
+            end
+
+            % Tell the Gatekeeper Auto-Entry succeeded!
+            app.IsCuttingUserModified = false;
+            app.IsCuttingInit = true;
+
+            if doPlot
+                app.updateCuttingPlots();
+            end
+        end
+
+        function onClearEntries(app)
+            % Purpose: Clears all manual entry and link points.
+            app.EntryPointL = [ ]; app.EntryPointR = [ ];
+            app.EntryPoint2L = [ ]; app.EntryPoint2R = [ ];
+            app.EntryPoint3L = [ ]; app.EntryPoint3R = [ ];
+            app.IsCuttingInit = true;
+            app.updateCuttingPlots();
+        end
+
         %% to be cleaned up --->
 
         %% ===========================================================
@@ -3111,906 +3962,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow limitrate;
         end
         
-        % ===========================================================
-        % CUTTING TAB LOGIC
-        % ===========================================================
-        function [isValid, pCol, tCol, msgLines] = validateCuttingStrategy(app)
-            % Validates the cutting path against physical constraints and model geometry.
-
-            isValid = true;
-            crit = strings(0);
-            warn = strings(0);
-
-            % 1. Setup Geometry
-            bMinY = app.MachineBilletPos(2);
-            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
-            bMinZ = app.MachineBilletPos(3);
-            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
-
-            % Billet Polygon (for intersection checks)
-            billetBoxY =[bMinY; bMaxY; bMaxY; bMinY; bMinY];
-            billetBoxZ =[bMinZ; bMinZ; bMaxZ; bMaxZ; bMinZ];
-
-            % Get Final Profiles (Machine Absolute) to check for gouging
-            offsetY = app.BilletShift(2) + bMinY;
-            offsetZ = app.BilletShift(3) + bMinZ;
-            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
-
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);
-            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
-
-            % --- Custom Intersection Helper ---
-            % Replaces polyxpoly to avoid Mapping Toolbox dependency.
-            % Checks a single line segment (p1 -> p2) against a polyline.
-            function [xi, zi] = intersectSegPoly(p1, p2, polyY, polyZ)
-                xi = [];
-                zi =[];
-                y1 = p1(1);
-                z1 = p1(2);
-                y2 = p2(1);
-                z2 = p2(2);
-                dy1 = y2 - y1;
-                dz1 = z2 - z1;
-
-                for i = 1:(numel(polyY)-1)
-                    y3 = polyY(i);
-                    z3 = polyZ(i);
-                    y4 = polyY(i+1);
-                    z4 = polyZ(i+1);
-                    dy2 = y4 - y3;
-                    dz2 = z4 - z3;
-
-                    den = dy1*dz2 - dz1*dy2;
-                    if abs(den) < 1e-9 % Parallel or collinear
-                        continue;
-                    end
-
-                    t1 = ((y3 - y1)*dz2 - (z3 - z1)*dy2) / den;
-                    t2 = ((y3 - y1)*dz1 - (z3 - z1)*dy1) / den;
-
-                    % Use a tiny tolerance to avoid floating point misses on perfect corners
-                    if t1 >= -1e-6 && t1 <= 1+1e-6 && t2 >= -1e-6 && t2 <= 1+1e-6
-                        xi(end+1) = y1 + t1 * dy1;
-                        zi(end+1) = z1 + t1 * dz1;
-                    end
-                end
-            end
-
-            % --- Helper: Check One Side ---
-            function checkSide(sideName, lead, link1, link2, profY, profZ)
-                % FIX: Catch empty lead points (e.g. from Clear Pts button)
-                if isempty(lead)
-                    crit(end+1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
-                    return;
-                end
-
-                % A. Check Proximity (<5mm from Bed or Billet)
-                if lead(2) < 5.0
-                    warn(end+1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
-                end
-
-                distY = max(0, max(bMinY - lead(1), lead(1) - bMaxY));
-                distZ = max(0, max(bMinZ - lead(2), lead(2) - bMaxZ));
-                if (distY < 5.0 && distZ < 5.0) && (distY > 0 || distZ > 0)
-                    warn(end+1) = sprintf("%s: Lead In <5mm from Billet.", sideName);
-                end
-
-                % B. CRITICAL: Link Line Collision with Billet
-                pRet = [bMinY - 10, bMaxZ/2];
-                pathPts = [pRet; link1; link2; lead];
-                pathPts = pathPts(~all(pathPts==0, 2), :);
-
-                for k = 1:size(pathPts, 1)-1
-                    p1 = pathPts(k,:);
-                    p2 = pathPts(k+1,:);
-                    d5 = 0; % Anti-markdown bug
-                    [ xi, zi ] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
-
-                    if ~isempty(xi)
-                        crit(end+1) = sprintf("%s: Rapid move passes THROUGH the billet!", sideName);
-                        break;
-                    end
-                end
-
-                % C. CRITICAL: Lead-In Gouging (Bisecting) Model
-                if ~isempty(profY)
-                    startPt = [profY(1), profZ(1)];
-                    d6 = 0; % Anti-markdown bug
-                    [ xi, zi ] = intersectSegPoly([lead(1), lead(2)], [startPt(1), startPt(2)], profY, profZ);
-
-                    validHit = false;
-                    for k = 1:numel(xi)
-                        distS = hypot(xi(k)-startPt(1), zi(k)-startPt(2));
-                        if distS > 1e-3
-                            validHit = true;
-                        end
-                    end
-
-                    if validHit
-                        crit(end+1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
-                    end
-
-                    midPt = (lead + startPt) / 2;
-                    if inpolygon(midPt(1), midPt(2), profY, profZ)
-                        crit(end+1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
-                    end
-                end
-            end
-
-            % Check Left
-            checkSide("Left", app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L, yL, zL);
-            if ~isempty(app.EntryPointR)
-                checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
-            end
-
-            t = app.getTheme(); % <--- Master Palette
-
-            if ~isempty(crit)
-                isValid = false;
-                pCol = t.statErrBg;
-                tCol = t.statErrTxt;
-                msgLines =["CRITICAL ERROR:"; crit(1)];
-            elseif ~isempty(warn)
-                isValid = true;
-                pCol = t.statWarnBg;
-                tCol = t.statWarnTxt;
-                msgLines =["Warning:"; warn(1)];
-            else
-                isValid = true;
-                pCol = t.statPassBg;
-                tCol = t.statPassTxt;
-                msgLines =["Strategy valid.", "Ready to cut."];
-            end
-        end
-
-        function [y, z, hGhost] = preparePlotData(app, ax, pts, offY, offZ, startIdx, isCCW, t, doKerf, kVal)
-            % Prepares profile data:
-            % 1. Extracts raw coordinates
-            % 2. Plots "Ghost" (Raw) profile
-            % 3. Applies Kerf (if enabled)
-            % 4. Applies Offsets (Machine Position)
-            % 5. Applies Modifications (Start Point Shift, Direction Reverse)
-
-            y=[]; z=[]; hGhost=gobjects(0);
-            if isempty(pts), return; end
-
-            % 1. Setup Raw Data (Model Coordinates)
-            rawY = pts(:,2);
-            rawZ = pts(:,3);
-
-            % 2. Plot Ghost (Raw Profile in Machine Coords)
-            % We plot this BEFORE applying Kerf or Reordering, so it represents
-            % the "Reference Geometry" (the dotted line).
-            if ~isempty(ax) && isgraphics(ax)
-                gY = rawY + offY;
-                gZ = rawZ + offZ;
-                hGhost = plot(ax, gY, gZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest','off');
-            end
-
-            % 3. Apply Kerf (if enabled)
-            if doKerf
-                % Note: We pass app.ProfileTolerance to ensure the kerf offset
-                % doesn't generate 1000s of tiny points for corner arcs.
-                [rawY, rawZ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(rawY, rawZ, kVal, app.ProfileTolerance);
-            end
-
-            % 4. Apply Machine Offsets
-            % Transform from Model Relative -> Machine Absolute
-            y = rawY + offY;
-            z = rawZ + offZ;
-
-            % 5. Apply User Modifications (Start Point & Direction)
-            if numel(y) > 2
-                % A. Clean up duplicate end point
-                if abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                    y(end)=[]; z(end)=[];
-                end
-
-                % B. Shift Start Point
-                % Ensure index is valid
-                N = numel(y);
-                idx = max(1, min(startIdx, N));
-
-                y = circshift(y, -(idx - 1));
-                z = circshift(z, -(idx - 1));
-
-                % C. Apply Cut Direction (CW/CCW)
-                % We keep the new Start Point (1), and flip the rest (2:end)
-                if isCCW
-                    y(2:end) = flipud(y(2:end));
-                    z(2:end) = flipud(z(2:end));
-                end
-
-                % D. Force Loop Closure
-                y(end+1) = y(1);
-                z(end+1) = z(1);
-            end
-        end
-
-        function updateCuttingPlots(app)
-            % Purpose: Renders the 2D cutting paths (Left and Right) including
-            %          rapid moves, lead-ins, the profile cut, and lead-outs.
-
-            if isempty(app.AxCutLeft) || isempty(app.AxCutRight)
-                return;
-            end
-
-            t = app.getTheme();
-
-            %% --- 1. PRESERVE VIEW STATE ---
-            preserveView = true;
-            curXL = xlim(app.AxCutLeft);
-            isInitialized = ~isequal(curXL,[ 0 1 ]);
-
-            limsL =[]; limsR =[];
-
-            if isInitialized
-                limsL =[ xlim(app.AxCutLeft); ylim(app.AxCutLeft) ];
-                limsR =[ xlim(app.AxCutRight); ylim(app.AxCutRight) ];
-            end
-
-            cla(app.AxCutLeft); cla(app.AxCutRight);
-            hold(app.AxCutLeft,'on'); hold(app.AxCutRight,'on');
-
-            %% --- 2. SETUP GEOMETRY & OFFSETS ---
-            offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-            offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
-            isCCW   = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-
-            % Draw Bed
-            bedY = [ 50, 750, 750, 50 ];
-            bedZ = [ -20, -20, 0, 0 ];
-            patch(app.AxCutLeft, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
-            patch(app.AxCutRight, bedY, bedZ, t.labelCol, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'HitTest', 'off');
-
-            % Draw Machine Limits
-            mBoxY =[ 0, app.MachineLimitY, app.MachineLimitY, 0, 0 ];
-            mBoxZ =[ 0, 0, app.MachineLimitZ, app.MachineLimitZ, 0 ];
-            hMachL = plot(app.AxCutLeft, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
-            hMachR = plot(app.AxCutRight, mBoxY, mBoxZ, ':', 'Color', t.labelCol, 'LineWidth', 0.5, 'HitTest', 'off');
-
-            % Draw Packing Block (If Billet is raised)
-            bY = app.MachineBilletPos(2);
-            bZ = app.MachineBilletPos(3);
-            bW = app.BilletSize(2);
-            bH = app.BilletSize(3);
-
-            if bZ > 0
-                packY =[ bY, bY+bW, bY+bW, bY, bY ];
-                packZ = [ 0, 0, bZ, bZ, 0 ];
-                patch(app.AxCutLeft, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
-                patch(app.AxCutRight, 'XData', packY, 'YData', packZ, 'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HitTest', 'off');
-            end
-
-            % Draw Billet (Thin solid line with EdgeAlpha to prevent aliasing)
-            boxY =[ bY, bY+bW, bY+bW, bY, bY ];
-            boxZ =[ bZ, bZ, bZ+bH, bZ+bH, bZ ];
-            hBilletL = patch(app.AxCutLeft, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
-            hBilletR = patch(app.AxCutRight, 'XData', boxY, 'YData', boxZ, 'FaceColor', 'none', 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5, 'HitTest', 'off');
-            
-            %% --- 3. PROCESS PATH DATA ---
-            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
-
-            hGhostL = gobjects(0); hGhostR = gobjects(0);
-
-            if ~isempty(app.LeftProfilePoints)
-                hGhostL = plot(app.AxCutLeft, app.LeftProfilePoints(:,2) + offsetY, app.LeftProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
-            end
-            if ~isempty(app.RightProfilePoints)
-                hGhostR = plot(app.AxCutRight, app.RightProfilePoints(:,2) + offsetY, app.RightProfilePoints(:,3) + offsetZ, ':', 'Color', t.rawMeshCol, 'LineWidth', 0.5, 'HitTest', 'off');
-            end
-
-            % Apply Start Index Shift and Direction Reversal
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
-            [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
-
-            %% --- 4. DRAW CUT PATHS ---
-            function hD = drawDummyLegendMarker(ax, style, color, mFace, lWidth)
-                if nargin < 5, lWidth = 1.0; end
-                hD = plot(ax, NaN, NaN, style, 'Color', color, 'MarkerFaceColor', mFace, 'LineWidth', lWidth);
-            end
-
-            % Left Path
-            hRapidL = gobjects(0); hLeadL = gobjects(0); hStartL = gobjects(0); hPathDummyL = gobjects(0); hEntryDotL = gobjects(0); hLoadL = gobjects(0);
-            if ~isempty(yL)
-                c = (1:numel(yL))';
-                patch(app.AxCutLeft, 'XData',[ yL;NaN ], 'YData', [ zL;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyL = drawDummyLegendMarker(app.AxCutLeft, '-',[ 0 0.5 1 ], 'none', 1.0);[ hRapidL, hLeadL, hEntryDotL, hLoadL ] = app.drawTravelPath(app.AxCutLeft, [ yL(1), zL(1) ], [ yL(end), zL(end) ], app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L);
-
-                if numel(yL) > 1
-                    idxNext = 2;
-                    while idxNext < numel(yL) && norm([ yL(idxNext),zL(idxNext) ] - [ yL(1),zL(1) ]) < 1e-4
-                        idxNext = idxNext + 1;
-                    end
-                    app.drawRotatedMarker(app.AxCutLeft, [ yL(1), zL(1) ],[ yL(idxNext), zL(idxNext) ], 'start');
-                    hStartL = drawDummyLegendMarker(app.AxCutLeft, '^',[ 0 1 0 ], 'none');
-                end
-            end
-
-            % Right Path
-            hRapidR = gobjects(0); hLeadR = gobjects(0); hStartR = gobjects(0); hPathDummyR = gobjects(0); hEntryDotR = gobjects(0); hLoadR = gobjects(0);
-            if ~isempty(yR)
-                c = (1:numel(yR))';
-                patch(app.AxCutRight, 'XData', [ yR;NaN ], 'YData',[ zR;NaN ], 'CData', [ c;NaN ], 'FaceColor', 'none', 'EdgeColor', 'interp', 'LineWidth', 1.0, 'HitTest', 'off');
-                hPathDummyR = drawDummyLegendMarker(app.AxCutRight, '-',[ 0 0.5 1 ], 'none', 1.0);
-                [ hRapidR, hLeadR, hEntryDotR, hLoadR ] = app.drawTravelPath(app.AxCutRight,[ yR(1), zR(1) ],[ yR(end), zR(end) ], app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R);
-
-                if numel(yR) > 1
-                    idxNext = 2;
-                    while idxNext < numel(yR) && norm([ yR(idxNext),zR(idxNext) ] - [ yR(1),zR(1) ]) < 1e-4
-                        idxNext = idxNext + 1;
-                    end
-                    app.drawRotatedMarker(app.AxCutRight, [ yR(1), zR(1) ],[ yR(idxNext), zR(idxNext) ], 'start');
-                    hStartR = drawDummyLegendMarker(app.AxCutRight, '^', [ 0 1 0 ], 'none');
-                end
-            end
-
-            %% --- 5. LEGENDS & UI STATUS ---
-            function buildLegend(axTarget, hs, hl, hp, hr, hld, he, hm, hg, tCol)
-                hList =[]; lList = {};
-                if isgraphics(hs),  hList(end+1)=hs;  lList{end+1}='Start Point'; end
-                if isgraphics(hl),  hList(end+1)=hl;  lList{end+1}='Load Point'; end
-                if isgraphics(hp),  hList(end+1)=hp;  lList{end+1}='Cut Path'; end
-                if isgraphics(hr),  hList(end+1)=hr;  lList{end+1}='Rapid Links'; end
-                if isgraphics(hld), hList(end+1)=hld; lList{end+1}='Lead In'; end
-                if isgraphics(he),  hList(end+1)=he;  lList{end+1}='Entry Point'; end
-                if isgraphics(hm),  hList(end+1)=hm;  lList{end+1}='Machine Limits'; end
-                if isgraphics(hg),  hList(end+1)=hg;  lList{end+1}='Raw Profile'; end
-
-                if ~isempty(hList)
-                    lgd = legend(axTarget, hList, lList, 'Location','northeast');
-                    lgd.Box = 'off'; lgd.TextColor = tCol;
-                end
-            end
-
-            if ~isgraphics(hEntryDotL), hEntryDotL = drawDummyLegendMarker(app.AxCutLeft, '.', t.wireLead, t.wireLead, 1.0); end
-            if ~isgraphics(hEntryDotR), hEntryDotR = drawDummyLegendMarker(app.AxCutRight, '.', t.wireLead, t.wireLead, 1.0); end
-
-            buildLegend(app.AxCutLeft, hStartL, hLoadL, hPathDummyL, hRapidL, hLeadL, hEntryDotL, hMachL, hGhostL, t.labelCol);
-            buildLegend(app.AxCutRight, hStartR, hLoadR, hPathDummyR, hRapidR, hLeadR, hEntryDotR, hMachR, hGhostR, t.labelCol);[ isValidCut, pCol, tCol, msgLines ] = app.validateCuttingStrategy();
-            app.CuttingLeftPanel.BackgroundColor = pCol;
-            app.TxtCuttingStatus.Value = msgLines;
-            app.TxtCuttingStatus.FontColor = tCol;
-            if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
-
-            %% --- 6. FORMAT AXES ---
-            title(app.AxCutLeft,'Left Tower', 'Color', t.labelCol);
-            title(app.AxCutRight,'Right Tower', 'Color', t.labelCol);
-            colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
-
-            xlabel(app.AxCutLeft, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            ylabel(app.AxCutLeft, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            xlabel(app.AxCutRight, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-            ylabel(app.AxCutRight, 'Z (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
-
-            app.AxCutLeft.XColor = t.labelCol; app.AxCutLeft.YColor = t.labelCol;
-            app.AxCutRight.XColor = t.labelCol; app.AxCutRight.YColor = t.labelCol;
-
-            if isInitialized
-                xlim(app.AxCutLeft, limsL(1,:)); ylim(app.AxCutLeft, limsL(2,:));
-                xlim(app.AxCutRight, limsR(1,:)); ylim(app.AxCutRight, limsR(2,:));
-            else
-                axis(app.AxCutLeft,'equal'); axis(app.AxCutRight,'equal');
-            end
-
-            daspect(app.AxCutLeft, [ 1 1 1 ]); daspect(app.AxCutRight,[ 1 1 1 ]);
-        end
-
-        function onCutDirectionChanged(app)
-            % Triggered when switching between CW (Top First) and CCW (Bottom First)
-            app.updateCuttingPlots();
-        end
-
-        function onInteractionStatsChanged(app, src)
-            % Handles mutual exclusivity and color updates for interaction buttons
-
-            c = app.getInteractionColors();
-
-            % 1. Determine user intent
-            wantsToEnable = src.Value;
-
-            % 2. Reset ALL buttons to OFF/Inactive (Clean Slate)
-            % This ensures mutual exclusivity
-            app.resetInteractionState();
-
-            % 3. If the user wanted to enable a button, turn THAT one back on
-            if wantsToEnable
-                src.Value = true; % Force it active
-                app.UIFigure.Pointer = 'crosshair';
-
-                % Enable Click Listeners
-                app.AxCutLeft.ButtonDownFcn  = @(src,evt)app.onCutAxesClick(src, evt, 'Left');
-                app.AxCutRight.ButtonDownFcn = @(src,evt)app.onCutAxesClick(src, evt, 'Right');
-
-                % Apply Active Colors
-                if src == app.BtnPickStart
-                    src.BackgroundColor = c.StartActive;
-                    src.FontColor = c.TextActive;
-                elseif src == app.BtnPickEntry
-                    src.BackgroundColor = c.EntryActive;
-                    src.FontColor = c.TextActive;
-                elseif src == app.BtnPickEntry2
-                    src.BackgroundColor = c.LinkActive;
-                    src.FontColor = c.TextActive;
-                elseif isprop(app, 'BtnPickEntry3') && src == app.BtnPickEntry3
-                    src.BackgroundColor = c.LinkActive;
-                    src.FontColor = c.TextActive;
-                end
-            end
-        end
-
-        function resetInteractionState(app)
-            % Turns off all interaction buttons and resets cursor
-            c = app.getInteractionColors();
-
-            % 1. Reset Toggle States
-            app.BtnPickStart.Value = false;
-            app.BtnPickEntry.Value = false;
-            app.BtnPickEntry2.Value = false;
-            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
-                app.BtnPickEntry3.Value = false;
-            end
-
-            % 2. Reset Background Colors
-            app.BtnPickStart.BackgroundColor = c.StartInactive;
-            app.BtnPickEntry.BackgroundColor = c.EntryInactive;
-            app.BtnPickEntry2.BackgroundColor = c.LinkInactive;
-            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
-                app.BtnPickEntry3.BackgroundColor = c.LinkInactive;
-            end
-
-            % 3. Reset Font Colors (Restored)
-            app.BtnPickStart.FontColor = c.TextInactive;
-            app.BtnPickEntry.FontColor = c.TextInactive;
-            app.BtnPickEntry2.FontColor = c.TextInactive;
-            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
-                app.BtnPickEntry3.FontColor = c.TextInactive;
-            end
-
-            % 4. Remove Plot Listeners & Reset Cursor
-            if isgraphics(app.AxCutLeft), app.AxCutLeft.ButtonDownFcn = []; end
-            if isgraphics(app.AxCutRight), app.AxCutRight.ButtonDownFcn = []; end
-            app.UIFigure.Pointer = 'arrow';
-        end
-
-        function onResetCuttingViewMachine(app)
-            % View 1: Machine Origin (0,0) at bottom left
-            % Fixed scale covering typical machine bed
-
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-
-            limits = [-50, mLimY+50, -50, mLimZ+50];
-
-            axis(app.AxCutLeft, limits);
-            axis(app.AxCutRight, limits);
-        end
-
-        function onResetCuttingViewBillet(app)
-            % View 2: Fit to Billet + Proportional Buffer + Fixed Retract Buffer
-            bY = app.MachineBilletPos(2);
-            bZ = app.MachineBilletPos(3);
-            bW = app.BilletSize(2);
-            bH = app.BilletSize(3);
-
-            % Use a 10% proportional buffer PLUS a fixed 25mm buffer.
-            % The fixed 25mm ensures the standard 10mm retracts and load points
-            % are never cropped, even on very small billets.
-            buffer = max(bW, bH) * 0.10 + 25.0;
-
-            % ASYMMETRIC LEGEND PADDING: Add 35% extra space to the right side
-            % so the legend doesn't cover the toolpaths.
-            legendBuffer = buffer + max(bW, bH) * 0.35;
-
-            xLims =[ bY - buffer, bY + bW + legendBuffer ];
-            yLims =[ bZ - buffer, bZ + bH + buffer ];
-
-            xlim(app.AxCutLeft, xLims);
-            ylim(app.AxCutLeft, yLims);
-            daspect(app.AxCutLeft, [ 1 1 1 ]);
-
-            xlim(app.AxCutRight, xLims);
-            ylim(app.AxCutRight, yLims);
-            daspect(app.AxCutRight,[ 1 1 1 ]);
-
-            drawnow limitrate;
-        end
-
-        function onCutAxesClick(app, ax, ~, side)
-            cp = ax.CurrentPoint(1, 1:2);
-            clickY = cp(1);
-            clickZ = cp(2);
-
-            % --- CASE 1: SET START POINT ---
-            if app.BtnPickStart.Value
-
-                % Safe multi-output call
-                chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
-                syncY_L = chkP{1}; syncZ_L = chkP{2}; syncY_R = chkP{3}; syncZ_R = chkP{4};
-
-                yData =[];
-                zData =[];
-                offsetY = app.BilletShift(2) + app.MachineBilletPos(2);
-                offsetZ = app.BilletShift(3) + app.MachineBilletPos(3);
-
-                if strcmp(side, 'Left')
-                    if ~isempty(syncY_L)
-                        yData = syncY_L + offsetY;
-                        zData = syncZ_L + offsetZ;
-                    end
-                else
-                    if ~isempty(syncY_R)
-                        yData = syncY_R + offsetY;
-                        zData = syncZ_R + offsetZ;
-                    end
-                end
-
-                if isempty(yData)
-                    return;
-                end
-
-                distances = (yData - clickY).^2 + (zData - clickZ).^2;
-                [~, minIdx] = min(distances);
-
-                if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                    app.SelectedStartIdxL = minIdx;
-                    app.SelectedStartIdxR = minIdx;
-                else
-                    if strcmp(side, 'Left')
-                        app.SelectedStartIdxL = minIdx;
-                    else
-                        app.SelectedStartIdxR = minIdx;
-                    end
-                end
-
-                % --- CASE 2: LEAD IN ---
-            elseif app.BtnPickEntry.Value
-                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPointL = cp;
-                    app.EntryPointR = cp;
-                else
-                    if strcmp(side, 'Left')
-                        app.EntryPointL = cp;
-                    else
-                        app.EntryPointR = cp;
-                    end
-                end
-
-                % --- CASE 3: LINK 1 ---
-            elseif app.BtnPickEntry2.Value
-                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPoint2L = cp;
-                    app.EntryPoint2R = cp;
-                else
-                    if strcmp(side, 'Left')
-                        app.EntryPoint2L = cp;
-                    else
-                        app.EntryPoint2R = cp;
-                    end
-                end
-
-                % --- CASE 4: LINK 2 ---
-            elseif isprop(app, 'BtnPickEntry3') && app.BtnPickEntry3.Value
-                if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                    app.EntryPoint3L = cp;
-                    app.EntryPoint3R = cp;
-                else
-                    if strcmp(side, 'Left')
-                        app.EntryPoint3L = cp;
-                    else
-                        app.EntryPoint3R = cp;
-                    end
-                end
-            end
-
-            % FIX: Tell the Gatekeeper the user has manually set up the tab!
-            app.IsCuttingUserModified = true;
-            app.IsCuttingInit = true;
-            app.updateCuttingPlots();
-        end
-
-        function onSyncToggleChanged(app, src)
-            if strcmp(src.Value, 'Coupled')
-                app.SelectedStartIdxR = app.SelectedStartIdxL;
-                app.IsCuttingInit = true;
-                app.updateCuttingPlots();
-            end
-        end
-
-        function onSyncEntryToggleChanged(app, src)
-            if strcmp(src.Value, 'Coupled')
-                app.EntryPointR = app.EntryPointL;
-                app.EntryPoint2R = app.EntryPoint2L;
-                app.EntryPoint3R = app.EntryPoint3L;
-                app.IsCuttingInit = true;
-                app.updateCuttingPlots();
-            end
-        end
-
-        function onAutoStart(app, doPlot)
-            if nargin < 2
-                doPlot = true;
-            end
-
-            chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
-            yL_b = chkP{1}; yR_b = chkP{3};
-
-            if isempty(yL_b)
-                return;
-            end
-
-            [~, idxL] = min(yL_b);[~, idxR] = min(yR_b);
-
-            if strcmp(app.SwitchSyncStart.Value, 'Coupled')
-                app.SelectedStartIdxL = idxL;
-                app.SelectedStartIdxR = idxL;
-            else
-                app.SelectedStartIdxL = idxL;
-                app.SelectedStartIdxR = idxR;
-            end
-
-            % FIX: Tell the Gatekeeper Auto-Start succeeded!
-            app.IsCuttingUserModified = false;
-            app.IsCuttingInit = true;
-            if doPlot
-                app.updateCuttingPlots();
-            end
-        end
-
-        function onAutoEntry(app, doPlot)
-            if nargin < 2
-                doPlot = true;
-            end
-
-            chkP = cell(1,4);[chkP{1}, chkP{2}, chkP{3}, chkP{4}] = app.getSyncedKerfProfiles();
-            yL = chkP{1}; zL = chkP{2}; yR = chkP{3}; zR = chkP{4};
-
-            if isempty(yL), return; end
-
-            bMinY = app.MachineBilletPos(2);
-            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
-            bMinZ = app.MachineBilletPos(3);
-            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
-
-            offY = app.BilletShift(2) + bMinY;
-            offZ = app.BilletShift(3) + bMinZ;
-            useDualMode = ~isempty(app.EntryPoint2L);
-
-            function[lead, link1, link2] = calcEntryLogic(y, z, startIdx)
-                lead=[]; link1=[]; link2=[];
-                N = numel(y);
-                if startIdx > N || startIdx < 1, startIdx = 1; end
-
-                idxS = startIdx;
-                idxP = mod(startIdx-2, N) + 1;
-                idxN = mod(startIdx, N) + 1;
-
-                S = [y(idxS), z(idxS)];
-                P =[y(idxP), z(idxP)];
-                N_pt =[y(idxN), z(idxN)];
-
-                vIn  = (S - P) / (norm(S - P) + 1e-9);
-                vOut = (N_pt - S) / (norm(N_pt - S) + 1e-9);
-
-                vBisect =[-vIn(2), vIn(1)] + [-vOut(2), vOut(1)];
-                if norm(vBisect) < 1e-3
-                    vBisect = [-vIn(2), vIn(1)];
-                end
-                vBisect = vBisect / norm(vBisect);
-
-                testPt = S + vBisect * 0.1;
-                if inpolygon(testPt(1), testPt(2), y, z)
-                    vBisect = -vBisect;
-                end
-
-                boxMinY = bMinY - 5.0; boxMaxY = bMaxY + 5.0;
-                boxMinZ = bMinZ - 5.0; boxMaxZ = bMaxZ + 5.0;
-
-                t_hits =[];
-                if abs(vBisect(1)) > 1e-6
-                    t1 = (boxMinY - S(1)) / vBisect(1);
-                    t2 = (boxMaxY - S(1)) / vBisect(1);
-                    if t1 > 1e-3, t_hits(end+1) = t1; end
-                    if t2 > 1e-3, t_hits(end+1) = t2; end
-                end
-
-                if abs(vBisect(2)) > 1e-6
-                    t3 = (boxMinZ - S(2)) / vBisect(2);
-                    t4 = (boxMaxZ - S(2)) / vBisect(2);
-                    if t3 > 1e-3, t_hits(end+1) = t3; end
-                    if t4 > 1e-3, t_hits(end+1) = t4; end
-                end
-
-                if isempty(t_hits)
-                    t_final = 20.0;
-                else
-                    t_final = min(t_hits);
-                end
-
-                lead = S + vBisect * t_final;
-                if lead(2) < 5.0, lead(2) = 5.0; end
-
-                needsRouting = (lead(2) >= bMaxZ) || (lead(1) >= bMaxY);
-                if needsRouting
-                    safeZ = bMaxZ + app.MachineSafeHeight;
-                    link2 = [lead(1), max(safeZ, lead(2))];
-                    link1 = [bMinY - 10.0, safeZ];
-                end
-            end
-
-            yL_s = yL + offY; zL_s = zL + offZ;
-            [eL, l1L, l2L] = calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
-            app.EntryPointL=eL; app.EntryPoint2L=l1L; app.EntryPoint3L=l2L;
-
-            if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
-            else
-                yR_s = yR + offY; zR_s = zR + offZ;[eR, l1R, l2R] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
-                app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
-            end
-
-            % FIX: Tell the Gatekeeper Auto-Entry succeeded!
-            app.IsCuttingUserModified = false;
-            app.IsCuttingInit = true;
-
-            if doPlot
-                app.updateCuttingPlots();
-            end
-        end
-
-        function [hRapid, hLead, hDot, hLoad] = drawTravelPath(app, ax, startPt, endPt, lead, link1, link2)
-            hRapid = gobjects(0);
-            hLead = gobjects(0);
-            hDot = gobjects(0);
-            hLoad = gobjects(0);
-
-            if isempty(startPt) || isempty(lead)
-                return;
-            end
-
-            pZero    =[0, 0];
-            pSafe    = [10, 10];
-            pLoad    =[app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2];
-            pRetract =[pLoad(1)-10, pLoad(2)];
-
-            hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [1 0 1], 'LineWidth', 1.5, 'HitTest','off');
-
-            t = app.getTheme();
-            % --- INBOUND PATH ---
-            pts =[pZero; pSafe; pLoad; pRetract];
-            if ~isempty(link1)
-                pts =[pts; link1];
-            end
-            if ~isempty(link2)
-                pts =[pts; link2];
-            end
-            pts = [pts; lead];
-
-            if size(pts,1) > 1
-                hRapid = plot(ax, pts(:,1), pts(:,2), '-', 'Color',[0.9 0.8 0], 'LineWidth',0.5, 'HitTest','off');
-            end
-
-            hLead = plot(ax, [lead(1), startPt(1)],[lead(2), startPt(2)], '-', 'Color', t.wireLead, 'LineWidth',0.5, 'HitTest','off');
-            % --- OUTBOUND PATH (Retrace) ---
-            plot(ax,[endPt(1), lead(1)], [endPt(2), lead(2)], '--', 'Color', t.wireLead, 'LineWidth',1.0, 'HitTest','off');
-
-            ptsOut = lead;
-            if ~isempty(link2)
-                ptsOut = [ptsOut; link2];
-            end
-            if ~isempty(link1)
-                ptsOut = [ptsOut; link1];
-            end
-
-            % Retract back to safe point in front of block
-            ptsOut =[ptsOut; pRetract];
-
-            % Home Y First for safety
-            pHomeY =[0, pRetract(2)];
-            ptsOut = [ptsOut; pHomeY; pZero];
-
-            plot(ax, ptsOut(:,1), ptsOut(:,2), '--', 'Color',[0.9 0.8 0], 'LineWidth',0.5, 'HitTest','off');
-
-            % --- DOTS ---
-            hDot = plot(ax, lead(1), lead(2), '.', 'Color',[1 0.5 0], 'MarkerSize', 10, 'HitTest', 'off');
-
-            if ~isempty(link1)
-                plot(ax, link1(1), link1(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off');
-            end
-            if ~isempty(link2)
-                plot(ax, link2(1), link2(2), '.', 'Color',[0.9 0.8 0], 'MarkerSize',10, 'HitTest','off');
-            end
-        end
-
-        function hMarker = drawRotatedMarker(app, ax, pCurrent, pNext, type)
-            % Draws a rotated triangle at pCurrent
-            % NOTE: 'pNext' is usually just the adjacent point, but if they are too close,
-            % this function needs to be robust. Ideally, the caller should provide a valid vector.
-
-            % But since we are calling it with y(1), y(2), let's robustify it here:
-            % (This assumes the caller passed valid points, but if norm is 0, we can't draw)
-
-            hMarker = gobjects(0);
-            v = pNext - pCurrent;
-            len = norm(v);
-
-            % Robustness: If points are identical, drawing is impossible.
-            % (In a perfect world, we would scan forward, but we don't have the full array here).
-            % However, if len is tiny, just skip drawing to avoid errors,
-            % OR use a default direction (e.g. Up).
-            if len < 1e-6
-                return;
-            end
-
-            % Normalize
-            u = v / len;
-            scale = 4; % Size mm
-
-            % Geometry
-            if strcmp(type, 'start')
-                % Forward pointing triangle (Green)
-                xPoly = [0, -1, -1] * scale;
-                yPoly = [0, 0.5, -0.5] * scale;
-                colFill = 'none'; colEdge = [0 1 0]; % Hollow Green
-            else
-                % Exit (Reverse/Stop) Triangle (Red)
-                xPoly = [0, -1, -1] * scale;
-                yPoly = [0, 0.5, -0.5] * scale;
-                colFill = 'none'; colEdge = [1 0 0]; % Hollow Red
-            end
-
-            % Rotation
-            theta = atan2(u(2), u(1));
-            R = [cos(theta), -sin(theta); sin(theta), cos(theta)];
-            ptsRot = R * [xPoly; yPoly];
-
-            % Translate
-            ptsFinal = ptsRot + pCurrent(:);
-
-            % Z-Buffer Safety: Lift it slightly towards camera so it sits on top of lines
-            zLift = 0.1;
-
-            hMarker = patch(ax, ptsFinal(1,:), ptsFinal(2,:), ptsFinal(2,:)*0 + zLift, ...
-                'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
-        end
-
-        function onClearEntries(app)
-            app.EntryPointL = []; app.EntryPointR = [];
-            app.EntryPoint2L = []; app.EntryPoint2R = [];
-            app.EntryPoint3L = []; app.EntryPoint3R = [];
-            app.IsCuttingInit = true;
-            app.updateCuttingPlots();
-        end
-
-        function shiftEntryPoints(app, dY, dZ)
-            % Shifts all manual entry points by a given delta so they
-            % "stick" to the billet when it is moved.
-            if dY == 0 && dZ == 0
-                return;
-            end
-
-            shift2D =[dY, dZ];
-
-            if ~isempty(app.EntryPointL)
-                app.EntryPointL = app.EntryPointL + shift2D;
-            end
-            if ~isempty(app.EntryPointR)
-                app.EntryPointR = app.EntryPointR + shift2D;
-            end
-            if ~isempty(app.EntryPoint2L)
-                app.EntryPoint2L = app.EntryPoint2L + shift2D;
-            end
-            if ~isempty(app.EntryPoint2R)
-                app.EntryPoint2R = app.EntryPoint2R + shift2D;
-            end
-            if ~isempty(app.EntryPoint3L)
-                app.EntryPoint3L = app.EntryPoint3L + shift2D;
-            end
-            if ~isempty(app.EntryPoint3R)
-                app.EntryPoint3R = app.EntryPoint3R + shift2D;
-            end
-        end
-
         % ===========================================================
         % SIMULATION LOGIC (Final Clean Version)
         % ===========================================================
