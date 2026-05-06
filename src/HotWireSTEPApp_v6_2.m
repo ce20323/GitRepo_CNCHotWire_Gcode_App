@@ -804,7 +804,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group 
         % (provided in the first patch).
 
-        %% ---  IMPORT STEP / STL ---
+        %% ------ IMPORT STEP / STL ------
         function onImportSTEP(app)
             % Purpose: Handles the selection and import of STEP files.
             %          Validates FreeCAD configuration, displays a progress dialog,
@@ -951,7 +951,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
 
-        %% ---  ROTATION ---
+        %% ------ ROTATION ------
         function updateRotation(app, axisChar, newVal)
             % Purpose: Rotates the 3D model to a specific absolute angle.
             % WHY: Triggered when the user types a specific degree into the rotation edit fields.
@@ -1103,7 +1103,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
        
-        %% ---  PLANES ---
+        %% ------ PLANES ------
         
         function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
             % Purpose: Calculates the physical bounding box of the model and updates the UI plane spinners.
@@ -1235,7 +1235,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.computeProfiles();
         end
 
-        %% ---  PROFILE GENERATION (TAB 2 ACTIONS) ---
+        %% ------ PROFILE GENERATION (TAB 2 ACTIONS) ------
 
         function onGenerateProfiles(app)
             % Purpose: Transitions the app from State 0 (Model Only) to State 1 (Planes & Profiles Active).
@@ -1569,7 +1569,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.ProfilePointCountLabel.Text = txt;
         end
 
-        %% --- KERF & TOLERANCE CALLBACKS ---
+        %% ------ KERF & TOLERANCE CALLBACKS ------
 
         function onProfileToleranceChanged(app, src)
             % Purpose: Updates the resampling tolerance and triggers a recompute.
@@ -1745,7 +1745,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %% --- KERF MATH HELPERS ---
+        %% ------ KERF MATH HELPERS ------
 
         function [ yL, zL, yR, zR ] = getSyncedKerfProfiles(app)
             % Purpose: Centralized Kerf & Sync logic to guarantee exact 1:1 topology.
@@ -2259,16 +2259,548 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow limitrate;
         end
 
-        %% to be cleaned up --->
+        %% ===========================================================
+        %% --- GROUP 7: TAB 5 - MACHINE SETUP ---
+        %% ===========================================================
 
-        %% ===========================================================
-        %% --- GROUP 7: TAB 5 - MACHINE SETUP (Partial) ---
-        %% ===========================================================
+        function onMachinePosEdited(app, axisIdx, src)
+            % Purpose: Handles manual text/spinner entry for the billet's position on the machine bed.
+            % WHY: Allows the user to manually override the auto-placement if they have a specific fixture.
+            
+            val = src.Value;
+            oldY = app.MachineBilletPos(2);
+            oldZ = app.MachineBilletPos(3);
+
+            % X is relative to the left edge of the bed in the UI, but absolute in the backend.
+            if axisIdx == 1
+                app.MachineBilletPos(1) = app.MachineBedPos(1) + val;
+            else
+                app.MachineBilletPos(axisIdx) = val;
+            end
+
+            % HOW: If the billet moves on the bed, the manual entry/link points 
+            %      (which are tied to the billet) must shift by the exact same amount.
+            dY = app.MachineBilletPos(2) - oldY;
+            dZ = app.MachineBilletPos(3) - oldZ;
+            app.shiftEntryPoints(dY, dZ);
+
+            % Enforce physical boundaries on the spinners
+            app.syncMachineUI();
+
+            % Re-evaluate safety (e.g., did they push it off the back of the bed?)
+            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
+
+            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
+
+            % Lock the auto-positioner since the user took manual control
+            app.IsMachineUserModified = true;
+            app.IsMachineInit = true;
+            
+            app.refreshMachinePlot();
+        end
+
+        function onResetMachineBilletPosition(app)
+            % Purpose: Automatically places the billet on the machine bed in the optimal location.
+            % WHY: To minimize wire extension, balance left/right tower travel, and align with 
+            %      standard physical foam stock heights and bed grid holes.
+
+            if isempty(app.ModelPatch)
+                return;
+            end
+
+            %% --- 1. SETUP & GRID DEFINITION ---
+            bedX = app.MachineBedPos(1);
+            maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
+
+            % HOW: We generate a strict 50mm grid relative to the left edge of the bed.
+            % This matches the physical threaded holes on the real CNC machine bed.
+            maxRelX = floor(maxXLimit / 50.0) * 50.0;
+
+            if maxRelX >= 0
+                testRelXs = 0 : 50.0 : maxRelX;
+                testXs = bedX + testRelXs; % Apply absolute machine offset
+            else
+                testXs = bedX; % Fallback if billet is technically too wide for the grid
+            end
+
+            % Default to the physical middle of the available 50mm grid
+            bestX = testXs(max(1, ceil(numel(testXs)/2)));
+
+            %% --- 2. X-AXIS OPTIMIZATION (TOWER PATH BALANCING) ---
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                % Fetch the synchronized profiles to evaluate path lengths
+                [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
+
+                if ~isempty(yL)
+                    % Shift profiles from model-local to billet-local coordinates
+                    yL_base = yL + app.BilletShift(2);
+                    zL_base = zL + app.BilletShift(3);
+                    yR_base = yR + app.BilletShift(2);
+                    zR_base = zR + app.BilletShift(3);
+
+                    pXL = app.LeftProfilePoints(1,1);
+                    pXR = app.RightProfilePoints(1,1);
+                    planeDist = abs(pXR - pXL);
+
+                    % If the part is tapered (planes are separated), we sweep the grid
+                    % to find the X position that makes the Left and Right tower paths
+                    % as close to equal length as possible.
+                    if planeDist > 1e-3
+                        bestDiff = inf;
+                        centerX = bedX + maxXLimit / 2;
+
+                        % Sweep ONLY the strict 50mm grid increments
+                        for x = testXs
+                            xL_m = x + app.BilletShift(1) + pXL;
+                            xR_m = x + app.BilletShift(1) + pXR;
+
+                            % Project the toolpath to the physical towers at this test X position                        
+                            [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+
+                            % Calculate total path length for each tower
+                            lenL = sum(hypot(diff(tL.y), diff(tL.z)));
+                            lenR = sum(hypot(diff(tR.y), diff(tR.z)));
+
+                            % Penalty function: If multiple grid points yield similar path balances,
+                            % prefer the one closest to the physical center of the machine bed.
+                            penalty = 1e-6 * abs(x - centerX);
+                            diffLen = abs(lenL - lenR) + penalty;
+
+                            if diffLen < bestDiff
+                                bestDiff = diffLen;
+                                bestX = x;
+                            end
+                        end
+                    end
+
+                    app.MachineBilletPos(1) = bestX;
+
+                    %% --- 3. Z-AXIS LOGIC (STOCK HEIGHTS) ---
+                    % Re-evaluate the tower heights at the chosen bestX position
+                    xL_m = bestX + app.BilletShift(1) + pXL;
+                    xR_m = bestX + app.BilletShift(1) + pXR;
+                    
+                    [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+
+                    % Find the lowest point the wire reaches on either tower
+                    minProjZ = min([tL.z; tR.z]);
+
+                    if minProjZ >= 0
+                        % Wire never goes below the bed, so billet can sit flat on the bed
+                        app.MachineBilletPos(3) = 0;
+                    else
+                        % Wire dips below the bed! We must raise the billet on packing blocks.
+                        % HOW: We snap to standard 25mm increments (e.g., 25, 50, 75mm blocks).
+                        reqZ = -minProjZ;
+                        targetZ = ceil(reqZ / 25.0) * 25.0;
+                        
+                        % Force a minimum of 50mm packing if any packing is required at all
+                        if targetZ > 0 && targetZ < 50
+                            targetZ = 50.0;
+                        end
+                        app.MachineBilletPos(3) = targetZ;
+                    end
+
+                    %% --- 4. Y-AXIS LOGIC (SAFE CLEARANCE) ---
+                    % Find the furthest forward the wire reaches
+                    minProjY = min([tL.y; tR.y]);
+                    
+                    % Ensure the wire never gets closer than 50mm to the absolute front of the machine
+                    reqBilletY = max(50.0, 50.0 - minProjY);
+                    
+                    % Snap the Y position to a 50mm grid for easy physical measurement
+                    targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
+
+                    bedD = app.MachineBedSize(2);
+                    bY = app.BilletSize(2);
+                    maxY = app.MachineBedPos(2) + bedD - bY;
+
+                    % Clamp to ensure it doesn't fall off the back of the bed
+                    app.MachineBilletPos(2) = min(targetBilletY, maxY);
+                else
+                    % Fallback if profiles are empty
+                    app.MachineBilletPos(1) = bestX;
+                    app.MachineBilletPos(2) = app.MachineBedPos(2);
+                    app.MachineBilletPos(3) = 0;
+                end
+            else
+                % Fallback if profiles are empty
+                app.MachineBilletPos(1) = bestX;
+                app.MachineBilletPos(2) = app.MachineBedPos(2);
+                app.MachineBilletPos(3) = 0;
+            end
+
+            %% --- 5. FINALIZE & UPDATE UI ---
+            app.IsMachineInit = true;
+            app.syncMachineUI();
+
+            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
+
+            app.BtnMachineContinue.Enable = 'on'; 
+            app.IsMachineUserModified = false; % Mark as auto-calculated
+            app.refreshMachinePlot();
+        end
+
+        function onResetMachineViewMachine(app)
+            % Purpose: Resets the 3D view to show the entire machine volume.
+            app.resetViewToMachine(app.AxMachine);
+        end
+
+        function onResetMachineViewBillet(app)
+            % Purpose: Zooms the 3D view tightly onto the billet.
+            app.resetViewToBillet(app.AxMachine);
+        end
+
+        function refreshMachinePlot(app)
+            % Purpose: Renders the 3D machine view, including the bed, towers, billet,
+            %          model, and a sweep of the wire path to visualize the cut.
+            % WHY: Allows the user to visually verify that the toolpath stays within
+            %      the physical limits of the machine and doesn't over-extend the wire.
+
+            ax = app.AxMachine;
+            if isempty(ax) || ~isgraphics(ax), return; end
+
+            %% --- 1. SETUP & INITIALIZATION ---
+            delete(allchild(ax));
+            hold(ax, 'on');
+
+            t = app.getTheme(); % Master Palette
+
+            % Machine geometry constants
+            offX = app.MachineBedPos(1);
+            mX = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize;
+            bp = app.MachineBedPos;
+
+            %% --- 2. DRAW STATIC MACHINE COMPONENTS ---
+            
+            % Draw Machine Bed (Sacrificial foam layer)
+            [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
+            hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
+                'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
+
+            % Draw Travel Limits (Dotted Bounding Box)
+            [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
+            hLim = patch(ax, 'Vertices', [ xl, yl, zl ], 'Faces', app.boxFaces, ...
+                'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
+
+            % Draw Left and Right Towers (Semi-transparent planes)
+            pY = [ 0; mLimY; mLimY; 0 ];
+            pZ = [ 0; 0; mLimZ; mLimZ ];
+
+            hTowerL = patch(ax, 'XData', ones(4,1)*(-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeRed, ...
+                'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle', '-');
+
+            hTowerR = patch(ax, 'XData', ones(4,1)*(mX-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeGreen, ...
+                'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle', '-');
+
+            % Tower Labels
+            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
+            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
+
+            %% --- 3. DRAW BILLET & MODEL ---
+            hBillet = gobjects(0); hModel = gobjects(0); hGhostL = gobjects(0); hWireL = gobjects(0);
+            isViolated = false;
+
+            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
+                totalShift = bPlotPos + app.BilletShift;
+
+                % Draw Packing Block (If Billet is raised off the bed)
+                if app.MachineBilletPos(3) > 0                   
+                    [ xPack, yPack, zPack ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
+                    patch(ax, 'Vertices',[ xPack, yPack, zPack ], 'Faces', app.boxFaces, ...
+                        'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
+                end
+
+                % Draw Billet (Thin solid lines to prevent aliasing)                
+                [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
+                hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
+                    'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
+                    'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
+
+                % Draw Model Mesh
+                Vplot = app.ModelPatch.Vertices + totalShift;
+                hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
+                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none');
+
+                %% --- 4. DRAW TOOLPATHS & WIRE SWEEP ---
+                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+
+                    % Draw Ghost Profiles (Raw extracted profiles before kerf/sync)
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
+                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
+
+                    xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
+                    xR_world = app.RightProfilePoints(1,1) + totalShift(1);
+
+                    hGhostL = plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
+                        'Color', t.ghostRed, 'LineWidth', 0.75, 'LineStyle', '-');
+
+                    plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
+                        'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
+
+                    % Fetch Kerf-Compensated Wire Paths                    
+                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
+
+                    if ~isempty(ySyncL)
+                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
+                        
+                        % Apply start point shifts and cut direction                        
+                        [ ySyncL, zSyncL ] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);                        
+                        [ ySyncR, zSyncR ] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
+
+                        % Plot the actual cut paths on the model faces
+                        hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
+                            'Color', t.wireKerf, 'LineWidth', 0.75);
+                        plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
+                            'Color', t.wireKerf, 'LineWidth', 0.75);
+
+                        % Project paths outwards to the physical towers                        
+                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                            ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
+                            ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
+
+                        plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
+                        plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
+
+                        %% --- SMART WIRE DISTRIBUTION ALGORITHM ---
+                        % WHY: Drawing a wire at every single point creates a solid, unreadable wall of color.
+                        % HOW: We selectively pick indices to draw the wire based on distance, curvature, and sharp corners.
+                        
+                        N_pts = numel(tL.y);
+                        idx = 1;
+                        last_idx = 1;
+                        accumulated_angle = 0;
+
+                        % 1. Straight Lines: Target distance between wires (scales with total path length)
+                        total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
+                        target_spacing = max(10.0, total_len / 40.0); 
+                        
+                        % 2. Curves: Degrees of cumulative bending before drawing a wire
+                        curve_angle_threshold = 10.0; 
+                        
+                        % 3. Minimum Spacing: Prevents crowding/pairing on curves and noisy straights
+                        min_spacing = 4.0; 
+                        
+                        % 4. Hard Corners: Always draw if the angle exceeds this (ignores min_spacing)
+                        sharp_corner_threshold = 10.0;
+
+                        for i = 2:N_pts-1
+                            % Physical distance from the last drawn wire
+                            d = hypot(ySyncL(i) - ySyncL(last_idx), zSyncL(i) - zSyncL(last_idx));
+
+                            % Segment vectors and lengths to calculate turning angle
+                            v1 =[ ySyncL(i) - ySyncL(i-1), zSyncL(i) - zSyncL(i-1) ];
+                            v2 =[ ySyncL(i+1) - ySyncL(i), zSyncL(i+1) - zSyncL(i) ];
+                            n1 = norm(v1);
+                            n2 = norm(v2);
+
+                            angle_deg = 0;
+                            if n1 > 1e-4 && n2 > 1e-4
+                                dp = dot(v1, v2) / (n1 * n2);
+                                angle_deg = acosd(max(-1, min(1, dp)));
+                            end
+                            
+                            accumulated_angle = accumulated_angle + angle_deg;
+
+                            % Rule 1: Traveled far enough along a gentle curve or straight
+                            isSpaced = (d >= target_spacing);
+
+                            % Rule 2: Sharp internal corner (Always draws to show the pivot)
+                            isSharp = (angle_deg >= sharp_corner_threshold);
+
+                            % Rule 3: Transition (Start/End of an external curve or straight).
+                            % Must bend at least 2 degrees to ignore noisy straight lines.
+                            isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2)) && (angle_deg > 2.0);
+                            
+                            % Rule 4: Fanning around smooth curves based on accumulated angle
+                            isCurved = (accumulated_angle >= curve_angle_threshold);
+
+                            % Apply the rules (with min_spacing veto for non-sharp moves)
+                            if isSharp || ((isSpaced || isTransition || isCurved) && (d >= min_spacing))
+                                idx(end+1) = i;
+                                last_idx = i;
+                                accumulated_angle = 0; % Reset after drawing!
+                            end
+                        end
+
+                        % Always include the very last point to close the loop
+                        idx(end+1) = N_pts;
+                        idx = unique(idx);
+
+                        dotCMap = hsv(numel(idx));
+
+                        % Check if the toolpath forces the towers outside physical limits
+                        bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
+                        if any(bad), isViolated = true; end
+
+                        % Fixed length of the hot wire (from left tower to neutral joint position)
+                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
+
+                        % Draw the selected wires
+                        for k = 1:numel(idx)
+                            currIdx = idx(k);
+
+                            wCol =[ t.wireBaseCol, 0.60 ];
+                            if bad(currIdx)
+                                wCol =[ 1 0.8 0 0.8 ]; % Highlight bad segments in amber
+                            end
+
+                            % Tower connection points for this step
+                            pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
+                            pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
+                            
+                            % Calculate Brass Joint Position
+                            wireVec = pTR_i - pTL_i;
+                            wireLen = norm(wireVec);
+                            pJoint_i = pTL_i + wireVec * (L_hot / wireLen);
+
+                            % Draw Hot Wire (Left tower to Brass Joint)
+                            plot3(ax, [ pTL_i(1), pJoint_i(1) ],[ pTL_i(2), pJoint_i(2) ],[ pTL_i(3), pJoint_i(3) ], ...
+                                'Color', wCol, 'LineWidth', 0.5);
+
+                            % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
+                            plot3(ax,[ pJoint_i(1), pTR_i(1) ],[ pJoint_i(2), pTR_i(2) ], [ pJoint_i(3), pTR_i(3) ], ...
+                                'Color', [ 0.5 0.5 0.5 0.8 ], 'LineWidth', 1.0);
+
+                            % Draw Brass Joint (Large Orange Dot)
+                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 6);
+
+                            % Draw tracking dots on the model profiles
+                            plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
+                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
+
+                            plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
+                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
+                        end
+                    end
+                end
+            end
+
+            %% --- 5. FORMATTING & LEGEND ---
+            handles =[ hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL ];
+            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Extracted Profile', 'Wire Path (Kerf)'};
+
+            valid = isgraphics(handles);
+            if any(valid)
+                lgd = legend(ax, handles(valid), labels(valid), 'Location', 'northeast');
+                lgd.Box = 'off';
+                lgd.TextColor = t.labelCol;
+            end
+
+            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
+            ax.BackgroundColor = t.editBg;
+            set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
+
+            xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z');
+
+            % Minimal padding to allow towers to fill the screen
+            padX = 5; padY = 5; padZ = 40;
+            xlim(ax,[ -offX - padX, mX - offX + padX ]);
+            ylim(ax,[ -padY, mLimY + padY ]);
+            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
+
+            %% --- 6. SAFETY CHECKS & UI UPDATE ---            
+            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+
+            if isViolated
+                isValid = false;
+                pCol = t.statErrBg;
+                tCol = t.statErrTxt;
+                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
+            end
+
+            % --- WIRE EXTENSION SAFETY CHECK ---
+            % HOW: Calculates the hypotenuse of the wire stretch between the two towers.
+            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints) && exist('tL', 'var')
+                dy_ext = tL.y - tR.y;
+                dz_ext = tL.z - tR.z;
+                ext_all = hypot(app.MachineSpanX, hypot(dy_ext, dz_ext)) - app.MachineSpanX;
+                app.MaxPathExtension = max(ext_all);
+
+                if app.MaxPathExtension > app.WireExt_Red
+                    isValid = false; % Hard Block
+                    pCol = t.statErrBg;
+                    tCol = t.statErrTxt;
+                    txtLines =["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
+                        sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
+                        sprintf("Exceeds Hardware Limit (%.0f mm)!", app.WireExt_Red)];
+                elseif app.MaxPathExtension > app.WireExt_Amber
+                    if isValid
+                        pCol = t.statWarnBg;
+                        tCol = t.statWarnTxt;
+                        txtLines =["WARNING: WIRE EXTENSION", ...
+                            sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
+                            "Pulley travel is nearly exhausted."];
+                    end
+                end
+            end
+
+            app.MachineLeftPanel.BackgroundColor = pCol;
+            app.TxtMachineStatus.Value = txtLines;
+            app.TxtMachineStatus.FontColor = tCol;
+
+            app.BtnMachineContinue.Enable = 'on'; 
+            drawnow limitrate;
+        end
+
+        function syncMachineUI(app)
+            % Purpose: Enforces physical boundaries directly on the UI Spinners.
+            % WHY: Prevents the user from typing in a value that places the billet
+            %      off the edge of the physical machine bed.
+
+            bX = app.BilletSize(1);
+            bY = app.BilletSize(2);
+            bZ = app.BilletSize(3);
+
+            bedX = app.MachineBedPos(1);
+            bedY = app.MachineBedPos(2);
+            bedW = app.MachineBedSize(1);
+            bedD = app.MachineBedSize(2);
+
+            % X is relative to bed left edge. Max = Bed Width - Billet Width
+            maxX = max(0, bedW - bX);
+            app.MachinePosSpinners(1).Limits = [0, maxX];
+
+            % Y is absolute. Min = Bed Front, Max = Bed Depth - Billet Depth
+            minY = bedY;
+            maxY = max(minY, bedY + bedD - bY);
+            app.MachinePosSpinners(2).Limits = [minY, maxY];
+
+            % Z is absolute (Bed surface is 0). Max = Tower Limit - Billet Height
+            maxZ = max(0, app.MachineLimitZ - bZ);
+            app.MachinePosSpinners(3).Limits = [0, maxZ];
+
+            % Clamp absolute positions to ensure safety
+            app.MachineBilletPos(1) = max(bedX, min(bedX + maxX, app.MachineBilletPos(1)));
+            app.MachineBilletPos(2) = max(minY, min(maxY, app.MachineBilletPos(2)));
+            app.MachineBilletPos(3) = max(0, min(maxZ, app.MachineBilletPos(3)));
+
+            % Map back to UI
+            app.MachinePosSpinners(1).Value = app.MachineBilletPos(1) - bedX;
+            app.MachinePosSpinners(2).Value = app.MachineBilletPos(2);
+            app.MachinePosSpinners(3).Value = app.MachineBilletPos(3);
+        end
 
         function [ isValid, panelCol, textCol, msgLines ] = checkMachineState(app)
             % Purpose: Validates the billet's physical placement on the machine bed.
-            % HOW: Checks for bed overhangs, Z-travel limits, and wire extension collisions.
-            %      Returns color codes and status messages for the UI.
+            % WHY: Ensures the billet doesn't overhang the bed, exceed Z-travel,
+            %      or cause the brass wire joint to crash into the foam.
+            % HOW: Compares the absolute machine coordinates of the billet against
+            %      the physical machine limits defined in the class properties.
 
             bPos  = app.MachineBilletPos;
             bSize = app.BilletSize;
@@ -2334,6 +2866,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 msgLines = ["Machine configuration valid.", "Ready to proceed."];
             end
         end
+
+        %% to be cleaned up --->
 
         %% ===========================================================
         %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS (Partial) ---
@@ -2577,598 +3111,6 @@ classdef HotWireSTEPApp_v6_2 < handle
             drawnow limitrate;
         end
         
-        % ===========================================================
-        % MACHINE TAB CALLBACKS
-        % ===========================================================
-
-        function onMachinePosEdited(app, axisIdx, src)
-            val = src.Value;
-
-            oldY = app.MachineBilletPos(2);
-            oldZ = app.MachineBilletPos(3);
-
-            if axisIdx == 1
-                app.MachineBilletPos(1) = app.MachineBedPos(1) + val;
-            else
-                app.MachineBilletPos(axisIdx) = val;
-            end
-
-            % FIX: Shift Entry points to match Billet movement on the machine bed
-            dY = app.MachineBilletPos(2) - oldY;
-            dZ = app.MachineBilletPos(3) - oldZ;
-            app.shiftEntryPoints(dY, dZ);
-
-            app.syncMachineUI();
-
-            d1 = 0; % Anti-markdown bug
-            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
-
-            app.MachineLeftPanel.BackgroundColor = pCol;
-            app.TxtMachineStatus.Value = txtLines;
-            app.TxtMachineStatus.FontColor = tCol;
-
-            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
-
-            app.IsMachineUserModified = true;
-            app.IsMachineInit = true;
-            app.refreshMachinePlot();
-        end
-
-        function onResetMachineBilletPosition(app)
-            if isempty(app.ModelPatch)
-                return;
-            end
-
-            % Physical Bed Constraints
-            bedX = app.MachineBedPos(1);
-            maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
-
-            % 1. X-Center Logic & Tower Path Length Optimization
-            % FIX: Generate a strict 50mm grid relative to the left edge of the bed!
-            maxRelX = floor(maxXLimit / 50.0) * 50.0;
-
-            if maxRelX >= 0
-                testRelXs = 0 : 50.0 : maxRelX;
-                testXs = bedX + testRelXs; % Apply absolute machine offset
-            else
-                testXs = bedX; % Fallback if billet is technically too wide
-            end
-
-            % Default to the middle of the available 50mm grid
-            bestX = testXs(max(1, ceil(numel(testXs)/2)));
-
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                d1 = 0; % Anti-markdown bug
-                [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
-
-                if ~isempty(yL)
-                    yL_base = yL + app.BilletShift(2);
-                    zL_base = zL + app.BilletShift(3);
-                    yR_base = yR + app.BilletShift(2);
-                    zR_base = zR + app.BilletShift(3);
-
-                    pXL = app.LeftProfilePoints(1,1);
-                    pXR = app.RightProfilePoints(1,1);
-                    planeDist = abs(pXR - pXL);
-
-                    % --- X Sweep Optimization ---
-                    if planeDist > 1e-3
-                        bestDiff = inf;
-                        centerX = bedX + maxXLimit / 2;
-
-                        % Sweep ONLY the strict 50mm grid increments
-                        for x = testXs
-                            xL_m = x + app.BilletShift(1) + pXL;
-                            xR_m = x + app.BilletShift(1) + pXR;
-
-                            [tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
-
-                            lenL = sum(hypot(diff(tL.y), diff(tL.z)));
-                            lenR = sum(hypot(diff(tR.y), diff(tR.z)));
-
-                            penalty = 1e-6 * abs(x - centerX);
-                            diffLen = abs(lenL - lenR) + penalty;
-
-                            if diffLen < bestDiff
-                                bestDiff = diffLen;
-                                bestX = x;
-                            end
-                        end
-                    end
-
-                    app.MachineBilletPos(1) = bestX;
-
-                    % --- Evaluate Base Tower Heights at new X to solve Y and Z ---
-                    xL_m = bestX + app.BilletShift(1) + pXL;
-                    xR_m = bestX + app.BilletShift(1) + pXR;[tL, tR] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
-
-                    % --- Z Logic (Standardized Stock Heights) ---
-                    minProjZ = min([tL.z; tR.z]);
-
-                    if minProjZ >= 0
-                        app.MachineBilletPos(3) = 0;
-                    else
-                        reqZ = -minProjZ;
-                        targetZ = ceil(reqZ / 25.0) * 25.0;
-                        if targetZ > 0 && targetZ < 50
-                            targetZ = 50.0;
-                        end
-                        app.MachineBilletPos(3) = targetZ;
-                    end
-
-                    % --- Y Logic (Multiples of 50mm, min wire Y > 50) ---
-                    minProjY = min([tL.y; tR.y]);
-                    reqBilletY = max(50.0, 50.0 - minProjY);
-                    targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
-
-                    bedD = app.MachineBedSize(2);
-                    bY = app.BilletSize(2);
-                    maxY = app.MachineBedPos(2) + bedD - bY;
-
-                    app.MachineBilletPos(2) = min(targetBilletY, maxY);
-                else
-                    app.MachineBilletPos(1) = bestX;
-                    app.MachineBilletPos(2) = app.MachineBedPos(2);
-                    app.MachineBilletPos(3) = 0;
-                end
-            else
-                app.MachineBilletPos(1) = bestX;
-                app.MachineBilletPos(2) = app.MachineBedPos(2);
-                app.MachineBilletPos(3) = 0;
-            end
-
-            app.IsMachineInit = true;
-            app.syncMachineUI();
-
-            d2 = 0;
-            [isValid, pCol, tCol, txtLines] = app.checkMachineState();
-
-            app.MachineLeftPanel.BackgroundColor = pCol;
-            app.TxtMachineStatus.Value = txtLines;
-            app.TxtMachineStatus.FontColor = tCol;
-
-            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
-
-            app.IsMachineUserModified = false;
-            app.IsMachineInit = true;
-            app.refreshMachinePlot();
-        end
-
-        function isValid = validateMachineConfig(app)
-            % Checks if Billet fits within Machine Limits and updates UI colors
-
-            % 1. Get Dimensions
-            bSize = app.BilletSize;      % [W, D, H]
-            bPos  = app.MachineBilletPos; % [X, Y, Z] absolute
-
-            % Machine Limits
-            limX = app.MachineSpanX;
-            limY = app.MachineLimitY;
-            limZ = app.MachineLimitZ;
-
-            % 2. Calculate Boundaries
-            % X: Billet must be > 0 and < Span
-            % Note: We assume X=0 is Left Tower, X=Span is Right Tower
-            minX = bPos(1);
-            maxX = bPos(1) + bSize(1);
-
-            minY = bPos(2);
-            maxY = bPos(2) + bSize(2);
-
-            minZ = bPos(3);
-            maxZ = bPos(3) + bSize(3);
-
-            % 3. Check Violations
-            errors = strings(0);
-
-            % X-Axis (Span)
-            if minX < 0 || maxX > limX
-                errors(end+1) = "Billet hits Towers (X-Axis).";
-            end
-
-            % Y-Axis (Travel)
-            if minY < 0 || maxY > limY
-                errors(end+1) = "Billet exceeds Y-Travel.";
-            end
-
-            % Z-Axis (Travel)
-            if minZ < 0 || maxZ > limZ
-                errors(end+1) = "Billet exceeds Z-Travel.";
-            end
-
-            % 4. Visual Feedback
-            t = app.getTheme();
-
-            if ~isempty(errors)
-                % RED STATE: Critical Error
-                app.MachineLeftPanel.BackgroundColor = [0.3 0.1 0.1]; % Dark Red
-                app.MachineMessageLabel.Text = "CRITICAL: " + errors(1); % Show first error
-                app.MachineMessageLabel.FontColor = [1 0.4 0.4];
-                app.BtnMachineContinue.Enable = 'off';
-                isValid = false;
-            else
-                % AMBER STATE: Check Proximity (Buffer < 10mm)
-                buffer = 10;
-                isClose = (minX < buffer) || (maxX > limX-buffer) || ...
-                    (minY < buffer) || (maxY > limY-buffer) || ...
-                    (maxZ > limZ-buffer); % Don't care about minZ < buffer usually (bed)
-
-                if isClose
-                    app.MachineLeftPanel.BackgroundColor = [0.3 0.25 0.1]; % Amber/Brown
-                    app.MachineMessageLabel.Text = "Warning: Billet very close to limits.";
-                    app.MachineMessageLabel.FontColor = [1 0.8 0.4];
-                    app.BtnMachineContinue.Enable = 'on'; % Allow, but warn
-                    isValid = true;
-                else
-                    % GREEN STATE: Good
-                    app.MachineLeftPanel.BackgroundColor = t.sideBg;
-                    app.MachineMessageLabel.Text = "Machine configuration valid.";
-                    app.MachineMessageLabel.FontColor = [0.4 1 0.4];
-                    app.BtnMachineContinue.Enable = 'on';
-                    isValid = true;
-                end
-            end
-        end
-
-        function onResetMachineViewMachine(app)
-            app.resetViewToMachine(app.AxMachine);
-        end
-
-        function onResetMachineViewBillet(app)
-            app.resetViewToBillet(app.AxMachine);
-        end
-
-        function refreshMachinePlot(app)
-            % Purpose: Renders the 3D machine view, including the bed, towers, billet,
-            %          model, and a sweep of the wire path to visualize the cut.
-            %          Also performs safety checks for wire extension.
-
-            ax = app.AxMachine;
-            if isempty(ax) || ~isgraphics(ax), return; end
-
-            %% --- SETUP & INITIALIZATION ---
-            delete(allchild(ax));
-            hold(ax, 'on');
-
-            t = app.getTheme(); % Master Palette
-
-            % Machine geometry constants
-            offX = app.MachineBedPos(1);
-            mX = app.MachineSpanX;
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize;
-            bp = app.MachineBedPos;
-
-            %% --- DRAW STATIC MACHINE COMPONENTS ---
-            % 1. Machine Bed
-            [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
-            hBed = patch(ax, 'Vertices', [ xb, yb, zb ], 'Faces', app.boxFaces, ...
-                'FaceColor', t.bedCol, 'FaceAlpha', 0.5, 'EdgeColor', t.bedEdge);
-
-            % 2. Travel Limits (Bounding Box)
-            [ xl, yl, zl ] = app.makeBoxVertices(-offX, 0, 0, mX, mLimY, mLimZ);
-            hLim = patch(ax, 'Vertices', [ xl, yl, zl ], 'Faces', app.boxFaces, ...
-                'FaceColor', 'none', 'EdgeColor', t.labelCol, 'LineStyle', ':', 'EdgeAlpha', 0.3);
-
-            % 3. Left and Right Towers (Planes)
-            pY = [ 0; mLimY; mLimY; 0 ];
-            pZ = [ 0; 0; mLimZ; mLimZ ];
-
-            hTowerL = patch(ax, 'XData', ones(4,1)*(-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeRed, ...
-                'FaceAlpha', 0.15, 'EdgeColor', t.planeRed, 'LineStyle', '-');
-
-            hTowerR = patch(ax, 'XData', ones(4,1)*(mX-offX), 'YData', pY, 'ZData', pZ, 'FaceColor', t.planeGreen, ...
-                'FaceAlpha', 0.15, 'EdgeColor', t.planeGreen, 'LineStyle', '-');
-
-            % Tower Labels
-            text(ax, -offX, mLimY*0.98, mLimZ*0.92, {' LEFT',' TOWER'}, 'Color', t.planeRedTxt, 'FontWeight', 'bold', 'FontSize', 9);
-            text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
-
-            %% --- DRAW BILLET & MODEL ---
-            hBillet = gobjects(0); hModel = gobjects(0); hGhostL = gobjects(0); hWireL = gobjects(0);
-            isViolated = false;
-
-            if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
-                bPlotPos =[ app.MachineBilletPos(1)-offX, app.MachineBilletPos(2), app.MachineBilletPos(3) ];
-                totalShift = bPlotPos + app.BilletShift;
-
-                % 1. Draw Packing Block (If Billet is raised off the bed)
-                if app.MachineBilletPos(3) > 0
-                    [xPack, yPack, zPack] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
-                    patch(ax, 'Vertices', [xPack, yPack, zPack], 'Faces', app.boxFaces, ...
-                        'FaceColor', [0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
-                end
-
-                % 2. Draw Billet (Thin solid lines to prevent aliasing)
-                [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
-                hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
-                    'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
-                    'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
-
-                % 3. Draw Model Mesh
-                Vplot = app.ModelPatch.Vertices + totalShift;
-                hModel = patch(ax, 'Vertices', Vplot, 'Faces', app.ModelPatch.Faces, ...
-                    'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none');
-
-                %% --- DRAW TOOLPATHS & WIRE SWEEP ---
-                if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-
-                    % 1. Draw Ghost Profiles (Raw extracted profiles)
-                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
-                        app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
-                        app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
-
-                    xL_world = app.LeftProfilePoints(1,1) + totalShift(1);
-                    xR_world = app.RightProfilePoints(1,1) + totalShift(1);
-
-                    hGhostL = plot3(ax, xL_world * ones(size(yS_rawL)), yS_rawL + totalShift(2), zS_rawL + totalShift(3), ...
-                        'Color', t.ghostRed, 'LineWidth', 0.75, 'LineStyle', '-');
-
-                    plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
-                        'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
-
-                    % 2. Draw Kerf-Compensated Wire Paths
-                    [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
-
-                    if ~isempty(ySyncL)
-                        isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-                        [ySyncL, zSyncL] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);[ySyncR, zSyncR] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
-
-                        hWireL = plot3(ax, xL_world * ones(size(ySyncL)), ySyncL + totalShift(2), zSyncL + totalShift(3), ...
-                            'Color', t.wireKerf, 'LineWidth', 0.75);
-                        plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
-                            'Color', t.wireKerf, 'LineWidth', 0.75);
-
-                        % 3. Project paths to the physical towers
-                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
-                            ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
-                            ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
-
-                        plot3(ax, ones(size(tL.y))*(-offX), tL.y, tL.z, 'Color', t.planeRed, 'LineWidth', 0.75);
-                        plot3(ax, ones(size(tR.y))*(mX-offX), tR.y, tR.z, 'Color', t.planeGreen, 'LineWidth', 0.75);
-
-                        % 4. Draw the Wire Sweep (Smart Distribution)
-                        N_pts = numel(tL.y);
-                        idx = 1;
-                        last_idx = 1;
-                        accumulated_angle = 0;
-
-                        % --- TWEAKABLE DISTRIBUTION PARAMETERS ---
-                        % 1. Straight Lines: Target distance between wires
-                        total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
-                        target_spacing = max(10.0, total_len / 40.0); 
-                        
-                        % 2. Curves: Degrees of cumulative bending before drawing a wire
-                        curve_angle_threshold = 10.0; 
-                        
-                        % 3. Minimum Spacing: Prevents crowding/pairing on curves and noisy straights
-                        min_spacing = 4.0; 
-                        
-                        % 4. Hard Corners: Always draw if the angle exceeds this (ignores min_spacing)
-                        sharp_corner_threshold = 10.0;
-                        % -----------------------------------------
-
-                        for i = 2:N_pts-1
-                            % Physical distance from the last drawn wire
-                            d = hypot(ySyncL(i) - ySyncL(last_idx), zSyncL(i) - zSyncL(last_idx));
-
-                            % Segment vectors and lengths
-                            v1 =[ ySyncL(i) - ySyncL(i-1), zSyncL(i) - zSyncL(i-1) ];
-                            v2 =[ ySyncL(i+1) - ySyncL(i), zSyncL(i+1) - zSyncL(i) ];
-                            n1 = norm(v1);
-                            n2 = norm(v2);
-
-                            % Turning angle at this specific point
-                            angle_deg = 0;
-                            if n1 > 1e-4 && n2 > 1e-4
-                                dp = dot(v1, v2) / (n1 * n2);
-                                angle_deg = acosd(max(-1, min(1, dp)));
-                            end
-                            
-                            accumulated_angle = accumulated_angle + angle_deg;
-
-                            % --- RULES FOR DRAWING A WIRE ---
-                            % 1. Spacing: Traveled far enough along a gentle curve or straight
-                            isSpaced = (d >= target_spacing);
-
-                            % 2. Sharpness: Sharp internal corner (Always draws)
-                            isSharp = (angle_deg >= sharp_corner_threshold);
-
-                            % 3. Transition: Start/End of an external curve or straight.
-                            % Must bend at least 2 degrees to ignore noisy straight lines.
-                            isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2)) && (angle_deg > 2.0);
-                            
-                            % 4. Curvature: Fanning around smooth curves
-                            isCurved = (accumulated_angle >= curve_angle_threshold);
-
-                            % Apply the rules (with min_spacing veto for non-sharp moves)
-                            if isSharp || ((isSpaced || isTransition || isCurved) && (d >= min_spacing))
-                                idx(end+1) = i;
-                                last_idx = i;
-                                accumulated_angle = 0; % Reset after drawing!
-                            end
-                        end
-
-                        % Always include the very last point
-                        idx(end+1) = N_pts;
-                        idx = unique(idx);
-
-                        dotCMap = hsv(numel(idx));
-
-                        % Check if the toolpath forces the towers outside physical limits
-                        bad = (tL.y < 0 | tL.y > mLimY | tL.z < 0 | tL.z > mLimZ | tR.y < 0 | tR.y > mLimY | tR.z < 0 | tR.z > mLimZ);
-                        if any(bad), isViolated = true; end
-
-                        % Fixed length of the hot wire (from left tower to neutral joint position)
-                        L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
-
-                        for k = 1:numel(idx)
-                            currIdx = idx(k);
-
-                            % WIRE COLOR FIX: Higher alpha (0.6) and adjusted base color
-                            wCol =[ t.wireBaseCol, 0.60 ];
-                            if bad(currIdx)
-                                wCol =[ 1 0.8 0 0.8 ]; % Highlight bad segments in amber
-                            end
-
-                            % Tower connection points for this step
-                            pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
-                            pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
-                            
-                            % Calculate Brass Joint Position
-                            wireVec = pTR_i - pTL_i;
-                            wireLen = norm(wireVec);
-                            pJoint_i = pTL_i + wireVec * (L_hot / wireLen);
-
-                            % Draw Hot Wire (Left tower to Brass Joint)
-                            plot3(ax, [ pTL_i(1), pJoint_i(1) ],[ pTL_i(2), pJoint_i(2) ], [ pTL_i(3), pJoint_i(3) ], ...
-                                'Color', wCol, 'LineWidth', 0.5);
-
-                            % Draw Tension Wire (Brass Joint to Right tower - Thicker, Grey)
-                            plot3(ax,[ pJoint_i(1), pTR_i(1) ],[ pJoint_i(2), pTR_i(2) ], [ pJoint_i(3), pTR_i(3) ], ...
-                                'Color', [ 0.5 0.5 0.5 0.8 ], 'LineWidth', 1.0);
-
-                            % Draw Brass Joint (Large Orange Dot)
-                            plot3(ax, pJoint_i(1), pJoint_i(2), pJoint_i(3), '.', 'Color', t.wireLead, 'MarkerSize', 6);
-
-                            % Draw tracking dots on the model profiles
-                            plot3(ax, xL_world, ySyncL(currIdx) + totalShift(2), zSyncL(currIdx) + totalShift(3), ...
-                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
-
-                            plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
-                                '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
-                        end
-                    end
-                end
-            end
-
-            %% --- FORMATTING & LEGEND ---
-            handles =[ hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL ];
-            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Extracted Profile', 'Wire Path (Kerf)'};
-
-            valid = isgraphics(handles);
-            if any(valid)
-                lgd = legend(ax, handles(valid), labels(valid), 'Location', 'northeast');
-                lgd.Box = 'off';
-                lgd.TextColor = t.labelCol;
-            end
-
-            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on');
-            ax.BackgroundColor = t.editBg;
-            set(ax, 'XColor', t.labelCol, 'YColor', t.labelCol, 'ZColor', t.labelCol);
-
-            % Restore missing axes labels
-            xlabel(ax, 'X'); ylabel(ax, 'Y'); zlabel(ax, 'Z');
-
-            % Minimal padding to allow towers to fill the screen
-            padX = 5;
-            padY = 5;
-            padZ = 40;
-
-            xlim(ax,[ -offX - padX, mX - offX + padX ]);
-            ylim(ax,[ -padY, mLimY + padY ]);
-            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
-
-            %% --- SAFETY CHECKS & UI UPDATE ---
-            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
-
-            if isViolated
-                isValid = false;
-                pCol = t.statErrBg;
-                tCol = t.statErrTxt;
-                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
-            end
-
-            % --- WIRE EXTENSION SAFETY CHECK ---
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints) && exist('tL', 'var')
-                dy_ext = tL.y - tR.y;
-                dz_ext = tL.z - tR.z;
-                ext_all = hypot(app.MachineSpanX, hypot(dy_ext, dz_ext)) - app.MachineSpanX;
-                app.MaxPathExtension = max(ext_all);
-
-                % Note: The actual collision with the billet is now handled inside checkMachineState.
-                % Here we only check the absolute mechanical limits of the pulley system.
-                if app.MaxPathExtension > app.WireExt_Red
-                    isValid = false; % Hard Block
-                    pCol = t.statErrBg;
-                    tCol = t.statErrTxt;
-                    txtLines =["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
-                        sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
-                        sprintf("Exceeds Hardware Limit (%.0f mm)!", app.WireExt_Red)];
-                elseif app.MaxPathExtension > app.WireExt_Amber
-                    % Warning - only apply if not already in a Red error state
-                    if isValid
-                        pCol = t.statWarnBg;
-                        tCol = t.statWarnTxt;
-                        txtLines =["WARNING: WIRE EXTENSION", ...
-                            sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
-                            "Pulley travel is nearly exhausted."];
-                    end
-                end
-            end
-
-            app.MachineLeftPanel.BackgroundColor = pCol;
-            app.TxtMachineStatus.Value = txtLines;
-            app.TxtMachineStatus.FontColor = tCol;
-
-            app.BtnMachineContinue.Enable = 'on'; % Always allow proceeding to Cutting tab
-
-            drawnow limitrate;
-        end
-
-        function syncMachineUI(app)
-            % Enforces physical boundaries directly on the Spinners
-
-            bX = app.BilletSize(1);
-            bY = app.BilletSize(2);
-            bZ = app.BilletSize(3);
-
-            bedX = app.MachineBedPos(1);
-            bedY = app.MachineBedPos(2);
-            bedW = app.MachineBedSize(1);
-            bedD = app.MachineBedSize(2);
-
-            % X is relative to bed left edge. Max = Bed Width - Billet Width
-            maxX = max(0, bedW - bX);
-            app.MachinePosSpinners(1).Limits = [0, maxX];
-
-            % Y is absolute. Min = Bed Front, Max = Bed Depth - Billet Depth
-            minY = bedY;
-            maxY = max(minY, bedY + bedD - bY);
-            app.MachinePosSpinners(2).Limits = [minY, maxY];
-
-            % Z is absolute (Bed surface is 0). Max = Tower Limit - Billet Height
-            maxZ = max(0, app.MachineLimitZ - bZ);
-            app.MachinePosSpinners(3).Limits = [0, maxZ];
-
-            % Clamp absolute positions to ensure safety
-            app.MachineBilletPos(1) = max(bedX, min(bedX + maxX, app.MachineBilletPos(1)));
-            app.MachineBilletPos(2) = max(minY, min(maxY, app.MachineBilletPos(2)));
-            app.MachineBilletPos(3) = max(0, min(maxZ, app.MachineBilletPos(3)));
-
-            % Map back to UI
-            app.MachinePosSpinners(1).Value = app.MachineBilletPos(1) - bedX;
-            app.MachinePosSpinners(2).Value = app.MachineBilletPos(2);
-            app.MachinePosSpinners(3).Value = app.MachineBilletPos(3);
-        end
-
-        function [towerL, towerR] = projectToTowers(profileL, xL, profileR, xB, spanX)
-            % profileL: [y, z] at model-left-face (xL)
-            % profileR: [y, z] at model-right-face (xB)
-            % spanX: total machine width (1180)
-
-            % For each point i in the synced profiles:
-            % TowerL (at x=0)
-            towerL.y = profileL.y + (0 - xL) .* (profileR.y - profileL.y) ./ (xB - xL);
-            towerL.z = profileL.z + (0 - xL) .* (profileR.z - profileL.z) ./ (xB - xL);
-
-            % TowerR (at x=1180)
-            towerR.y = profileL.y + (spanX - xL) .* (profileR.y - profileL.y) ./ (xB - xL);
-            towerR.z = profileL.z + (spanX - xL) .* (profileR.z - profileL.z) ./ (xB - xL);
-        end
-
         % ===========================================================
         % CUTTING TAB LOGIC
         % ===========================================================
