@@ -4306,8 +4306,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Auto-fills the default G-code filename based on the imported CAD model.
 
             rawName = "Output";
-            if ~isempty(app.CurrentModelName)
-                %parserbug
+            if ~isempty(app.CurrentModelName)                
                 [ ~, rawName, ~ ] = fileparts(app.CurrentModelName);
             end
 
@@ -4468,7 +4467,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.PP_TowerPathL(pathIdx,:) =[ xT_L, tx, ty ];
                     app.PP_TowerPathR(pathIdx,:) =[ xT_R, tz, ta ];
 
-                    %parserbug[ mxL, myL, mzL, mxR, myR, mzR ] = machineToModelVisual(tx, ty, tz, ta);
+                    [ mxL, myL, mzL, mxR, myR, mzR ] = machineToModelVisual(tx, ty, tz, ta);
 
                     app.PP_PathL(pathIdx,:) =[ mxL, myL, mzL ];
                     app.PP_PathR(pathIdx,:) =[ mxR, myR, mzR ];
@@ -4480,8 +4479,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Nested Helper 4: Dynamic Feed G1 Move
             function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
-                %parserbug[ tx, ty, tz, ta ] = project(targL(1), targL(2), tgtR(1), tgtR(2));
-                %parserbug
+                [ tx, ty, tz, ta ] = project(targL(1), targL(2), tgtR(1), tgtR(2));                
                 [ px, py, pz, pa ] = project(prevL(1), prevL(2), prevR(1), prevR(2));
 
                 if app.ChkDynamicFeed.Value
@@ -4546,18 +4544,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
             e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
 
-            if ~isempty(e2L)
-                %parserbug
+            if ~isempty(e2L)                
                 [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
             end
-            if ~isempty(e3L)
-                %parserbug
+            if ~isempty(e3L)                
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
             end
-            if ~isempty(e1L)
-                %parserbug
+            if ~isempty(e1L)                
                 [ tx, ty, tz, ta ] = project(e1L(1), e1L(2), e1R(1), e1R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
             end
@@ -4594,19 +4589,17 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
 
             % Correct Order for Retraction
-            if ~isempty(e3L)
-                %parserbug
+            if ~isempty(e3L)                
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
             end
             if ~isempty(e2L)
-                %parserbug[ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
             end
 
             bY_RetFinal = app.MachineBilletPos(2) - 10.0;
-            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
-            %parserbug
+            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;            
             [ tx, ty, tz, ta ] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
 
@@ -4868,8 +4861,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '*.txt', 'Text File (*.txt)'};
 
             defaultName = app.FieldFilename.Value;
-
-            %parserbug
+            
             [ file, path ] = uiputfile(filter, 'Save Toolpath', defaultName);
 
             if isequal(file, 0), return; end
