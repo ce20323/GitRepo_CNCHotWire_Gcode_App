@@ -2871,7 +2871,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% --- GROUP 8: TAB 6 - CUTTING STRATEGY ---
         %% ===========================================================
 
-        %%                    - CORE LOGIC & VALIDATION ------
+        %%                    - CORE LOGIC & VALIDATION -
         function[ isValid, pCol, tCol, msgLines ] = validateCuttingStrategy(app)
             % Purpose: Validates the cutting path against physical constraints and model geometry.
             % WHY: Prevents the machine from dragging the wire through solid foam during a rapid move,
@@ -3048,7 +3048,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %%                    - PLOTTING & VISUALIZATION ------
+        %%                    - PLOTTING & VISUALIZATION -
         function updateCuttingPlots(app)
             % Purpose: Renders the 2D cutting paths (Left and Right) including
             %          rapid moves, lead-ins, the profile cut, and lead-outs.
@@ -3369,7 +3369,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'FaceColor', colFill, 'EdgeColor', colEdge, 'LineWidth', 1.0, 'HitTest','off');
         end
 
-        %%                    - UI CALLBACKS & INTERACTION ------
+        %%                    - UI CALLBACKS & INTERACTION -
         function onCutDirectionChanged(app)
             % Purpose: Triggered when switching between CW (Top First) and CCW (Bottom First).
             app.updateCuttingPlots();
@@ -3561,7 +3561,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
 
-        %%                    - AUTO TOOLS & ACTIONS ------
+        %%                    - AUTO TOOLS & ACTIONS -
         function onAutoStart(app, doPlot)
             % Purpose: Automatically selects the start point closest to the front of the machine.
             if nargin < 2
@@ -3722,7 +3722,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% --- GROUP 9: TAB 7 - SIMULATION ---
         %% ===========================================================
 
-        %%                    - DATA GENERATION ------
+        %%                    - DATA GENERATION -
 
         function generateSimulationData(app)
             % Purpose: Generates high-resolution, interpolated 3D paths for the simulation playback.
@@ -3996,7 +3996,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             idx = min(idx, size(app.SimPathL, 1));
         end
 
-        %%                    - PLOTTING & VISUALIZATION ------
+        %%                    - PLOTTING & VISUALIZATION -
 
         function initSimulationPlot(app)
             % Purpose: Initializes the 3D simulation plot with static geometry
@@ -4183,7 +4183,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.resetViewToBillet(app.AxSim);
         end
 
-        %%                    - PLAYBACK CONTROLS ------
+        %%                    - PLAYBACK CONTROLS -
 
         function onSimPlay(app)
             % Purpose: Starts the real-time simulation timer.
@@ -4249,7 +4249,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isDone, app.onSimPause(); end
         end
 
-        %%                    - UI SYNC & SCRUBBING ------
+        %%                    - UI SYNC & SCRUBBING -
 
         function onSimSliderChanging(app, src)
             % Purpose: Handles user scrubbing the timeline slider.
@@ -4296,6 +4296,613 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
         
+        %% ===========================================================
+        %% --- GROUP 10: TAB 8 - POST-PROCESSING ---
+        %% ===========================================================
+
+        %%                    - UI & STATUS UPDATES -
+
+        function updatePostProcessUI(app)
+            % Purpose: Auto-fills the default G-code filename based on the imported CAD model.
+
+            rawName = "Output";
+            if ~isempty(app.CurrentModelName)
+                %parserbug
+                [ ~, rawName, ~ ] = fileparts(app.CurrentModelName);
+            end
+
+            rawName = replace(rawName, ' ', '_');
+            newName = sprintf("GCode-V1-%s", rawName);
+
+            currentVal = app.FieldFilename.Value;
+
+            if isempty(currentVal) || startsWith(currentVal, "GCode-V1-")
+                app.FieldFilename.Value = newName;
+            end
+
+            app.updatePostStatus();
+        end
+
+        function updatePostStatus(app, isFreshPost)
+            % Purpose: Evaluates the safety and freshness of the G-code parameters.
+            % WHY: If the user changes the feed rate or power *after* generating G-code,
+            %      the existing G-code becomes stale and must be regenerated.
+
+            if nargin < 2, isFreshPost = false; end
+            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus), return; end
+
+            t = app.getTheme();
+            feed = app.SpinFeedRate.Value;
+            power = app.SpinPower.Value;
+
+            % 1. Logic: If parameters changed (not a fresh post), invalidate old code
+            if ~isFreshPost && ~isempty(app.PP_GCodeLines)
+                app.PP_GCodeLines = strings(0);
+                app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
+                app.BtnSaveGCode.Enable = 'off';
+                app.BtnSaveGCode.BackgroundColor =[ 0.3 0.3 0.3 ];
+                app.BtnSaveGCode.FontColor =[ 0.8 0.8 0.8 ];
+            end
+
+            msg = strings(0);
+            panelBg = t.sideBg;
+            textCol = t.labelCol;
+
+            % 2. Determine Status State
+            if isempty(app.PP_GCodeLines)
+                panelBg = t.statErrBg;
+                textCol = t.statErrTxt;
+                msg =[ "STALE G-CODE:", "Parameters changed. Re-run Post-Process." ];
+            else
+                panelBg = t.statPassBg;
+                textCol = t.statPassTxt;
+                msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
+            end
+
+            % 3. Apply Safety Overrides (Priority: Red > Amber)
+            isExtRed   = app.MaxPathExtension > app.WireExt_Red;
+            isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
+
+            if isExtRed
+                panelBg = t.statErrBg;
+                textCol = t.statErrTxt;
+                msg(end+1) = "CRITICAL: Wire Extension exceeds pulley travel!";
+            elseif isExtAmber
+                if ~isequal(panelBg, t.statErrBg)
+                    panelBg = t.statWarnBg;
+                    textCol = t.statWarnTxt;
+                end
+                msg(end+1) = "WARNING: Approaching mechanical pulley limit.";
+            end
+
+            % Check Feed/Power Balance
+            if (power < 25 && feed > 80) || (power > 80 && feed < 30)
+                if ~isequal(panelBg, t.statErrBg)
+                    panelBg = t.statWarnBg;
+                    textCol = t.statWarnTxt;
+                end
+                msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
+            end
+
+            if ~isempty(app.PP_GCodeLines)
+                msg(end+1) = "Verify paths and click Save.";
+            end
+
+            app.PostLeftPanel.BackgroundColor = panelBg;
+            app.TxtPostStatus.Value = msg;
+            app.TxtPostStatus.FontColor = textCol;
+        end
+
+        %%                    - G-CODE GENERATION -
+
+        function onPostProcess(app)
+            % Purpose: Generates the final Mach4-compatible G-code.
+            % HOW: Iterates through the densified simulation path, converting absolute
+            %      machine coordinates into G-code strings. Also calculates Dynamic Feed
+            %      rates for tapered cuts to ensure constant wire speed through the foam.
+
+            if isempty(app.SimPathL) || isempty(app.ProfileSyncL)
+                app.generateSimulationData();
+                if isempty(app.SimPathL)
+                    uialert(app.UIFigure, 'No path data available.', 'Error');
+                    return;
+                end
+            end
+
+            % Initialize storage arrays
+            app.PP_PathL = zeros(0,3);
+            app.PP_PathR = zeros(0,3);
+            app.PP_TowerPathL = zeros(0,3);
+            app.PP_TowerPathR = zeros(0,3);
+
+            feed  = round(app.SpinFeedRate.Value);
+            power = round(app.SpinPower.Value);
+            lines = strings(0,1);
+            map = zeros(0,1);
+            pathIdx = 0;
+
+            % Alignment constants
+            baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
+            xM_L = baseX + app.NumLeftOffset.Value;
+            xM_R = baseX + app.NumRightOffset.Value;
+            xT_L = 0;
+            xT_R = app.MachineSpanX;
+
+            mDim =[ abs(xM_R - xM_L), app.ModelYMax - app.ModelYMin, app.ModelZMax - app.ModelZMin ];
+
+            % Nested Helper 1: Project Model YZ to Tower Coordinates
+            function [ tx, ty, tz, ta ] = project(yL, zL, yR, zR)
+                rL = (xT_L - xM_L) / (xM_R - xM_L);
+                tyL = yL + (yR - yL) * rL;
+                tzL = zL + (zR - zL) * rL;
+                rR = (xT_R - xM_L) / (xM_R - xM_L);
+                tyR = yL + (yR - yL) * rR;
+                tzR = zL + (zR - zL) * rR;
+                tx = tyL; ty = tzL; tz = tyR; ta = tzR;
+            end
+
+            % Nested Helper 2: Reverse Project for Verification Plotting
+            function[ mxL, myL, mzL, mxR, myR, mzR ] = machineToModelVisual(tx, ty, tz, ta)
+                ratioL = (xM_L - xT_L) / (xT_R - xT_L);
+                ratioR = (xM_R - xT_L) / (xT_R - xT_L);
+                mxL = xM_L; myL = tx + (tz - tx) * ratioL; mzL = ty + (ta - ty) * ratioL;
+                mxR = xM_R; myR = tx + (tz - tx) * ratioR; mzR = ty + (ta - ty) * ratioR;
+            end
+
+            % Nested Helper 3: Add Line to G-Code list and map path
+            function add(code, comment, tx, ty, tz, ta)
+                if nargin >= 2 && ~isempty(char(comment))
+                    if startsWith(strtrim(comment), '(')
+                        s = sprintf('%-35s %s', code, comment);
+                    else
+                        s = sprintf('%-35s (%s)', code, comment);
+                    end
+                else
+                    s = code;
+                end
+
+                lines(end+1) = s;
+
+                if nargin >= 6
+                    pathIdx = pathIdx + 1;
+                    app.PP_TowerPathL(pathIdx,:) =[ xT_L, tx, ty ];
+                    app.PP_TowerPathR(pathIdx,:) =[ xT_R, tz, ta ];
+
+                    %parserbug[ mxL, myL, mzL, mxR, myR, mzR ] = machineToModelVisual(tx, ty, tz, ta);
+
+                    app.PP_PathL(pathIdx,:) =[ mxL, myL, mzL ];
+                    app.PP_PathR(pathIdx,:) =[ mxR, myR, mzR ];
+                end
+
+                % Map this line of G-code to the last known path position
+                map(end+1) = max(1, pathIdx);
+            end
+
+            % Nested Helper 4: Dynamic Feed G1 Move
+            function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
+                %parserbug[ tx, ty, tz, ta ] = project(targL(1), targL(2), tgtR(1), tgtR(2));
+                %parserbug
+                [ px, py, pz, pa ] = project(prevL(1), prevL(2), prevR(1), prevR(2));
+
+                if app.ChkDynamicFeed.Value
+                    distL_model = hypot(targL(1) - prevL(1), targL(2) - prevL(2));
+                    distR_model = hypot(tgtR(1) - prevR(1), tgtR(2) - prevR(2));
+                    dist_Model_Max = max(distL_model, distR_model);
+                    dist_Mach4 = sqrt((tx - px)^2 + (ty - py)^2 + (tz - pz)^2 + (ta - pa)^2);
+
+                    if dist_Model_Max > 1e-5
+                        dynF = feed * (dist_Mach4 / dist_Model_Max);
+                    else
+                        dynF = feed;
+                    end
+                    if dynF > 1500.0, dynF = 1500.0; end
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynF), commentStr, tx, ty, tz, ta);
+                else
+                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), commentStr, tx, ty, tz, ta);
+                end
+            end
+
+            %% --- EXECUTE G-CODE GENERATION ---
+            pSyncL = app.ProfileSyncL;
+            pSyncR = app.ProfileSyncR;
+
+            add('%% ------------------------------------------');
+            add(sprintf('%%     File: %s', app.FieldFilename.Value));
+            add(sprintf('%%    Model: %s', app.CurrentModelName));
+            add(sprintf('%%     Date: %s', string(datetime('now'))));
+            add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
+            add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
+
+            uiBilletPos = app.MachineBilletPos;
+            uiBilletPos(1) = uiBilletPos(1) - app.MachineBedPos(1);
+            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
+
+            add('% ------------------------------------------');
+            add('%%EXTENTS_MIN%%');
+            add('%%EXTENTS_MAX%%');
+            add('%%WIRE_EXTENSION_MAX%%');
+            add('% ------------------------------------------');
+            add('G21','Metric');
+            add('G90','Absolute');
+            add('G94','Feed/min');
+
+            % --- START SEQUENCE ---
+            add('G53 G0 X0 Z0', 'Safe Start: Horizontals', 0, 0, 0, 0);
+            add('G53 G0 Y0 A0', 'Safe Start: Verticals', 0, 0, 0, 0);
+
+            % --- PHASE 1: LOAD ---
+            add('%% --- LOADING ---', '');
+            add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', 10, 10, 10, 10);
+            bY = app.MachineBilletPos(2);
+            bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', bY, bZ, bY, bZ);
+            add('M00', 'STOP: Load Block');
+            bY_Ret = bY - 4.0;
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', bY_Ret, bZ, bY_Ret, bZ);
+
+            % --- PHASE 2: APPROACH & LEAD-IN ---
+            add('%% --- APPROACH ---', '');
+            e1L = app.EntryPointL;  e1R = app.EntryPointR;
+            e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
+            e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
+
+            if ~isempty(e2L)
+                %parserbug
+                [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
+            end
+            if ~isempty(e3L)
+                %parserbug
+                [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
+            end
+            if ~isempty(e1L)
+                %parserbug
+                [ tx, ty, tz, ta ] = project(e1L(1), e1L(2), e1R(1), e1R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
+            end
+            app.PP_RapidEndIndex = pathIdx;
+
+            % Heat Sequence
+            add(sprintf('S%d', power), 'Sets Hot Wire Power');
+            add('M301', 'Extraction ON > Wait 5s > Power ON');
+            add(sprintf('F%d', feed), 'Set Cut Feedrate');
+
+            % Lead-In Cut
+            startL = pSyncL(1,:); startR = pSyncR(1,:);
+            if ~isempty(e1L)
+                addDynamicG1(startL, startR, e1L, e1R, 'Lead-In Cut to Profile');
+            else
+                prevL =[ bY_Ret, bZ ]; prevR =[ bY_Ret, bZ ];
+                addDynamicG1(startL, startR, prevL, prevR, 'Approach Cut to Profile');
+            end
+            app.PP_ProfileStartIndex = pathIdx;
+
+            % --- PHASE 3: PROFILE ---
+            add('%% --- PROFILE CUT ---', '');
+            for i = 2:size(pSyncL, 1)
+                addDynamicG1(pSyncL(i,:), pSyncR(i,:), pSyncL(i-1,:), pSyncR(i-1,:), '');
+            end
+            app.PP_ProfileEndIndex = pathIdx;
+
+            % --- PHASE 4: EXIT ---
+            add('%% --- EXIT SEQUENCE ---', '');
+            if ~isempty(e1L)
+                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead-Out Cut to Entry');
+            end
+            app.PP_LeadOutEndIndex = pathIdx;
+            add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
+
+            % Correct Order for Retraction
+            if ~isempty(e3L)
+                %parserbug
+                [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
+            end
+            if ~isempty(e2L)
+                %parserbug[ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
+            end
+
+            bY_RetFinal = app.MachineBilletPos(2) - 10.0;
+            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
+            %parserbug
+            [ tx, ty, tz, ta ] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
+
+            % --- FINAL RETURN ---
+            add('G53 G0 X0 Z0', 'Retract Horizontals', 0, bZ_RetFinal, 0, bZ_RetFinal);
+            add('G53 G0 Y0 A0', 'Retract Verticals', 0, 0, 0, 0);
+            add('M30', 'End Program');
+
+            % --- FINALIZE METADATA ---
+            minX_v = app.TowerL_Bounds(1); maxX_v = app.TowerL_Bounds(2);
+            minY_v = app.TowerL_Bounds(3); maxY_v = app.TowerL_Bounds(4);
+            minZ_v = app.TowerR_Bounds(1); maxZ_v = app.TowerR_Bounds(2);
+            minA_v = app.TowerR_Bounds(3); maxA_v = app.TowerR_Bounds(4);
+
+            mStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX_v, minY_v, minZ_v, minA_v);
+            MStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX_v, maxY_v, maxZ_v, maxA_v);
+            EStr = sprintf('%% Max Wire Extension: %.2f mm (Limit: %.0f mm)', app.MaxPathExtension, app.WireExt_Red);
+
+            lines = replace(lines, '%%EXTENTS_MIN%%', mStr);
+            lines = replace(lines, '%%EXTENTS_MAX%%', MStr);
+            lines = replace(lines, '%%WIRE_EXTENSION_MAX%%', EStr);
+
+            % Update UI
+            app.PP_GCodeLines = lines;
+            app.PP_LineToPathIndex = map;
+            app.ListGCode.Items = cellstr(lines);
+            app.ListGCode.ItemsData = 1:numel(lines);
+            app.ListGCode.Value = 1;
+
+            app.BtnSaveGCode.Enable = 'on';
+            app.BtnSaveGCode.BackgroundColor =[ 0.1 0.6 0.1 ];
+            app.BtnSaveGCode.FontColor =[ 1 1 1 ];
+
+            if isempty(app.AxSim.Children), app.initSimulationPlot(); end
+            app.initPostPlot();
+
+            app.onResetPostViewMachine();
+            app.updatePostPlotForSelectedLine(1);
+            app.updatePostStatus(true);
+        end
+
+        %%                    - INTERACTIVE VIEWER & PLOTTING -
+
+        function initPostPlot(app)
+            % Purpose: Clones the 3D scene from the Simulation tab into the Post tab.
+            % WHY: Avoids rebuilding the complex static geometry twice.
+
+            axP = app.AxPost;
+            cla(axP); hold(axP,'on');
+
+            if isempty(app.AxSim) || ~isvalid(app.AxSim)
+                error('AxSim invalid - cannot clone simulation scene.');
+            end
+
+            if isempty(app.AxSim.Children)
+                app.initSimulationPlot();
+            end
+
+            copyobj(app.AxSim.Children, axP);
+
+            % Rename Sim* tags to Post* tags
+            h = findall(axP, '-property', 'Tag');
+            for i = 1:numel(h)
+                tg = string(h(i).Tag);
+                if startsWith(tg, "Sim")
+                    h(i).Tag = "Post" + extractAfter(tg, 3);
+                end
+            end
+
+            axP.BackgroundColor = app.AxSim.BackgroundColor;
+            axP.XColor = app.AxSim.XColor;
+            axP.YColor = app.AxSim.YColor;
+            axP.ZColor = app.AxSim.ZColor;
+            axP.GridColor = app.AxSim.GridColor;
+            axP.GridAlpha = app.AxSim.GridAlpha;
+
+            grid(axP,'on');
+            axis(axP,'equal');
+            view(axP, app.AxSim.View);
+            hold(axP,'off');
+        end
+
+        function updatePostPlotForSelectedLine(app, k)
+            % Purpose: Updates the 3D plot to show the wire position for a specific G-code line.
+            % HOW: Uses the PP_LineToPathIndex map to find the corresponding 3D coordinate.
+
+            if isempty(app.PP_LineToPathIndex) || isempty(app.PP_PathL) || isempty(app.PP_TowerPathL)
+                return;
+            end
+
+            k = max(1, min(k, numel(app.PP_LineToPathIndex)));
+            idx = app.PP_LineToPathIndex(k);
+
+            % Handle non-movement lines (scroll back to last known position)
+            kk = k;
+            while (isnan(idx) || idx <= 0) && kk > 1
+                kk = kk - 1;
+                idx = app.PP_LineToPathIndex(kk);
+            end
+            if isnan(idx) || idx <= 0, idx = 1; end
+            idx = min(idx, size(app.PP_PathL,1));
+
+            ax = app.AxPost;
+            offX = app.MachineBedPos(1);
+
+            idxRapidEnd   = app.PP_RapidEndIndex;
+            idxProfStart  = app.PP_ProfileStartIndex;
+            idxProfEnd    = app.PP_ProfileEndIndex;
+            idxLeadOutEnd = app.PP_LeadOutEndIndex;
+
+            towerL = app.PP_TowerPathL; towerR = app.PP_TowerPathR;
+            pathL  = app.PP_PathL; pathR  = app.PP_PathR;
+
+            % Update Dots & Wire
+            pTL =[ towerL(idx,1) - offX, towerL(idx,2), towerL(idx,3) ];
+            pTR =[ towerR(idx,1) - offX, towerR(idx,2), towerR(idx,3) ];
+            pML =[ pathL(idx,1) - offX, pathL(idx,2), pathL(idx,3) ];
+            pMR =[ pathR(idx,1) - offX, pathR(idx,2), pathR(idx,3) ];
+
+            wireVec = pTR - pTL;
+            wireLen = norm(wireVec);
+            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
+            pJoint = pTL + wireVec * (L_hot / wireLen);
+
+            set(findobj(ax,'Tag','PostWire'), 'XData',[ pTL(1) pJoint(1) ], 'YData',[ pTL(2) pJoint(2) ], 'ZData',[ pTL(3) pJoint(3) ]);
+            set(findobj(ax,'Tag','PostTensionWire'), 'XData',[ pJoint(1) pTR(1) ], 'YData',[ pJoint(2) pTR(2) ], 'ZData',[ pJoint(3) pTR(3) ]);
+            set(findobj(ax,'Tag','PostBrassJoint'), 'XData',pJoint(1), 'YData',pJoint(2), 'ZData',pJoint(3));
+
+            set(findobj(ax,'Tag','PostDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
+            set(findobj(ax,'Tag','PostDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
+            set(findobj(ax,'Tag','PostModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
+            set(findobj(ax,'Tag','PostModelDotR'), 'XData',pMR(1), 'YData',pMR(2), 'ZData',pMR(3));
+
+            % Nested Helper for Trails
+            function updateT(tag, data, s, e)
+                h = findobj(ax, 'Tag', tag);
+                if ~isempty(h)
+                    s = max(1, min(s, size(data,1))); e = max(1, min(e, size(data,1)));
+                    if e < s, h.XData=[ ]; h.YData=[ ]; h.ZData=[ ]; return; end
+                    dt = data(s:e,:);
+                    h.XData = dt(:,1) - offX; h.YData = dt(:,2); h.ZData = dt(:,3);
+                end
+            end
+
+            function clearT(tags)
+                for ii=1:numel(tags)
+                    h=findobj(ax,'Tag',tags{ii}); if ~isempty(h), h.XData=[ ]; h.YData=[ ]; h.ZData=[ ]; end
+                end
+            end
+
+            % 1. Rapid (Yellow)
+            curEnd = min(idx, idxRapidEnd);
+            updateT('PostTowerRapidL', towerL, 1, curEnd);
+            updateT('PostTowerRapidR', towerR, 1, curEnd);
+            updateT('PostModelRapidL', pathL,  1, curEnd);
+            updateT('PostModelRapidR', pathR,  1, curEnd);
+
+            % 2. Lead In (Orange)
+            if idx > idxRapidEnd
+                curEnd = min(idx, idxProfStart);
+                updateT('PostTowerLeadInL', towerL, idxRapidEnd, curEnd);
+                updateT('PostTowerLeadInR', towerR, idxRapidEnd, curEnd);
+                updateT('PostModelLeadInL', pathL,  idxRapidEnd, curEnd);
+                updateT('PostModelLeadInR', pathR,  idxRapidEnd, curEnd);
+            else, clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'}); end
+
+            % 3. Feed (Red/Green)
+            if idx > idxProfStart
+                curEnd = min(idx, idxProfEnd);
+                updateT('PostTowerFeedL', towerL, idxProfStart, curEnd);
+                updateT('PostTowerFeedR', towerR, idxProfStart, curEnd);
+                updateT('PostModelFeedL', pathL,  idxProfStart, curEnd);
+                updateT('PostModelFeedR', pathR,  idxProfStart, curEnd);
+            else, clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'}); end
+
+            % 4. Lead Out (Orange Dashed)
+            if idx > idxProfEnd
+                curEnd = min(idx, idxLeadOutEnd);
+                updateT('PostTowerLeadOutL', towerL, idxProfEnd, curEnd);
+                updateT('PostTowerLeadOutR', towerR, idxProfEnd, curEnd);
+                updateT('PostModelLeadOutL', pathL,  idxProfEnd, curEnd);
+                updateT('PostModelLeadOutR', pathR,  idxProfEnd, curEnd);
+            else, clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'}); end
+
+            % 5. Return (Yellow Dashed)
+            if idx > idxLeadOutEnd
+                updateT('PostTowerReturnL', towerL, idxLeadOutEnd, idx);
+                updateT('PostTowerReturnR', towerR, idxLeadOutEnd, idx);
+                updateT('PostModelReturnL', pathL,  idxLeadOutEnd, idx);
+                updateT('PostModelReturnR', pathR,  idxLeadOutEnd, idx);
+            else, clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'}); end
+
+            drawnow limitrate;
+        end
+
+        function onResetPostViewMachine(app)
+            app.resetViewToMachine(app.AxPost);
+        end
+
+        function onResetPostViewBillet(app)
+            app.resetViewToBillet(app.AxPost);
+        end
+
+        function onPostLineSelected(app, src)
+            % Purpose: Triggered when the user clicks a line in the G-code listbox.
+            val = src.Value;
+            if isempty(val), return; end
+            app.PP_SelectedLine = val;
+            app.updatePostPlotForSelectedLine(val);
+        end
+
+        function stepPostLine(app, delta)
+            % Purpose: Steps the G-code viewer forward or backward by a set amount.
+            if isempty(app.ListGCode.ItemsData), return; end
+
+            n = numel(app.ListGCode.ItemsData);
+            cur = app.PP_SelectedLine;
+            if isempty(cur) || cur < 1, cur = 1; end
+
+            nxt = max(1, min(n, cur + delta));
+            app.PP_SelectedLine = nxt;
+            app.ListGCode.Value = nxt;
+            app.updatePostPlotForSelectedLine(nxt);
+        end
+
+        function onKeyPress(app, ~, event)
+            % Purpose: Allows the user to scrub through the G-code using keyboard arrows.
+            if isempty(app.TabGroup) || ~isequal(app.TabGroup.SelectedTab, app.TabPostProcess)
+                return;
+            end
+            if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
+                return;
+            end
+
+            switch event.Key
+                case 'downarrow'
+                    app.stepPostLine(+1);
+                case 'uparrow'
+                    app.stepPostLine(-1);
+                case 'pagedown'
+                    app.stepPostLine(+10);
+                case 'pageup'
+                    app.stepPostLine(-10);
+            end
+        end
+
+        %%                    - FILE EXPORT -
+
+        function onSaveGCode(app)
+            % Purpose: Writes the generated G-code array to a physical .tap or .nc file.
+
+            if isempty(app.PP_GCodeLines)
+                uialert(app.UIFigure, 'No G-code generated yet. Please click "Post-Process" first.', 'Save Error');
+                return;
+            end
+
+            filter = {'*.tap', 'Mach4 G-Code (*.tap)'; ...
+                '*.nc',  'Standard G-Code (*.nc)'; ...
+                '*.txt', 'Text File (*.txt)'};
+
+            defaultName = app.FieldFilename.Value;
+
+            %parserbug
+            [ file, path ] = uiputfile(filter, 'Save Toolpath', defaultName);
+
+            if isequal(file, 0), return; end
+
+            fullPath = fullfile(path, file);
+
+            try
+                fid = fopen(fullPath, 'w');
+                if fid == -1
+                    error('Could not create file. Check permissions.');
+                end
+
+                % Write Header Delimiter
+                fprintf(fid, '%%\r\n');
+
+                % Write G-Code Lines with Windows Line Endings (CRLF) required by Mach4
+                for i = 1:numel(app.PP_GCodeLines)
+                    lineStr = app.PP_GCodeLines(i);
+                    fprintf(fid, '%s\r\n', lineStr);
+                end
+
+                % Write Footer Delimiter
+                fprintf(fid, '%%\r\n');
+                fclose(fid);
+
+                uialert(app.UIFigure,['File saved successfully:' newline fullPath], 'Saved', 'Icon','success');
+
+            catch ME
+                if exist('fid', 'var') && fid > -1, fclose(fid); end
+                uialert(app.UIFigure, ['Error saving file:' newline ME.message], 'File Error');
+            end
+        end
+                
         %% ===========================================================
         %% --- to be cleaned up ---> ---
         %% ===========================================================
@@ -4611,639 +5218,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 2 3 7 6; % Right
                 3 4 8 7; % Back
                 4 1 5 8]; % Left
-        end
-
-        % ===========================================================
-        % POST-PROCESS TAB LOGIC
-        % ===========================================================
-        function updatePostProcessUI(app)
-            % Updates the Filename field based on loaded model
-            rawName = "Output";
-            if ~isempty(app.CurrentModelName)
-                [ ~, rawName, ~ ] = fileparts(app.CurrentModelName);
-            end
-
-            rawName = replace(rawName, ' ', '_');
-            newName = sprintf("GCode-V1-%s", rawName);
-
-            currentVal = app.FieldFilename.Value;
-
-            if isempty(currentVal) || startsWith(currentVal, "GCode-V1-")
-                app.FieldFilename.Value = newName;
-            end
-
-            % Update the new status block
-            app.updatePostStatus();
-        end
-
-        function updatePostStatus(app, isFreshPost)
-            if nargin < 2, isFreshPost = false; end % Default: assume parameter changed
-            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus), return; end
-
-            t = app.getTheme();
-            feed = app.SpinFeedRate.Value;
-            power = app.SpinPower.Value;
-
-            % 1. Logic: If parameters changed (not a fresh post), invalidate old code
-            if ~isFreshPost && ~isempty(app.PP_GCodeLines)
-                app.PP_GCodeLines = strings(0);
-                app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
-                app.BtnSaveGCode.Enable = 'off';
-                app.BtnSaveGCode.BackgroundColor = [0.3 0.3 0.3];
-                app.BtnSaveGCode.FontColor =[0.8 0.8 0.8];
-            end
-
-            msg = strings(0);
-            % Default to neutral theme background
-            panelBg = t.sideBg;
-            textCol = t.labelCol;
-
-            % --- 2. DETERMINE STATUS STATE & COLOR ---
-            msg = strings(0);
-
-            % Default to Success (Green) if G-code exists, else Stale (Red)
-            if isempty(app.PP_GCodeLines)
-                panelBg = t.statErrBg;
-                textCol = t.statErrTxt;
-                msg = ["STALE G-CODE:", "Parameters changed. Re-run Post-Process."];
-            else
-                panelBg = t.statPassBg;
-                textCol = t.statPassTxt;
-                msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
-            end
-
-            % --- 3. APPLY SAFETY OVERRIDES (Priority: Red > Amber) ---
-
-            % Check A: Wire Extension (Mechanical Limit)
-            isExtRed   = app.MaxPathExtension > app.WireExt_Red;
-            isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
-
-            if isExtRed
-                panelBg = t.statErrBg;
-                textCol = t.statErrTxt;
-                msg(end+1) = "CRITICAL: Wire Extension exceeds pulley travel!";
-            elseif isExtAmber
-                % Only upgrade to Amber if we aren't already Red
-                if ~isequal(panelBg, t.statErrBg)
-                    panelBg = t.statWarnBg;
-                    textCol = t.statWarnTxt;
-                end
-                msg(end+1) = "WARNING: Approaching mechanical pulley limit.";
-            end
-
-            % Check B: Feed/Power Balance
-            if (power < 25 && feed > 80) || (power > 80 && feed < 30)
-                % Only upgrade to Amber if we aren't already Red
-                if ~isequal(panelBg, t.statErrBg)
-                    panelBg = t.statWarnBg;
-                    textCol = t.statWarnTxt;
-                end
-                msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
-            end
-
-            % Final instruction line
-            if ~isempty(app.PP_GCodeLines)
-                msg(end+1) = "Verify paths and click Save.";
-            end
-
-            % --- 4. APPLY TO UI ---
-            app.PostLeftPanel.BackgroundColor = panelBg;
-            app.TxtPostStatus.Value = msg;
-            app.TxtPostStatus.FontColor = textCol;
-        end
-
-        function initPostPlot(app)
-            axP = app.AxPost;
-            cla(axP); hold(axP,'on');
-
-            % Ensure sim plot exists (and has the objects/tags we want)
-            if isempty(app.AxSim) || ~isvalid(app.AxSim)
-                error('AxSim invalid - cannot clone simulation scene.');
-            end
-
-            % If the sim scene hasn't been built yet, build it once
-            if isempty(app.AxSim.Children)
-                app.initSimulationPlot();
-            end
-
-            % Copy the entire scene from Sim axes into Post axes
-            copyobj(app.AxSim.Children, axP);
-
-            % Rename Sim* tags to Post* tags in the Post axes
-            h = findall(axP, '-property', 'Tag');
-            for i = 1:numel(h)
-                tg = string(h(i).Tag);
-                if startsWith(tg, "Sim")
-                    h(i).Tag = "Post" + extractAfter(tg, 3);
-                end
-            end
-
-            % Match formatting/view (copy key axes props)
-            axP.BackgroundColor = app.AxSim.BackgroundColor;
-            axP.XColor = app.AxSim.XColor;
-            axP.YColor = app.AxSim.YColor;
-            axP.ZColor = app.AxSim.ZColor;
-            axP.GridColor = app.AxSim.GridColor;
-            axP.GridAlpha = app.AxSim.GridAlpha;
-
-            grid(axP,'on');
-            axis(axP,'equal');
-            view(axP, app.AxSim.View);
-
-            hold(axP,'off');
-
-        end
-
-        function updatePostPlotForSelectedLine(app, k)
-            % Maps selected G-code line (k) to Visual Path Index and updates Post plot
-
-            if isempty(app.PP_LineToPathIndex) || isempty(app.PP_PathL) || isempty(app.PP_TowerPathL)
-                return;
-            end
-
-            % Map Line -> Path Index
-            k = max(1, min(k, numel(app.PP_LineToPathIndex)));
-            idx = app.PP_LineToPathIndex(k);
-
-            % Handle non-movement lines (scroll back)
-            kk = k;
-            while (isnan(idx) || idx <= 0) && kk > 1
-                kk = kk - 1;
-                idx = app.PP_LineToPathIndex(kk);
-            end
-            if isnan(idx) || idx <= 0, idx = 1; end
-            idx = min(idx, size(app.PP_PathL,1));
-
-            ax = app.AxPost;
-            offX = app.MachineBedPos(1);
-
-            % Phase Indices
-            idxRapidEnd   = app.PP_RapidEndIndex;
-            idxProfStart  = app.PP_ProfileStartIndex;
-            idxProfEnd    = app.PP_ProfileEndIndex;
-            idxLeadOutEnd = app.PP_LeadOutEndIndex;
-
-            towerL = app.PP_TowerPathL; towerR = app.PP_TowerPathR;
-            pathL  = app.PP_PathL; pathR  = app.PP_PathR;
-
-            % Update Dots & Wire
-            pTL =[towerL(idx,1) - offX, towerL(idx,2), towerL(idx,3)];
-            pTR =[towerR(idx,1) - offX, towerR(idx,2), towerR(idx,3)];
-            pML =[pathL(idx,1) - offX, pathL(idx,2), pathL(idx,3)];
-            pMR =[pathR(idx,1) - offX, pathR(idx,2), pathR(idx,3)];
-
-            % Calculate Brass Joint Position (Fixed length hot wire)
-            wireVec = pTR - pTL;
-            wireLen = norm(wireVec);
-            L_hot = (app.MachineBedPos(1) + app.MachineBedSize(1)) + app.BrassJointOffsetRight;
-            pJoint = pTL + wireVec * (L_hot / wireLen);
-
-            set(findobj(ax,'Tag','PostWire'), 'XData',[pTL(1) pJoint(1)], 'YData',[pTL(2) pJoint(2)], 'ZData',[pTL(3) pJoint(3)]);
-            set(findobj(ax,'Tag','PostTensionWire'), 'XData',[pJoint(1) pTR(1)], 'YData',[pJoint(2) pTR(2)], 'ZData',[pJoint(3) pTR(3)]);
-            set(findobj(ax,'Tag','PostBrassJoint'), 'XData',pJoint(1), 'YData',pJoint(2), 'ZData',pJoint(3));
-
-            set(findobj(ax,'Tag','PostDotL'), 'XData',pTL(1), 'YData',pTL(2), 'ZData',pTL(3));
-            set(findobj(ax,'Tag','PostDotR'), 'XData',pTR(1), 'YData',pTR(2), 'ZData',pTR(3));
-            set(findobj(ax,'Tag','PostModelDotL'), 'XData',pML(1), 'YData',pML(2), 'ZData',pML(3));
-            set(findobj(ax,'Tag','PostModelDotR'), 'XData',pMR(1), 'YData',pMR(2), 'ZData',pMR(3));
-
-            % Update Trails (Strict Phases)
-            function updateT(tag, data, s, e)
-                h = findobj(ax, 'Tag', tag);
-                if ~isempty(h)
-                    s = max(1, min(s, size(data,1))); e = max(1, min(e, size(data,1)));
-                    if e < s, h.XData=[]; h.YData=[]; h.ZData=[]; return; end
-                    dt = data(s:e,:);
-                    h.XData = dt(:,1) - offX; h.YData = dt(:,2); h.ZData = dt(:,3);
-                end
-            end
-
-            function clearT(tags)
-                for ii=1:numel(tags)
-                    h=findobj(ax,'Tag',tags{ii}); if ~isempty(h), h.XData=[]; h.YData=[]; h.ZData=[]; end
-                end
-            end
-
-            % 1. Rapid (Yellow) - Path from Start to Entry Point
-            curEnd = min(idx, idxRapidEnd);
-            updateT('PostTowerRapidL', towerL, 1, curEnd);
-            updateT('PostTowerRapidR', towerR, 1, curEnd);
-            updateT('PostModelRapidL', pathL,  1, curEnd);
-            updateT('PostModelRapidR', pathR,  1, curEnd);
-
-            % 2. Lead In (Orange) - Path from Entry Point to Profile Start
-            if idx > idxRapidEnd
-                curEnd = min(idx, idxProfStart);
-                % We start drawing from RapidEnd (the Entry Point)
-                updateT('PostTowerLeadInL', towerL, idxRapidEnd, curEnd);
-                updateT('PostTowerLeadInR', towerR, idxRapidEnd, curEnd);
-                updateT('PostModelLeadInL', pathL,  idxRapidEnd, curEnd);
-                updateT('PostModelLeadInR', pathR,  idxRapidEnd, curEnd);
-            else, clearT({'PostTowerLeadInL','PostTowerLeadInR','PostModelLeadInL','PostModelLeadInR'}); end
-
-            % 3. Feed (Red/Green)
-            if idx > idxProfStart
-                curEnd = min(idx, idxProfEnd);
-                updateT('PostTowerFeedL', towerL, idxProfStart, curEnd);
-                updateT('PostTowerFeedR', towerR, idxProfStart, curEnd);
-                updateT('PostModelFeedL', pathL,  idxProfStart, curEnd);
-                updateT('PostModelFeedR', pathR,  idxProfStart, curEnd);
-            else, clearT({'PostTowerFeedL','PostTowerFeedR','PostModelFeedL','PostModelFeedR'}); end
-
-            % 4. Lead Out (Orange Dashed)
-            if idx > idxProfEnd
-                curEnd = min(idx, idxLeadOutEnd);
-                updateT('PostTowerLeadOutL', towerL, idxProfEnd, curEnd);
-                updateT('PostTowerLeadOutR', towerR, idxProfEnd, curEnd);
-                updateT('PostModelLeadOutL', pathL,  idxProfEnd, curEnd);
-                updateT('PostModelLeadOutR', pathR,  idxProfEnd, curEnd);
-            else, clearT({'PostTowerLeadOutL','PostTowerLeadOutR','PostModelLeadOutL','PostModelLeadOutR'}); end
-
-            % 5. Return (Yellow Dashed)
-            if idx > idxLeadOutEnd
-                updateT('PostTowerReturnL', towerL, idxLeadOutEnd, idx);
-                updateT('PostTowerReturnR', towerR, idxLeadOutEnd, idx);
-                updateT('PostModelReturnL', pathL,  idxLeadOutEnd, idx);
-                updateT('PostModelReturnR', pathR,  idxLeadOutEnd, idx);
-            else, clearT({'PostTowerReturnL','PostTowerReturnR','PostModelReturnL','PostModelReturnR'}); end
-
-            drawnow limitrate;
-        end
-
-        function onResetPostViewMachine(app)
-            app.resetViewToMachine(app.AxPost);
-        end
-
-        function onResetPostViewBillet(app)
-            app.resetViewToBillet(app.AxPost);
-        end
-
-        function onPostProcess(app)
-            % Generates Semantic G-Code using TRUTH data.
-            % Builds a visual path (PP_PathL/R) strictly from G-Code coords (1:1 fidelity).
-
-            % 1. Ensure Simulation Data Exists
-            if isempty(app.SimPathL) || isempty(app.ProfileSyncL)
-                app.generateSimulationData();
-                if isempty(app.SimPathL)
-                    uialert(app.UIFigure, 'No path data available.', 'Error');
-                    return;
-                end
-            end
-
-            % --- DATA SYNC ---
-            app.PP_PathL = zeros(0,3);
-            app.PP_PathR = zeros(0,3);
-            app.PP_TowerPathL = zeros(0,3);
-            app.PP_TowerPathR = zeros(0,3);
-
-            % 2. Prepare Settings
-            feed  = round(app.SpinFeedRate.Value);
-            power = round(app.SpinPower.Value);
-            lines = strings(0,1);
-            map = zeros(0,1);
-            pathIdx = 0;
-
-            % --- ALIGNMENT & HELPERS ---
-            baseX = app.MachineBilletPos(1) + app.BilletShift(1) + app.ModelXMin;
-            xM_L = baseX + app.NumLeftOffset.Value;
-            xM_R = baseX + app.NumRightOffset.Value;
-            xT_L = 0;
-            xT_R = app.MachineSpanX;
-
-            mDim = [abs(xM_R - xM_L), app.ModelYMax - app.ModelYMin, app.ModelZMax - app.ModelZMin];
-
-            % Nested Helper 1: Project Model YZ to Tower Coordinates
-            function [tx, ty, tz, ta] = project(yL, zL, yR, zR)
-                rL = (xT_L - xM_L) / (xM_R - xM_L);
-                tyL = yL + (yR - yL) * rL;
-                tzL = zL + (zR - zL) * rL;
-                rR = (xT_R - xM_L) / (xM_R - xM_L);
-                tyR = yL + (yR - yL) * rR;
-                tzR = zL + (zR - zL) * rR;
-                tx = tyL; ty = tzL; tz = tyR; ta = tzR;
-            end
-
-            % Nested Helper 2: Reverse Project for Verification Plotting
-            function [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta)
-                ratioL = (xM_L - xT_L) / (xT_R - xT_L);
-                ratioR = (xM_R - xT_L) / (xT_R - xT_L);
-                mxL = xM_L; myL = tx + (tz - tx) * ratioL; mzL = ty + (ta - ty) * ratioL;
-                mxR = xM_R; myR = tx + (tz - tx) * ratioR; mzR = ty + (ta - ty) * ratioR;
-            end
-
-            % Nested Helper 3: Add Line to G-Code list and map path
-            function add(code, comment, tx, ty, tz, ta)
-                if nargin >= 2 && ~isempty(char(comment))
-                    if startsWith(strtrim(comment), '(')
-                        s = sprintf('%-35s %s', code, comment);
-                    else
-                        s = sprintf('%-35s (%s)', code, comment);
-                    end
-                else
-                    s = code;
-                end
-
-                lines(end+1) = s;
-
-                if nargin >= 6
-                    % Only increment index and record position if we have movement
-                    pathIdx = pathIdx + 1;
-                    app.PP_TowerPathL(pathIdx,:) = [xT_L, tx, ty];
-                    app.PP_TowerPathR(pathIdx,:) = [xT_R, tz, ta];
-                    [mxL, myL, mzL, mxR, myR, mzR] = machineToModelVisual(tx, ty, tz, ta);
-                    app.PP_PathL(pathIdx,:) = [mxL, myL, mzL];
-                    app.PP_PathR(pathIdx,:) = [mxR, myR, mzR];
-                end
-
-                % Map this line of G-code to the last known path position
-                map(end+1) = max(1, pathIdx);
-            end
-
-            % Nested Helper 4: Dynamic Feed G1 Move
-            function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
-                [tx, ty, tz, ta] = project(targL(1), targL(2), tgtR(1), tgtR(2));
-                [px, py, pz, pa] = project(prevL(1), prevL(2), prevR(1), prevR(2));
-
-                if app.ChkDynamicFeed.Value
-                    distL_model = hypot(targL(1) - prevL(1), targL(2) - prevL(2));
-                    distR_model = hypot(tgtR(1) - prevR(1), tgtR(2) - prevR(2));
-                    dist_Model_Max = max(distL_model, distR_model);
-                    dist_Mach4 = sqrt((tx - px)^2 + (ty - py)^2 + (tz - pz)^2 + (ta - pa)^2);
-
-                    if dist_Model_Max > 1e-5
-                        dynF = feed * (dist_Mach4 / dist_Model_Max);
-                    else
-                        dynF = feed;
-                    end
-                    if dynF > 1500.0, dynF = 1500.0; end
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f', tx, ty, tz, ta, dynF), commentStr, tx, ty, tz, ta);
-                else
-                    add(sprintf('G1 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), commentStr, tx, ty, tz, ta);
-                end
-            end
-
-            % --- 4. G-CODE GENERATION ---
-            pSyncL = app.ProfileSyncL;
-            pSyncR = app.ProfileSyncR;
-
-            add('%% ------------------------------------------');
-            add(sprintf('%%     File: %s', app.FieldFilename.Value));
-            add(sprintf('%%    Model: %s', app.CurrentModelName));
-            add(sprintf('%%     Date: %s', string(datetime('now'))));
-            add(sprintf('%%    Model: X=%.2fmm Y=%.2fmm Z=%.2fmm', mDim));
-            add(sprintf('%%   Billet: X=%.2fmm Y=%.2fmm Z=%.2fmm', app.BilletSize));
-
-            uiBilletPos = app.MachineBilletPos;
-            uiBilletPos(1) = uiBilletPos(1) - app.MachineBedPos(1);
-            add(sprintf('%% Position: X=%.2fmm Y=%.2fmm Z=%.2fmm', uiBilletPos));
-
-            add('% ------------------------------------------');
-            add('%%EXTENTS_MIN%%');
-            add('%%EXTENTS_MAX%%');
-            add('%%WIRE_EXTENSION_MAX%%');
-            add('% ------------------------------------------');
-            add('G21','Metric');
-            add('G90','Absolute');
-            add('G94','Feed/min');
-
-            % --- START SEQUENCE ---
-            add('G53 G0 X0 Z0', 'Safe Start: Horizontals', 0, 0, 0, 0);
-            add('G53 G0 Y0 A0', 'Safe Start: Verticals', 0, 0, 0, 0);
-
-            % --- PHASE 1: LOAD ---
-            add('%% --- LOADING ---', '');
-            add('G0 X10.00 Y10.00 Z10.00 A10.00', 'Safe Position', 10, 10, 10, 10);
-            bY = app.MachineBilletPos(2);
-            bZ = app.MachineBilletPos(3) + app.BilletSize(3)/2;
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY, bZ, bY, bZ), 'Load Position', bY, bZ, bY, bZ);
-            add('M00', 'STOP: Load Block');
-            bY_Ret = bY - 4.0;
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', bY_Ret, bZ, bY_Ret, bZ), 'Retract Safety', bY_Ret, bZ, bY_Ret, bZ);
-
-            % --- PHASE 2: APPROACH & LEAD-IN ---
-            add('%% --- APPROACH ---', '');
-            e1L = app.EntryPointL;  e1R = app.EntryPointR;
-            e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
-            e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
-
-            if ~isempty(e2L)
-                [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
-            end
-            if ~isempty(e3L)
-                [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
-            end
-            if ~isempty(e1L)
-                [tx, ty, tz, ta] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
-            end
-            app.PP_RapidEndIndex = pathIdx;
-
-            % Heat Sequence
-            add(sprintf('S%d', power), 'Sets Hot Wire Power');
-            add('M301', 'Extraction ON > Wait 5s > Power ON');
-            add(sprintf('F%d', feed), 'Set Cut Feedrate');
-
-            % Lead-In Cut (The first orange move)
-            startL = pSyncL(1,:); startR = pSyncR(1,:);
-            if ~isempty(e1L)
-                addDynamicG1(startL, startR, e1L, e1R, 'Lead-In Cut to Profile');
-            else
-                prevL = [bY_Ret, bZ]; prevR = [bY_Ret, bZ];
-                addDynamicG1(startL, startR, prevL, prevR, 'Approach Cut to Profile');
-            end
-            app.PP_ProfileStartIndex = pathIdx;
-
-            % --- PHASE 3: PROFILE ---
-            add('%% --- PROFILE CUT ---', '');
-            for i = 2:size(pSyncL, 1)
-                addDynamicG1(pSyncL(i,:), pSyncR(i,:), pSyncL(i-1,:), pSyncR(i-1,:), '');
-            end
-            app.PP_ProfileEndIndex = pathIdx;
-
-            % --- PHASE 4: EXIT ---
-            add('%% --- EXIT SEQUENCE ---', '');
-            if ~isempty(e1L)
-                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead-Out Cut to Entry');
-            end
-            app.PP_LeadOutEndIndex = pathIdx;
-            add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
-
-            % Correct Order for Retraction
-            if ~isempty(e3L)
-                [tx, ty, tz, ta] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
-            end
-            if ~isempty(e2L)
-                [tx, ty, tz, ta] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
-            end
-
-            bY_RetFinal = app.MachineBilletPos(2) - 10.0;
-            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
-            [tx, ty, tz, ta] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
-
-            % --- FINAL RETURN (Split G53) ---
-            % Step 1: Retract Horizontals (X, Z) to 0, keeping current Vertical height (bZ_RetFinal)
-            add('G53 G0 X0 Z0', 'Retract Horizontals', 0, bZ_RetFinal, 0, bZ_RetFinal);
-
-            % Step 2: Retract Verticals (Y, A) to 0
-            add('G53 G0 Y0 A0', 'Retract Verticals', 0, 0, 0, 0);
-
-            add('M30', 'End Program');
-
-            % --- FINALIZE ---
-            % 1. Extract values from pre-calculated TowerL_Bounds [minY, maxY, minZ, maxZ]
-            minX_v = app.TowerL_Bounds(1); maxX_v = app.TowerL_Bounds(2);
-            minY_v = app.TowerL_Bounds(3); maxY_v = app.TowerL_Bounds(4);
-
-            minZ_v = app.TowerR_Bounds(1); maxZ_v = app.TowerR_Bounds(2);
-            minA_v = app.TowerR_Bounds(3); maxA_v = app.TowerR_Bounds(4);
-
-            % 2. Create formatted G-code comment strings
-            mStr = sprintf('%% Extents Min: X=%.2f Y=%.2f Z=%.2f A=%.2f', minX_v, minY_v, minZ_v, minA_v);
-            MStr = sprintf('%% Extents Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', maxX_v, maxY_v, maxZ_v, maxA_v);
-            EStr = sprintf('%% Max Wire Extension: %.2f mm (Limit: %.0f mm)', app.MaxPathExtension, app.WireExt_Red);
-
-            % 3. Swap the placeholders in the 'lines' string array
-            lines = replace(lines, '%%EXTENTS_MIN%%', mStr);
-            lines = replace(lines, '%%EXTENTS_MAX%%', MStr);
-            lines = replace(lines, '%%WIRE_EXTENSION_MAX%%', EStr);
-
-            % 4. Update UI
-            app.PP_GCodeLines = lines;
-            app.PP_LineToPathIndex = map;
-            app.ListGCode.Items = cellstr(lines);
-            app.ListGCode.ItemsData = 1:numel(lines);
-            app.ListGCode.Value = 1;
-
-            app.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor =[0.1 0.6 0.1]; % Turn green when ready
-            app.BtnSaveGCode.FontColor = [1 1 1];
-
-            if isempty(app.AxSim.Children), app.initSimulationPlot(); end
-            app.initPostPlot();
-
-            % Force Machine View limits BEFORE updating the line data to prevent flicker
-            app.onResetPostViewMachine();
-
-            app.updatePostPlotForSelectedLine(1);
-            app.updatePostStatus(true); % Pass 'true' to signify this is a fresh post
-        end
-
-        function onPostLineSelected(app, src)
-            % Direct index mapping (robust against duplicate G-code lines)
-            val = src.Value;
-
-            if isempty(val)
-                return;
-            end
-
-            % val is already the numeric index (double) because we set ItemsData
-            app.PP_SelectedLine = val;
-
-            % Update plot
-            app.updatePostPlotForSelectedLine(val);
-        end
-
-        function stepPostLine(app, delta)
-            % Check if data exists
-            if isempty(app.ListGCode.ItemsData)
-                return;
-            end
-
-            % Get limits
-            n = numel(app.ListGCode.ItemsData);
-
-            % Determine current and next index
-            cur = app.PP_SelectedLine;
-            if isempty(cur) || cur < 1, cur = 1; end
-
-            nxt = max(1, min(n, cur + delta));
-
-            % Update State
-            app.PP_SelectedLine = nxt;
-
-            % Update UI (Pass the NUMBER, not the text)
-            app.ListGCode.Value = nxt;
-
-            % Update Plot
-            app.updatePostPlotForSelectedLine(nxt);
-        end
-
-        function onKeyPress(app, ~, event)
-            % Only handle keys when Post tab is active
-            if isempty(app.TabGroup) || ~isequal(app.TabGroup.SelectedTab, app.TabPostProcess)
-                return;
-            end
-            if isempty(app.ListGCode) || isempty(app.ListGCode.Items)
-                return;
-            end
-
-            switch event.Key
-                case 'downarrow'
-                    app.stepPostLine(+1);
-                case 'uparrow'
-                    app.stepPostLine(-1);
-                case 'pagedown'
-                    app.stepPostLine(+10);
-                case 'pageup'
-                    app.stepPostLine(-10);
-            end
-        end
-
-        function onSaveGCode(app)
-            % Check if data exists
-            if isempty(app.PP_GCodeLines)
-                uialert(app.UIFigure, 'No G-code generated yet. Please click "Post-Process" first.', 'Save Error');
-                return;
-            end
-
-            % Mach4 typically uses .tap, .nc, or .gcode
-            filter = {'*.tap', 'Mach4 G-Code (*.tap)'; ...
-                '*.nc',  'Standard G-Code (*.nc)'; ...
-                '*.txt', 'Text File (*.txt)'};
-
-            % Default name from the input field
-            defaultName = app.FieldFilename.Value;
-            [file, path] = uiputfile(filter, 'Save Toolpath', defaultName);
-
-            if isequal(file, 0), return; end % User cancelled
-
-            fullPath = fullfile(path, file);
-
-            try
-                % Open file for writing (text mode)
-                fid = fopen(fullPath, 'w');
-                if fid == -1
-                    error('Could not create file. Check permissions.');
-                end
-
-                % 1. Write Header Delimiter (Common for CNC)
-                fprintf(fid, '%%\r\n');
-
-                % 2. Write G-Code Lines with Windows Line Endings (CRLF)
-                % Many CNC controllers require \r\n, not just \n
-                for i = 1:numel(app.PP_GCodeLines)
-                    lineStr = app.PP_GCodeLines(i);
-                    fprintf(fid, '%s\r\n', lineStr);
-                end
-
-                % 3. Write Footer Delimiter
-                fprintf(fid, '%%\r\n');
-
-                fclose(fid);
-
-                % Success Confirmation
-                uialert(app.UIFigure, ['File saved successfully:' newline fullPath], 'Saved', 'Icon','success');
-
-            catch ME
-                if exist('fid', 'var') && fid > -1, fclose(fid); end
-                uialert(app.UIFigure, ['Error saving file:' newline ME.message], 'File Error');
-            end
         end
 
         % ===========================================================
