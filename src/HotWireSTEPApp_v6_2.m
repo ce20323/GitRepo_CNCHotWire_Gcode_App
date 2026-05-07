@@ -951,6 +951,133 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.updatePlanes();
         end
 
+        %%                    - PLOTTING (MODEL TAB) -
+
+        function plotMesh(app, V, F)
+            % Purpose: Renders the imported 3D mesh in the Model tab's axes.
+            % HOW: Initializes the default view, lighting, and bounding box.
+
+            cla(app.AxModel);
+
+            app.ModelPatch = patch(app.AxModel, ...
+                'Vertices', V, 'Faces', F, ...
+                'FaceColor',[0.7 0.7 0.8], ...
+                'FaceAlpha', 0.6, ...
+                'EdgeColor',[0.3 0.3 0.4], ...
+                'EdgeAlpha', 0.5, ...
+                'LineStyle', '-', ...
+                'LineWidth', 0.6);
+
+            if strlength(app.CurrentModelName) > 0
+                app.FileLabel.Text = "Current File: " + app.CurrentModelName;
+            else
+                app.FileLabel.Text = "Current File: ---";
+            end
+
+            xlabel(app.AxModel, 'X (mm)', 'FontWeight', 'bold');
+            ylabel(app.AxModel, 'Y (mm)', 'FontWeight', 'bold');
+            zlabel(app.AxModel, 'Z (mm)', 'FontWeight', 'bold');
+
+            grid(app.AxModel, 'on');
+            view(app.AxModel, 3);
+
+            delete(findall(app.AxModel, 'Type', 'light'));
+            camlight(app.AxModel, 'headlight');
+            lighting(app.AxModel, 'gouraud');
+
+            % ONLY reset the manual lock on a brand new file import
+            app.IsBilletUserModified = false;
+            
+            app.autoFitView();
+            drawnow;
+            app.captureHomeView();
+
+            app.updateModelBoundsAndDefaultOffsets();
+            app.updateBilletDefaultsFromMesh();
+
+            app.BilletRefXMin = app.ModelXMin;
+            app.BilletRefYMin = app.ModelYMin;
+            app.BilletRefZMin = app.ModelZMin;
+
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+        end
+
+        function autoFitView(app)
+            % Purpose: Automatically scales and centers the 3D camera view.
+            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch), return; end
+
+            V      = app.ModelPatch.Vertices;
+            mins   = min(V, [], 1);
+            maxs   = max(V,[], 1);
+            center = mean([mins; maxs], 1);
+            span   = max(maxs - mins);
+            if span <= 0, span = 1; end
+
+            pad = app.AutoFitPaddingFactor * span;
+            xlim(app.AxModel,[mins(1)-pad, maxs(1)+pad]);
+            ylim(app.AxModel,[mins(2)-pad, maxs(2)+pad]);
+            zlim(app.AxModel,[mins(3)-pad, maxs(3)+pad]);
+
+            app.AxModel.DataAspectRatio =[1 1 1];
+            app.AxModel.DataAspectRatioMode = 'manual';
+            app.AxModel.PlotBoxAspectRatioMode = 'auto';
+
+            app.AxModel.CameraTarget = center;
+            app.AxModel.CameraUpVector = [0 0 1];
+
+            camPos = app.AxModel.CameraPosition;
+            dirVec = (camPos - center) / norm(camPos - center);
+            if any(isnan(dirVec)), dirVec =[1 1 1]/sqrt(3); end
+            app.AxModel.CameraPosition = center + dirVec * (span * 2.5);
+
+            delete(findall(app.AxModel, 'Type', 'light'));
+            camlight(app.AxModel, 'headlight');
+            lighting(app.AxModel, 'gouraud');
+
+            drawnow limitrate;
+        end
+
+        function captureHomeView(app)
+            % Purpose: Stores the current camera and axes limits as the "Home" view.
+            if isempty(app.AxModel) || ~isvalid(app.AxModel), return; end
+            ax = app.AxModel;
+            app.DefaultXLim               = xlim(ax);
+            app.DefaultYLim               = ylim(ax);
+            app.DefaultZLim               = zlim(ax);
+            app.DefaultDataAspectRatio    = ax.DataAspectRatio;
+            app.DefaultPlotBoxAspectRatio = ax.PlotBoxAspectRatio;
+            app.DefaultCameraPosition     = ax.CameraPosition;
+            app.DefaultCameraTarget       = ax.CameraTarget;
+            app.DefaultCameraUpVector     = ax.CameraUpVector;
+            app.DefaultCameraViewAngle    = ax.CameraViewAngle; 
+        end
+
+        function resetPlotView(app)
+            % Purpose: Restores the 3D axes to the previously captured "Home" view.
+            if isempty(app.DefaultXLim)
+                app.autoFitView(); 
+                return; 
+            end
+            ax = app.AxModel;
+
+            xlim(ax, app.DefaultXLim); 
+            ylim(ax, app.DefaultYLim); 
+            zlim(ax, app.DefaultZLim);
+            
+            ax.DataAspectRatio    = app.DefaultDataAspectRatio;
+            ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
+            ax.CameraPosition     = app.DefaultCameraPosition;
+            ax.CameraTarget       = app.DefaultCameraTarget;
+            ax.CameraUpVector     = app.DefaultCameraUpVector;
+            ax.CameraViewAngle    = app.DefaultCameraViewAngle; 
+
+            delete(findall(ax, 'Type', 'light'));
+            camlight(ax, 'headlight'); 
+            lighting(ax, 'gouraud');
+            drawnow limitrate;
+        end
+        
         %%                    - ROTATION -
         function updateRotation(app, axisChar, newVal)
             % Purpose: Rotates the 3D model to a specific absolute angle.
@@ -4899,6 +5026,85 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% ===========================================================
         %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS ---
         %% ===========================================================
+        %%                    - GRAPHICS CLEARING HELPERS -
+
+        function clearPlanes(app)
+            % Purpose: Deletes any existing 3D plane graphics and resets handles.
+            if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
+                delete(app.LeftPlanePatch);
+            end
+            if ~isempty(app.RightPlanePatch) && isgraphics(app.RightPlanePatch)
+                delete(app.RightPlanePatch);
+            end
+            if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText)
+                delete(app.LeftPlaneText);
+            end
+            if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText)
+                delete(app.RightPlaneText);
+            end
+
+            app.LeftPlanePatch  = gobjects(0);
+            app.RightPlanePatch = gobjects(0);
+            app.LeftPlaneText   = gobjects(0);
+            app.RightPlaneText  = gobjects(0);
+        end
+
+        function clearProfiles(app)
+            % Purpose: Deletes any existing 3D profile graphics and clears stored data.
+            if ~isempty(app.LeftProfileLine3D) && isgraphics(app.LeftProfileLine3D)
+                delete(app.LeftProfileLine3D);
+            end
+            if ~isempty(app.RightProfileLine3D) && isgraphics(app.RightProfileLine3D)
+                delete(app.RightProfileLine3D);
+            end
+
+            app.LeftProfileLine3D  = gobjects(0);
+            app.RightProfileLine3D = gobjects(0);
+            app.LeftProfilePoints  = zeros(0,3);
+            app.RightProfilePoints = zeros(0,3);
+        end
+
+        function clearProfiles2D(app)
+            % Purpose: Deletes 2D profile lines on the Profiles tab.
+            if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
+                delete(app.LeftProfile2DLine);
+            end
+            if ~isempty(app.RightProfile2DLine) && isgraphics(app.RightProfile2DLine)
+                delete(app.RightProfile2DLine);
+            end
+            if ~isempty(app.LeftProfile2DMeshLine) && isgraphics(app.LeftProfile2DMeshLine)
+                delete(app.LeftProfile2DMeshLine);
+            end
+            if ~isempty(app.RightProfile2DMeshLine) && isgraphics(app.RightProfile2DMeshLine)
+                delete(app.RightProfile2DMeshLine);
+            end
+            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
+                delete(app.LeftKerf2DLine);
+            end
+            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
+                delete(app.RightKerf2DLine);
+            end
+
+            app.LeftProfile2DLine      = gobjects(0);
+            app.RightProfile2DLine     = gobjects(0);
+            app.LeftProfile2DMeshLine  = gobjects(0);
+            app.RightProfile2DMeshLine = gobjects(0);
+            app.LeftKerf2DLine         = gobjects(0);
+            app.RightKerf2DLine        = gobjects(0);
+        end
+
+        function clearKerfPaths(app)
+            % Purpose: Delete only the kerf paths on the Profiles tab.
+            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
+                delete(app.LeftKerf2DLine);
+            end
+            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
+                delete(app.RightKerf2DLine);
+            end
+            app.LeftKerf2DLine  = gobjects(0);
+            app.RightKerf2DLine = gobjects(0);
+        end
+        
         %%                    - SHARED VIEW HELPERS ---
 
         function resetViewToMachine(app, ax)
@@ -5302,248 +5508,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
         
-        %% ===========================================================
-        %% --- to be cleaned up ---> ---
-        %% ===========================================================
-
-        function clearPlanes(app)
-            % Purpose: Deletes any existing 3D plane graphics and resets handles.
-            if ~isempty(app.LeftPlanePatch) && isgraphics(app.LeftPlanePatch)
-                delete(app.LeftPlanePatch);
-            end
-            if ~isempty(app.RightPlanePatch) && isgraphics(app.RightPlanePatch)
-                delete(app.RightPlanePatch);
-            end
-            if ~isempty(app.LeftPlaneText) && isgraphics(app.LeftPlaneText)
-                delete(app.LeftPlaneText);
-            end
-            if ~isempty(app.RightPlaneText) && isgraphics(app.RightPlaneText)
-                delete(app.RightPlaneText);
-            end
-
-            app.LeftPlanePatch  = gobjects(0);
-            app.RightPlanePatch = gobjects(0);
-            app.LeftPlaneText   = gobjects(0);
-            app.RightPlaneText  = gobjects(0);
-        end
-
-        function clearProfiles(app)
-            % Deletes any existing profile graphics and clears stored data
-            if ~isempty(app.LeftProfileLine3D) && isgraphics(app.LeftProfileLine3D)
-                delete(app.LeftProfileLine3D);
-            end
-            if ~isempty(app.RightProfileLine3D) && isgraphics(app.RightProfileLine3D)
-                delete(app.RightProfileLine3D);
-            end
-
-            app.LeftProfileLine3D  = gobjects(0);
-            app.RightProfileLine3D = gobjects(0);
-            app.LeftProfilePoints  = [];
-            app.RightProfilePoints = [];
-        end
-
-        function clearProfiles2D(app)
-            % Purpose: Deletes 2D profile lines on the Profiles tab
-
-            % Main resampled profiles
-            if ~isempty(app.LeftProfile2DLine) && isgraphics(app.LeftProfile2DLine)
-                delete(app.LeftProfile2DLine);
-            end
-            if ~isempty(app.RightProfile2DLine) && isgraphics(app.RightProfile2DLine)
-                delete(app.RightProfile2DLine);
-            end
-
-            % Faint raw mesh slice overlays
-            if ~isempty(app.LeftProfile2DMeshLine) && isgraphics(app.LeftProfile2DMeshLine)
-                delete(app.LeftProfile2DMeshLine);
-            end
-            if ~isempty(app.RightProfile2DMeshLine) && isgraphics(app.RightProfile2DMeshLine)
-                delete(app.RightProfile2DMeshLine);
-            end
-
-            % Kerf paths
-            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
-                delete(app.LeftKerf2DLine);
-            end
-            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
-                delete(app.RightKerf2DLine);
-            end
-
-            % Reset graphics handles only
-            app.LeftProfile2DLine      = gobjects(0);
-            app.RightProfile2DLine     = gobjects(0);
-            app.LeftProfile2DMeshLine  = gobjects(0);
-            app.RightProfile2DMeshLine = gobjects(0);
-            app.LeftKerf2DLine         = gobjects(0);
-            app.RightKerf2DLine        = gobjects(0);
-        end
-
-        function clearKerfPaths(app)
-            % Purpose: Delete only the kerf paths on the Profiles tab.
-            if ~isempty(app.LeftKerf2DLine) && isgraphics(app.LeftKerf2DLine)
-                delete(app.LeftKerf2DLine);
-            end
-            if ~isempty(app.RightKerf2DLine) && isgraphics(app.RightKerf2DLine)
-                delete(app.RightKerf2DLine);
-            end
-            app.LeftKerf2DLine  = gobjects(0);
-            app.RightKerf2DLine = gobjects(0);
-        end
-
-        % ===========================================================
-        % PLOTTING (MODEL + PLANES)
-        % ===========================================================
-        function plotMesh(app, V, F)
-            % Purpose: Renders the imported 3D mesh in the Model tab's axes.
-            %          Initializes the default view, lighting, and bounding box.
-
-            %% --- 1. RENDER MESH ---
-            cla(app.AxModel);
-
-            app.ModelPatch = patch(app.AxModel, ...
-                'Vertices', V, 'Faces', F, ...
-                'FaceColor',[0.7 0.7 0.8], ...
-                'FaceAlpha', 0.6, ...
-                'EdgeColor', [0.3 0.3 0.4], ...
-                'EdgeAlpha', 0.5, ...
-                'LineStyle', '-', ...
-                'LineWidth', 0.6);
-
-            if strlength(app.CurrentModelName) > 0
-                app.FileLabel.Text = "Current File: " + app.CurrentModelName;
-            else
-                app.FileLabel.Text = "Current File: ---";
-            end
-
-            %% --- 2. FORMAT AXES ---
-            xlabel(app.AxModel, 'X (mm)', 'FontWeight', 'bold');
-            ylabel(app.AxModel, 'Y (mm)', 'FontWeight', 'bold');
-            zlabel(app.AxModel, 'Z (mm)', 'FontWeight', 'bold');
-
-            grid(app.AxModel, 'on');
-            view(app.AxModel, 3);
-
-            delete(findall(app.AxModel, 'Type', 'light'));
-            camlight(app.AxModel, 'headlight');
-            lighting(app.AxModel, 'gouraud');
-
-            %% --- 3. INITIALIZE STATE & VIEWS ---
-            % ONLY reset the manual lock on a brand new file import
-            app.IsBilletUserModified = false;
-
-            app.autoFitView();
-            drawnow;
-            app.captureHomeView();
-
-            % Update model X bounds and default plane offsets
-            app.updateModelBoundsAndDefaultOffsets();
-
-            % Compute initial billet defaults from this mesh
-            app.updateBilletDefaultsFromMesh();
-
-            % Capture the "Home" position for the Billet tab
-            app.BilletRefXMin = app.ModelXMin;
-            app.BilletRefYMin = app.ModelYMin;
-            app.BilletRefZMin = app.ModelZMin;
-
-            % Invalidate downstream tabs
-            app.IsMachineInit = false;
-            app.IsCuttingInit = false;
-        end
-
-        function autoFitView(app)
-            % Purpose: Automatically scales and centers the 3D camera view
-            %          to perfectly fit the current model dimensions.
-
-            if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch), return; end
-
-            %% --- 1. CALCULATE GEOMETRY BOUNDS ---
-            V      = app.ModelPatch.Vertices;
-            mins   = min(V,[], 1);
-            maxs   = max(V, [], 1);
-            center = mean([mins; maxs], 1);
-            span   = max(maxs - mins);
-            if span <= 0, span = 1; end
-
-            %% --- 2. APPLY LIMITS WITH PADDING ---
-            pad = app.AutoFitPaddingFactor * span;
-            xlim(app.AxModel,[mins(1)-pad, maxs(1)+pad]);
-            ylim(app.AxModel,[mins(2)-pad, maxs(2)+pad]);
-            zlim(app.AxModel,[mins(3)-pad, maxs(3)+pad]);
-
-            %% --- 3. RE-STABILIZE VIEWPORT ---
-            % Lock 1:1:1 internal scaling
-            app.AxModel.DataAspectRatio =[1 1 1];
-            app.AxModel.DataAspectRatioMode = 'manual';
-
-            % Allow the axes box to match model proportions (prevents squashing)
-            app.AxModel.PlotBoxAspectRatioMode = 'auto';
-
-            % Point camera at centroid
-            app.AxModel.CameraTarget = center;
-            app.AxModel.CameraUpVector = [0 0 1];
-
-            % Move camera to comfortable distance based on model span
-            camPos = app.AxModel.CameraPosition;
-            dirVec = (camPos - center) / norm(camPos - center);
-            if any(isnan(dirVec)), dirVec =[1 1 1]/sqrt(3); end
-            app.AxModel.CameraPosition = center + dirVec * (span * 2.5);
-
-            % Refresh lighting
-            delete(findall(app.AxModel, 'Type', 'light'));
-            camlight(app.AxModel, 'headlight');
-            lighting(app.AxModel, 'gouraud');
-
-            drawnow limitrate;
-        end
-
-        function captureHomeView(app)
-            % Purpose: Stores the current camera and axes limits as the "Home" view.
-            %          Used by the "Reset Plot View" button.
-
-            if isempty(app.AxModel) || ~isvalid(app.AxModel), return; end
-            ax = app.AxModel;
-            app.DefaultXLim               = xlim(ax);
-            app.DefaultYLim               = ylim(ax);
-            app.DefaultZLim               = zlim(ax);
-            app.DefaultDataAspectRatio    = ax.DataAspectRatio;
-            app.DefaultPlotBoxAspectRatio = ax.PlotBoxAspectRatio;
-            app.DefaultCameraPosition     = ax.CameraPosition;
-            app.DefaultCameraTarget       = ax.CameraTarget;
-            app.DefaultCameraUpVector     = ax.CameraUpVector;
-            app.DefaultCameraViewAngle    = ax.CameraViewAngle; % Save zoom level
-        end
-
-        function resetPlotView(app)
-            % Purpose: Restores the 3D axes to the previously captured "Home" view.
-
-            if isempty(app.DefaultXLim)
-                app.autoFitView();
-                return;
-            end
-
-            ax = app.AxModel;
-
-            %% --- 1. RESTORE VIEWING FRUSTUM ---
-            xlim(ax, app.DefaultXLim);
-            ylim(ax, app.DefaultYLim);
-            zlim(ax, app.DefaultZLim);
-
-            ax.DataAspectRatio    = app.DefaultDataAspectRatio;
-            ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
-            ax.CameraPosition     = app.DefaultCameraPosition;
-            ax.CameraTarget       = app.DefaultCameraTarget;
-            ax.CameraUpVector     = app.DefaultCameraUpVector;
-            ax.CameraViewAngle    = app.DefaultCameraViewAngle; % Restore zoom
-
-            %% --- 2. REFRESH LIGHTING ---
-            delete(findall(ax, 'Type', 'light'));
-            camlight(ax, 'headlight');
-            lighting(ax, 'gouraud');
-
-            drawnow limitrate;
-        end
-end
+    end
 
     methods (Access = private)
         % ===========================================================
