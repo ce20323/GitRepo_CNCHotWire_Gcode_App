@@ -1,10 +1,12 @@
 classdef HotWireSTEPApp_v6_helpers
-    % Helper utilities for HotWireSTEPApp_v6_2
+    % ===========================================================
+    % HOTWIRE CNC G-CODE GENERATOR - MATH & GEOMETRY HELPERS
     %
-    % Contains:
-    %   - importSTEP_FreeCAD : STEP -> STL -> triangulation (V,F)
-    %   - sliceMeshAtX       : Triangle–plane intersection at X = const
-    %
+    % Purpose: A static utility class containing the heavy mathematical 
+    %          and geometric algorithms required by the main application.
+    % WHY: Keeps the main UI class clean and separates the "View/Controller" 
+    %      logic from the "Model/Math" logic.
+    % ===========================================================
 
     properties (Constant)
 
@@ -17,20 +19,25 @@ classdef HotWireSTEPApp_v6_helpers
         FreeCADAngularDeflection = 0.1;
 
         % --- Billet Default Rules ---
-        BilletXBuffer   = 0.001;  % mm (brief: +0.001 either side)
-        BilletYBuffer   = 5.0;    % mm (brief: 5mm front/back)
-        BilletZBuffer   = 10.0;   % mm (brief: model height + 10)
-        BilletZMinClear = 5.0;    % mm (brief: min-Z raised 5mm from bottom)
-        BilletStockHeights = [50 75 100]; % mm
+        BilletXBuffer   = 0.001;  % [mm] Tiny offset to prevent coplanar math errors
+        BilletYBuffer   = 5.0;    % [mm] Default safe distance from front/back faces
+        BilletZBuffer   = 10.0;   % [mm] Default safe distance from top/bottom faces
+        BilletZMinClear = 5.0;    % [mm] Minimum clearance from the bed
+        BilletStockHeights =[50 75 100]; % [mm] Standard physical foam block thicknesses
 
     end
 
     methods(Static)
 
-        % ===============================================================
-        % STEP -> STL -> MESH IMPORT USING FREECAD
-        % ===============================================================
-        function [V,F] = importSTEP_FreeCAD(cadPath, freeCADExe)
+        %% ===============================================================
+        %% --- GROUP 1: FILE I/O & MESHING ---
+        %% ===============================================================
+        
+        function [ V, F ] = importSTEP_FreeCAD(cadPath, freeCADExe)
+            % Purpose: Converts a STEP file into a triangulated 3D mesh using FreeCAD.
+            % WHY: MATLAB does not natively parse STEP geometry into meshes without expensive toolboxes.
+            % HOW: Dynamically writes a Python script, executes FreeCAD in headless mode via the 
+            %      command line to generate a temporary STL, and then reads that STL into MATLAB.
 
             V = [];
             F =[];
@@ -38,8 +45,8 @@ classdef HotWireSTEPApp_v6_helpers
             cadPath = char(cadPath);
             freeCADExe = char(freeCADExe);
 
-            % Single-line assignment to prevent markdown parser bugs
-            [~, modelName, ext] = fileparts(cadPath);
+            %parserbug
+            [ ~, modelName, ext ] = fileparts(cadPath);
 
             disp(['[HotWire CAM] Importing ', modelName, ext, ' via FreeCAD...']);
 
@@ -53,37 +60,41 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            % Temporary files
+            %% --- 1. PREPARE TEMPORARY FILES ---
             tmpID  = char(java.util.UUID.randomUUID());
             outSTL = fullfile(tempdir, ['fc_out_' tmpID '.stl']);
-            pyFile = fullfile(tempdir,['fc_' tmpID '.py']);
+            pyFile = fullfile(tempdir, ['fc_' tmpID '.py']);
 
             % Convert backslashes to forward slashes for Python string safety
             safeCadPath = strrep(cadPath, '\', '/');
             safeOutSTL  = strrep(outSTL, '\', '/');
 
-            % Write FreeCAD python script
+            %% --- 2. WRITE PYTHON SCRIPT ---
             fid = fopen(pyFile,'w');
             fprintf(fid,"import sys\n");
             fprintf(fid,"import FreeCAD, Part, Mesh, MeshPart\n");
             fprintf(fid,"doc = FreeCAD.newDocument()\n");
             fprintf(fid,"shape = Part.Shape()\n");
             fprintf(fid,"shape.read(r'%s')\n", safeCadPath);
+            
+            % Apply meshing deflections (lower = higher resolution mesh)
             fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
                 HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
+            
             fprintf(fid,"mesh.write(r'%s')\n", safeOutSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
 
-            % The Bulletproof Windows CMD workaround
-            % Single-line assignment to prevent markdown parser bugs
-            dummy1 = 0; [fcDir, fcName, fcExt] = fileparts(freeCADExe);
+            %% --- 3. EXECUTE FREECAD ---
+            % The Bulletproof Windows CMD workaround: Change directory to the FreeCAD bin folder first
+            %parserbug
+            [ fcDir, fcName, fcExt ] = fileparts(freeCADExe);
 
             fcExeName = [fcName, fcExt];
             cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
 
-            % Single-line assignment to prevent markdown parser bugs
-            dummy2 = 0; [status, cmdout] = system(cmdStr);
+            %parserbug
+            [ status, cmdout ] = system(cmdStr);
 
             if status ~= 0
                 disp('[HotWire CAM ERROR] FreeCAD Execution Failed.');
@@ -94,7 +105,7 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            % Read STL
+            %% --- 4. READ GENERATED STL ---
             if isfile(outSTL)
                 raw = stlread(outSTL);
                 F = double(raw.ConnectivityList);
@@ -106,44 +117,75 @@ classdef HotWireSTEPApp_v6_helpers
             end
         end
 
-        % ===============================================================
-        % TRIANGLE–PLANE SLICER  (X = x0)
-        % ===============================================================
-        function [xs, ys, zs] = sliceMeshAtX(V, F, x0)
-            xs = []; ys = []; zs = [];
+        %% ===============================================================
+        %% --- GROUP 2: MESH SLICING & LOOP EXTRACTION ---
+        %% ===============================================================
+        
+        function[ xs, ys, zs ] = sliceMeshAtX(V, F, x0)
+            % Purpose: Intersects a 3D triangle mesh with a 2D plane at a specific X coordinate.
+            % WHY: To extract the raw 2D cross-section (profile) of the model at the Left/Right cutting planes.
+            % HOW: Iterates through every face. If the face spans across the X-plane, it calculates 
+            %      the exact 3D intersection points of the triangle's edges.
+            
+            xs = []; ys = []; zs =[];
+            
             for k = 1:size(F,1)
-                tri = F(k,:); A = V(tri(1),:); B = V(tri(2),:); C = V(tri(3),:);
-                X = [A(1), B(1), C(1)];
+                tri = F(k,:); 
+                A = V(tri(1),:); 
+                B = V(tri(2),:); 
+                C = V(tri(3),:);
+                
+                X =[A(1), B(1), C(1)];
+                
+                % Fast rejection: If all 3 vertices are on the same side of the plane, skip it.
                 if all(X < x0) || all(X > x0), continue; end
-                pts = zeros(2,3); count = 0; edges = [A;B;C;A];
+                
+                pts = zeros(2,3); 
+                count = 0; 
+                edges =[A; B; C; A]; % Close the loop for easy iteration
+                
+                % Check each of the 3 edges of the triangle
                 for i = 1:3
-                    P1 = edges(i,:); P2 = edges(i+1,:);
+                    P1 = edges(i,:); 
+                    P2 = edges(i+1,:);
+                    
+                    % If the edge crosses the plane...
                     if (P1(1)-x0)*(P2(1)-x0) <= 0 && P1(1) ~= P2(1)
+                        % Calculate interpolation factor 't'
                         t = (x0 - P1(1)) / (P2(1)-P1(1));
+                        
                         if t >= 0 && t <= 1
-                            count = count + 1; pts(count,:) = P1 + t*(P2-P1);
-                            if count == 2, break; end
+                            count = count + 1; 
+                            pts(count,:) = P1 + t*(P2-P1);
+                            if count == 2, break; end % A plane can only intersect a triangle at 2 points max
                         end
                     end
                 end
+                
+                % If we found a valid intersection line segment across this face, store it.
+                % We append NaN to break the line segments for plotting purposes later.
                 if count == 2
                     xs = [xs, pts(1,1), pts(2,1), NaN];
                     ys = [ys, pts(1,2), pts(2,2), NaN];
-                    zs = [zs, pts(1,3), pts(2,3), NaN];
+                    zs =[zs, pts(1,3), pts(2,3), NaN];
                 end
             end
         end
 
-        % ===============================================================
-        % PROFILE LOOP RECONSTRUCTION
-        % ===============================================================
-        function [yLoop, zLoop] = buildMainProfileLoop(xs, ys, zs)
+        function [ yLoop, zLoop ] = buildMainProfileLoop(xs, ys, zs)
+            % Purpose: Converts a "soup" of disconnected line segments into a continuous, ordered polygon loop.
+            % WHY: The slicer returns random, unordered segments. CNC machines need a continuous path.
+            % HOW: Welds coincident vertices together to form a graph, then walks the edges to find 
+            %      closed loops. If multiple loops exist (e.g., a hollow tube), it returns the longest one.
+
             yLoop = [];
             zLoop =[];
+            
             if isempty(xs) || all(isnan(xs))
                 return;
             end
 
+            % 1. Clean out the NaNs used for plotting separation
             valid = ~(isnan(xs) | isnan(ys) | isnan(zs));
             idx = find(valid);
 
@@ -155,12 +197,14 @@ classdef HotWireSTEPApp_v6_helpers
                 idx = idx(1:end-1);
             end
 
+            % 2. Extract start (p1) and end (p2) points of every segment
             nSeg = numel(idx)/2;
-            p1 =[ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
+            p1 = [ys(idx(1:2:end)).', zs(idx(1:2:end)).'];
             p2 =[ys(idx(2:2:end)).', zs(idx(2:2:end)).'];
             allPts = [p1; p2];
 
-            % FIX: Use a strict absolute tolerance so sharp trailing edges aren't welded!
+            % 3. Weld coincident vertices
+            % Use a strict absolute tolerance so sharp trailing edges aren't accidentally welded!
             tol = 1e-5;
 
             nodePos = zeros(0,2);
@@ -184,15 +228,17 @@ classdef HotWireSTEPApp_v6_helpers
                 end
             end
 
+            % 4. Build Edge Graph
             edges =[mapIdx(1:nSeg), mapIdx(nSeg+1:end)];
             used = false(nSeg,1);
             loops = {};
 
+            % 5. Walk the graph to find closed loops
             for s = 1:nSeg
                 if used(s), continue; end
                 used(s) = true;
                 cur = edges(s,2);
-                path =[edges(s,1) cur];
+                path = [edges(s,1) cur];
                 startNode = path(1);
 
                 while true
@@ -210,6 +256,7 @@ classdef HotWireSTEPApp_v6_helpers
                     if cur == startNode, break; end
                 end
 
+                % Only keep valid, closed loops
                 if numel(path) >= 4 && path(1) == path(end)
                     loops{end+1} = path;
                 end
@@ -219,12 +266,17 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            [~, bestIdx] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
+            % 6. Select the primary loop
+            % If there are multiple loops (e.g., internal holes), we assume the longest 
+            % perimeter is the outer boundary we want to cut.
+            %parserbug
+            [ ~, bestIdx ] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
+            
             pts = nodePos(loops{bestIdx},:);
             yLoop = pts(:,1);
             zLoop = pts(:,2);
         end
-
+        
         % ===============================================================
         % RESAMPLING & SYNC HELPERS
         % ===============================================================
