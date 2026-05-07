@@ -4895,6 +4895,413 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
         end
                 
+        
+        %% ===========================================================
+        %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS ---
+        %% ===========================================================
+        %%                    - SHARED VIEW HELPERS ---
+
+        function resetViewToMachine(app, ax)
+            % Purpose: Standardizes the 3D camera view to show the entire machine bed.
+            % WHY: Used by the Machine, Cutting, Simulation, and Post-Process tabs 
+            %      to provide a consistent "zoomed out" perspective.
+            
+            offX = app.MachineBedPos(1);
+            mX   = app.MachineSpanX;
+            mLimY = app.MachineLimitY;
+            mLimZ = app.MachineLimitZ;
+            bs = app.MachineBedSize;
+
+            view(ax, 3); axis(ax, 'equal');
+
+            % Minimal padding to allow towers to fill the screen,
+            % with just enough Z-padding to prevent label cropping.
+            padX = 5;
+            padY = 5;
+            padZ = 40;
+
+            xlim(ax,[ -offX - padX, mX - offX + padX ]);
+            ylim(ax,[ -padY, mLimY + padY ]);
+            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
+
+            % Force MATLAB to apply these limits immediately during initialization
+            drawnow limitrate;
+        end
+
+        function resetViewToBillet(app, ax)
+            % Purpose: Standardizes the 3D camera view to focus tightly on the billet.
+            % WHY: Used across multiple tabs to inspect the toolpath relative to the stock.
+            
+            offX = app.MachineBedPos(1);
+            bp   = app.MachineBilletPos; % [X Y Z] absolute machine coords
+            bs   = app.BilletSize;       % [W D H]
+
+            % Billet Bounds in Plot Coords (Plot X = MachineX - BedOffset)
+            bMin =[ bp(1)-offX, bp(2), bp(3) ];
+            bMax = bMin + bs;
+
+            % Calculate relative buffer based on billet size
+            maxDim = max(bs);
+            if maxDim < 1, maxDim = 100; end
+            buffer = maxDim * 0.2;
+
+            % 1. Set Aspect Ratio FIRST
+            daspect(ax,[ 1 1 1 ]);
+
+            % 2. Apply Limits
+            xlim(ax,[ bMin(1)-buffer, bMax(1)+buffer ]);
+            ylim(ax,[ bMin(2)-buffer, bMax(2)+buffer ]);
+            zlim(ax,[ bMin(3)-buffer, bMax(3)+buffer ]);
+
+            % 3. Standard View Settings
+            view(ax, 3);
+            grid(ax, 'on');
+        end
+
+        %%                    - 3D DRAWING PRIMITIVES ---
+
+        function[ vx, vy, vz ] = makeBoxVertices(~, x, y, z, dx, dy, dz)
+            % Purpose: Returns the 8 vertices for a 3D box at (x,y,z) with size (dx,dy,dz).
+            % WHY: Used to draw the machine bed, packing blocks, and billet stock.
+            vx =[ x; x+dx; x+dx; x;    x;    x+dx; x+dx; x    ];
+            vy =[ y; y;    y+dy; y+dy; y;    y;    y+dy; y+dy ];
+            vz =[ z; z;    z;    z;    z+dz; z+dz; z+dz; z+dz ];
+        end
+
+        function f = boxFaces(~)
+            % Purpose: Returns the face connectivity matrix for a standard 8-vertex box.
+            f =[ 1 2 3 4; % Bottom
+                 5 6 7 8; % Top
+                 1 2 6 5; % Front
+                 2 3 7 6; % Right
+                 3 4 8 7; % Back
+                 4 1 5 8 ]; % Left
+        end
+
+        %%                    - THEME MANAGEMENT ---
+
+        function th = getTheme(app)
+            % Purpose: Central source of truth for all App Colors.
+            % WHY: Allows the app to seamlessly switch between Light and Dark modes.
+            
+            if ispref('HotWireSTEPApp', 'Theme')
+                themeStr = getpref('HotWireSTEPApp', 'Theme');
+            else
+                themeStr = 'Dark';
+            end
+
+            isDark = strcmp(themeStr, 'Dark');
+
+            if isDark
+                % --- DARK THEME ---
+                th.sideBg      =[ 0.16 0.16 0.16 ];
+                th.panelBg     =[ 0.12 0.12 0.12 ];
+                th.labelCol    =[ 0.90 0.90 0.90 ];
+                th.accentBg    =[ 0.30 0.35 0.45 ];
+                th.editBg      =[ 0.24 0.24 0.24 ];
+                th.editTxt     =[ 1.00 1.00 1.00 ];
+                th.readoutBg   =[ 0.70 0.70 0.70 ];
+                th.readoutTxt  =[ 0.20 0.20 0.20 ];
+
+                th.inputBg     =[ 0.24 0.24 0.24 ];
+                th.inputTxt    =[ 1.00 1.00 1.00 ];
+
+                th.shiftBg     =[ 0.70 0.70 0.80 ];
+                th.shiftTxt    =[ 0.00 0.00 0.00 ];
+
+                th.btnBg       =[ 0.25 0.25 0.25 ];
+                th.btnTxt      =[ 1.00 1.00 1.00 ];
+                th.axBg        =[ 0.05 0.05 0.05 ];
+
+                th.planeRed    =[ 0.96 0.06 0.06 ];
+                th.planeGreen  =[ 0.20 1.00 0.35 ];
+                th.planeRedTxt =[ 0.96 0.40 0.40 ];
+                th.planeGreenTxt =[ 0.40 1.00 0.50 ];
+
+                th.wireKerf    =[ 1.00 0.75 0.00 ];
+                th.wireNeutral =[ 0.80 0.80 0.80 ];
+                th.rawMeshCol  =[ 0.60 0.60 0.60 ];
+                th.wireLead    =[ 1.00 0.50 0.00 ];
+
+                % Status Box Colors (Red / Amber / Green)
+                th.statErrBg   =[ 0.40 0.16 0.16 ];
+                th.statErrTxt  =[ 1.00 0.40 0.40 ];
+                th.statWarnBg  =[ 0.45 0.35 0.10 ];
+                th.statWarnTxt =[ 1.00 0.80 0.40 ];
+                th.statPassBg  = th.panelBg;
+                th.statPassTxt = th.planeGreen;
+
+                % 3D Plotting Elements
+                th.modelColor  =[ 0.50 0.50 0.60 ];
+                th.modelAlpha  = 0.40;
+                th.billetColor =[ 0.30 0.50 0.80 ];
+                th.billetAlpha = 0.20;
+                th.billetLine  =[ 0.00 0.80 1.00 ]; % Bright Cyan to pop against grid
+
+                th.bedCol      =[ 0.40 0.40 0.40 ];
+                th.bedEdge     =[ 0.20 0.20 0.20 ];
+                th.cageCol     =[ 0.60 0.60 0.60 ];
+                th.wireBaseCol =[ 0.50 0.50 0.50 ];
+
+                % Ghost profiles (RGBA with 60% opacity)
+                th.ghostRed    =[ th.planeRed, 0.6 ];
+                th.ghostGreen  =[ th.planeGreen, 0.6 ];
+                th.ghostNeutral=[ 0.90 0.90 0.90, 0.7 ];
+
+            else
+                % --- LIGHT THEME ---
+                th.sideBg      =[ 0.96 0.96 0.96 ];
+                th.panelBg     =[ 0.90 0.90 0.90 ];
+                th.labelCol    =[ 0.15 0.15 0.15 ];
+                th.accentBg    =[ 0.70 0.70 0.80 ];
+                th.editBg      =[ 1.00 1.00 1.00 ];
+                th.editTxt     =[ 0.00 0.00 0.00 ];
+                th.readoutBg   =[ 0.85 0.85 0.85 ];
+                th.readoutTxt  =[ 0.20 0.20 0.20 ];
+
+                th.inputBg     =[ 1.00 1.00 1.00 ];
+                th.inputTxt    =[ 0.00 0.00 0.00 ];
+
+                th.shiftBg     =[ 0.70 0.70 0.80 ];
+                th.shiftTxt    =[ 0.00 0.00 0.00 ];
+
+                th.btnBg       =[ 0.85 0.85 0.85 ];
+                th.btnTxt      =[ 0.00 0.00 0.00 ];
+                th.axBg        =[ 0.95 0.95 0.95 ];
+
+                th.planeRed    =[ 0.80 0.00 0.00 ];
+                th.planeGreen  =[ 0.00 0.60 0.00 ];
+                th.planeRedTxt =[ 0.60 0.00 0.00 ];
+                th.planeGreenTxt =[ 0.00 0.40 0.00 ];
+
+                th.wireKerf    =[ 1.00 0.75 0.00 ];
+                th.wireNeutral =[ 0.20 0.20 0.20 ];
+                th.rawMeshCol  =[ 0.40 0.40 0.40 ];
+                th.wireLead    =[ 0.85 0.35 0.00 ];
+
+                % Status Box Colors
+                th.statErrBg   =[ 1.00 0.80 0.80 ];
+                th.statErrTxt  =[ 0.80 0.00 0.00 ];
+                th.statWarnBg  =[ 1.00 0.90 0.70 ];
+                th.statWarnTxt =[ 0.65 0.30 0.00 ];
+                th.statPassBg  = th.panelBg;
+                th.statPassTxt = th.planeGreen;
+
+                th.modelColor  =[ 0.50 0.50 0.60 ];
+                th.modelAlpha  = 0.30;
+                th.billetColor =[ 0.30 0.50 0.80 ];
+                th.billetAlpha = 0.20;
+                th.billetLine  =[ 0.00 0.20 0.80 ]; % Deep Blue to pop against grid
+
+                th.bedCol      =[ 0.80 0.80 0.80 ];
+                th.bedEdge     =[ 0.50 0.50 0.50 ];
+                th.cageCol     =[ 0.30 0.30 0.30 ];
+                th.wireBaseCol =[ 0.40 0.40 0.40 ];
+
+                th.ghostRed    =[ th.planeRed, 0.6 ];
+                th.ghostGreen  =[ th.planeGreen, 0.6 ];
+                th.ghostNeutral=[ 0.20 0.20 0.20, 0.5 ];
+            end
+        end
+
+        function applyTheme(app)
+            % Purpose: Sweeps the entire UI on startup to replace hardcoded colors with the active theme.
+            % WHY: MATLAB's UI components don't natively support CSS-style themes, so we must 
+            %      programmatically iterate through the component tree and paint them.
+            
+            t = app.getTheme();
+            app.UIFigure.Color = t.sideBg;
+
+            % 1. Paint ALL Physical Tabs
+            tabs =[ app.TabWelcome, app.TabGuide, app.TabModel, app.TabProfiles, app.TabBillet, ...
+                app.TabMachine, app.TabCutting, app.TabSimulation, app.TabPostProcess ];
+            for i = 1:numel(tabs)
+                if isgraphics(tabs(i))
+                    tabs(i).BackgroundColor = t.sideBg;
+                end
+            end
+
+            % 2. Sweep and update ALL layout grids and panels
+            containers = {app.GLWelcome, app.GLGuide, app.GLModel, app.GLProfiles, app.GLBillet, ...
+                app.GLMachine, app.GLCutting, app.GLSimulation, app.GLPostProcess, ...
+                app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.BilletRightPanel, ...
+                app.MachineLeftPanel, app.CuttingLeftPanel, ...
+                app.SimLeftPanel, app.PostLeftPanel, ...
+                app.PanelGCode, app.GridGCode};
+
+            for i = 1:numel(containers)
+                c = containers{i};
+                if isempty(c) || ~isgraphics(c), continue; end
+
+                c.BackgroundColor = t.sideBg;
+
+                kids = findall(c);
+                for j = 1:numel(kids)
+                    obj = kids(j);
+
+                    % A. Protect Readouts (Labels that act like disabled edit fields)
+                    isReadout = false;
+                    if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
+                        isReadout = true;
+                    end
+                    if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
+                        isReadout = true;
+                    end
+                    if isReadout
+                        obj.BackgroundColor = t.readoutBg;
+                        obj.FontColor       = t.readoutTxt;
+                        continue;
+                    end
+
+                    % B. Update Status Boxes to match theme
+                    if isprop(obj, 'BackgroundColor') && isequal(obj.BackgroundColor, [ 0.2 0.2 0.2 ]) && isa(obj, 'matlab.ui.control.TextArea')
+                        if t.sideBg(1) < 0.5
+                            obj.BackgroundColor =[ 0.15 0.15 0.15 ];
+                        else
+                            obj.BackgroundColor =[ 0.98 0.98 0.98 ];
+                        end
+                        continue;
+                    end
+
+                    % C. Protect Billet Shift & Size Edit Fields (Give them a distinct accent color)
+                    isShiftField = false;
+                    if ~isempty(app.BilletSizeEdits) && any(obj == app.BilletSizeEdits)
+                        isShiftField = true;
+                    end
+                    if ~isempty(app.BilletCenterOffsetEdits) && any(obj == app.BilletCenterOffsetEdits)
+                        isShiftField = true;
+                    end
+
+                    % --- Special Case: Plane Offset Spinners ---
+                    if obj == app.NumLeftOffset
+                        obj.FontColor = t.planeRedTxt;
+                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
+                        continue; 
+                    elseif obj == app.NumRightOffset
+                        obj.FontColor = t.planeGreenTxt;
+                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
+                        continue; 
+                    % --- Special Case: Kerf Spinners ---
+                    elseif obj == app.KerfLeftSpinner
+                        obj.FontColor = t.wireKerf; 
+                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85; 
+                        continue; 
+                    elseif obj == app.KerfRightSpinner
+                        obj.FontColor = t.wireKerf; 
+                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85; 
+                        continue; 
+                    end
+
+                    % D. Standard Component Styling
+                    if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
+                        obj.BackgroundColor = t.sideBg;
+                        if isprop(obj, 'ForegroundColor')
+                            obj.ForegroundColor = t.labelCol;
+                        end
+                    elseif isa(obj, 'matlab.ui.control.Label') || isa(obj, 'matlab.ui.control.Switch') || isa(obj, 'matlab.ui.control.CheckBox') || isa(obj, 'matlab.ui.control.Slider')
+                        obj.FontColor = t.labelCol;
+                    elseif isa(obj, 'matlab.ui.control.TextArea') || isa(obj, 'matlab.ui.control.ListBox')
+                        obj.BackgroundColor = t.sideBg;
+                        obj.FontColor = t.labelCol;
+                    elseif isa(obj, 'matlab.ui.control.NumericEditField') || isa(obj, 'matlab.ui.control.EditField') || isa(obj, 'matlab.ui.control.Spinner')
+                        if isShiftField
+                            obj.BackgroundColor = t.shiftBg;
+                            obj.FontColor       = t.shiftTxt;
+                        else
+                            obj.BackgroundColor = t.inputBg;
+                            obj.FontColor       = t.inputTxt;
+                        end
+                    elseif isa(obj, 'matlab.ui.control.Button') || isa(obj, 'matlab.ui.control.StateButton')
+                        % Safely theme standard buttons without touching Semantic (Green/Red) buttons
+                        bg = obj.BackgroundColor;
+                        if abs(bg(1)-bg(2)) < 1e-3 && abs(bg(2)-bg(3)) < 1e-3
+                            obj.BackgroundColor = t.btnBg;
+                            obj.FontColor = t.btnTxt;
+                        end
+                    end
+                end
+            end
+
+            % 3. Sweep and update All Axes
+            allAxes =[ app.AxModel, app.AxLeftProfile, app.AxRightProfile, ...
+                app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso, ...
+                app.AxMachine, app.AxCutLeft, app.AxCutRight, app.AxSim, app.AxPost ];
+
+            for i = 1:numel(allAxes)
+                ax = allAxes(i);
+                if isgraphics(ax)
+                    ax.Color = t.axBg;
+                    if isprop(ax, 'BackgroundColor')
+                        ax.BackgroundColor = t.sideBg;
+                    end
+                    ax.XColor = t.labelCol;
+                    ax.YColor = t.labelCol;
+                    ax.ZColor = t.labelCol;
+                    ax.GridColor = t.labelCol;
+
+                    if isprop(ax, 'Title') && isgraphics(ax.Title)
+                        ax.Title.Color = t.labelCol;
+                    end
+                end
+            end
+
+            % 4. Sweep and update all Legends
+            lgds = findall(app.UIFigure, 'Type', 'legend');
+            for i = 1:numel(lgds)
+                lgds(i).TextColor = t.labelCol;
+            end
+        end
+
+        function onThemeToggleChanged(app, src)
+            % Purpose: Prompts the user to restart the app to apply the new theme.
+            sel = uiconfirm(app.UIFigure, ...
+                'Changing the theme requires the application to restart. Any unsaved progress will be lost. Do you wish to restart now?', ...
+                'Restart Required', ...
+                'Options', {'Restart Now', 'Cancel'}, ...
+                'DefaultOption', 1, 'CancelOption', 2, 'Icon', 'info');
+
+            if strcmp(sel, 'Restart Now')
+                setpref('HotWireSTEPApp', 'Theme', src.Value);
+                delete(app.UIFigure);
+                HotWireSTEPApp_v6_2();
+            else
+                % Revert the switch visually if they cancelled
+                if strcmp(src.Value, 'Dark')
+                    src.Value = 'Light';
+                else
+                    src.Value = 'Dark';
+                end
+            end
+        end
+
+        function cols = getInteractionColors(app)
+            % Purpose: Returns the specific semantic colors used for the Cutting Tab interactive buttons.
+            t = app.getTheme();
+            isDark = app.UIFigure.Color(1) < 0.5;
+
+            cols = struct();
+
+            if isDark
+                cols.StartActive   =[ 0.0 0.8 0.0 ]; % Green
+                cols.StartInactive =[ 0.15 0.25 0.15 ];
+                cols.EntryActive   =[ 1.0 0.6 0.0 ]; % Orange (Lead In)
+                cols.EntryInactive =[ 0.30 0.20 0.10 ];
+                cols.LinkActive    =[ 0.9 0.8 0.0 ]; % Yellow (Links)
+                cols.LinkInactive  =[ 0.30 0.30 0.10 ];
+                cols.TextActive    =[ 0 0 0 ];
+                cols.TextInactive  =[ 0.9 0.9 0.9 ];
+            else
+                cols.StartActive   =[ 0.4 1.0 0.4 ];
+                cols.StartInactive =[ 0.90 0.96 0.90 ];
+                cols.EntryActive   =[ 1.0 0.7 0.4 ];
+                cols.EntryInactive =[ 0.98 0.94 0.90 ];
+                cols.LinkActive    =[ 0.9 0.9 0.4 ];
+                cols.LinkInactive  =[ 0.98 0.98 0.90 ];
+                cols.TextActive    =[ 0 0 0 ];
+                cols.TextInactive  =[ 0 0 0 ];
+            end
+        end
+        
         %% ===========================================================
         %% --- to be cleaned up ---> ---
         %% ===========================================================
@@ -5136,462 +5543,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             drawnow limitrate;
         end
-        
-        % ===========================================================
-        % VIEW & HELPER METHODS
-        % ===========================================================
-
-        % --- Shared View Helpers ---
-        function resetViewToMachine(app, ax)
-            % Standard Machine View (Home at bottom-left)
-            offX = app.MachineBedPos(1);
-            mX   = app.MachineSpanX;
-            mLimY = app.MachineLimitY;
-            mLimZ = app.MachineLimitZ;
-            bs = app.MachineBedSize;
-
-            view(ax, 3); axis(ax, 'equal');
-
-            % Minimal padding to allow towers to fill the screen,
-            % with just enough Z-padding to prevent label cropping.
-            padX = 5;
-            padY = 5;
-            padZ = 40;
-
-            xlim(ax,[ -offX - padX, mX - offX + padX ]);
-            ylim(ax,[ -padY, mLimY + padY ]);
-            zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
-
-            % Force MATLAB to apply these limits immediately during initialization
-            drawnow limitrate;
-        end
-
-        function resetViewToBillet(app, ax)
-            % Focus View on Billet with buffer
-            offX = app.MachineBedPos(1);
-            bp   = app.MachineBilletPos; % [X Y Z] absolute machine coords
-            bs   = app.BilletSize;       % [W D H]
-
-            % Billet Bounds in Plot Coords
-            % Plot X = MachineX - BedOffset
-            bMin = [bp(1)-offX, bp(2), bp(3)];
-            bMax = bMin + bs;
-
-            % Calculate relative buffer
-            maxDim = max(bs);
-            if maxDim < 1, maxDim = 100; end
-            buffer = maxDim * 0.2;
-
-            % 1. Set Aspect Ratio FIRST
-            daspect(ax, [1 1 1]);
-
-            % 2. Apply Limits
-            xlim(ax, [bMin(1)-buffer, bMax(1)+buffer]);
-            ylim(ax, [bMin(2)-buffer, bMax(2)+buffer]);
-            zlim(ax, [bMin(3)-buffer, bMax(3)+buffer]);
-
-            % 3. Standard View Settings
-            view(ax, 3);
-            grid(ax, 'on');
-        end
-
-        function [vx, vy, vz] = makeBoxVertices(~, x, y, z, dx, dy, dz)
-            % Returns the 8 vertices for a box at (x,y,z) with size (dx,dy,dz)
-            vx = [x; x+dx; x+dx; x;    x;    x+dx; x+dx; x   ];
-            vy = [y; y;    y+dy; y+dy; y;    y;    y+dy; y+dy];
-            vz = [z; z;    z;    z;    z+dz; z+dz; z+dz; z+dz];
-        end
-
-        function f = boxFaces(~)
-            % Returns the face connectivity for a standard 8-vertex box
-            f = [1 2 3 4; % Bottom
-                5 6 7 8; % Top
-                1 2 6 5; % Front
-                2 3 7 6; % Right
-                3 4 8 7; % Back
-                4 1 5 8]; % Left
-        end
-
-        % ===========================================================
-        % MOUSE-DRAG ROTATION FOR 3D AXES
-        % ===========================================================
-        function onMouseDown(app,~,~)
-            % Only respond to left-click
-            if ~strcmp(app.UIFigure.SelectionType,'normal')
-                return;
-            end
-
-            % Check if the click is on the 3D axes (or its children)
-            h = hittest(app.UIFigure);
-            if isempty(h)
-                return;
-            end
-            ax = ancestor(h,'axes');
-            if isempty(ax) || ax ~= app.AxModel
-                return;
-            end
-
-            % Start dragging
-            app.IsDragging  = true;
-            app.LastMousePos = app.UIFigure.CurrentPoint;
-        end
-
-        function onMouseMove(app,~,~)
-            if ~app.IsDragging
-                return;
-            end
-            if isempty(app.AxModel) || ~isvalid(app.AxModel)
-                return;
-            end
-
-            cp = app.UIFigure.CurrentPoint;
-            if any(isnan(app.LastMousePos))
-                app.LastMousePos = cp;
-                return;
-            end
-
-            delta = cp - app.LastMousePos;
-            app.LastMousePos = cp;
-
-            % Sensitivity
-            rotSpeed = 0.3;  % tweak if too fast/slow
-
-            dAz = -delta(1) * rotSpeed;  % horizontal mouse → azimuth
-            dEl = -delta(2) * rotSpeed;  % vertical mouse → elevation
-
-            camorbit(app.AxModel, dAz, dEl, 'camera');
-        end
-
-        function onMouseUp(app,~,~)
-            app.IsDragging   = false;
-            app.LastMousePos = [NaN NaN];
-        end
-
-        % ===========================================================
-        % THEME HELPERS
-        % ===========================================================
-        function th = getTheme(app)
-            % Central source for all App Colors
-            if ispref('HotWireSTEPApp', 'Theme')
-                themeStr = getpref('HotWireSTEPApp', 'Theme');
-            else
-                themeStr = 'Dark';
-            end
-
-            isDark = strcmp(themeStr, 'Dark');
-
-            if isDark
-                % --- DARK THEME ---
-                th.sideBg      =[0.16 0.16 0.16];
-                th.panelBg     =[0.12 0.12 0.12];
-                th.labelCol    =[0.90 0.90 0.90];
-                th.accentBg    =[0.30 0.35 0.45];
-                th.editBg      =[0.24 0.24 0.24];
-                th.editTxt     =[1.00 1.00 1.00];
-                th.readoutBg   =[0.70 0.70 0.70];
-                th.readoutTxt  =[0.20 0.20 0.20];
-
-                th.inputBg     =[0.24 0.24 0.24];
-                th.inputTxt    =[1.00 1.00 1.00];
-
-                th.shiftBg     = [0.70 0.70 0.80];
-                th.shiftTxt    = [0.00 0.00 0.00];
-
-                th.btnBg       = [0.25 0.25 0.25];
-                th.btnTxt      = [1.00 1.00 1.00];
-                th.axBg        = [0.05 0.05 0.05];
-
-                th.planeRed    = [0.96 0.06 0.06];
-                th.planeGreen  = [0.20 1.00 0.35];
-                th.planeRedTxt = [0.96 0.40 0.40];
-                th.planeGreenTxt = [0.40 1.00 0.50];
-
-                th.wireKerf    =[1.00 0.75 0.00];
-                th.wireNeutral = [0.80 0.80 0.80];
-                th.rawMeshCol  =[0.60 0.60 0.60];
-                th.wireLead    =[1.00 0.50 0.00];
-
-                % Status Box Colors (Red / Amber / Green)
-                th.statErrBg   =[0.40 0.16 0.16];
-                th.statErrTxt  =[1.00 0.40 0.40];
-                th.statWarnBg  =[0.45 0.35 0.10];
-                th.statWarnTxt =[1.00 0.80 0.40];
-                th.statPassBg  = th.panelBg;
-                th.statPassTxt = th.planeGreen;
-
-                % 3D Plotting Elements
-                th.modelColor  =[0.50 0.50 0.60];
-                th.modelAlpha  = 0.40;
-                th.billetColor =[0.30 0.50 0.80];
-                th.billetAlpha = 0.20;
-                th.billetLine  = [0.00 0.80 1.00]; % Bright Cyan to pop against grid
-
-                th.bedCol      = [0.40 0.40 0.40];
-                th.bedEdge     = [0.20 0.20 0.20];
-                th.cageCol     = [0.60 0.60 0.60];
-                th.wireBaseCol = [0.50 0.50 0.50];
-
-                % Ghost profiles (RGBA with 60% opacity)
-                th.ghostRed    =[th.planeRed, 0.6];
-                th.ghostGreen  =[th.planeGreen, 0.6];
-                th.ghostNeutral=[0.90 0.90 0.90, 0.7];
-
-            else
-                % --- LIGHT THEME ---
-                th.sideBg      =[0.96 0.96 0.96];
-                th.panelBg     =[0.90 0.90 0.90];
-                th.labelCol    =[0.15 0.15 0.15];
-                th.accentBg    =[0.70 0.70 0.80];
-                th.editBg      =[1.00 1.00 1.00];
-                th.editTxt     =[0.00 0.00 0.00];
-                th.readoutBg   =[0.85 0.85 0.85];
-                th.readoutTxt  =[0.20 0.20 0.20];
-
-                th.inputBg     =[1.00 1.00 1.00];
-                th.inputTxt    =[0.00 0.00 0.00];
-
-                th.shiftBg     =[0.70 0.70 0.80];
-                th.shiftTxt    =[0.00 0.00 0.00];
-
-                th.btnBg       =[0.85 0.85 0.85];
-                th.btnTxt      =[0.00 0.00 0.00];
-                th.axBg        =[0.95 0.95 0.95];
-
-                th.planeRed    =[0.80 0.00 0.00];
-                th.planeGreen  =[0.00 0.60 0.00];
-                th.planeRedTxt =[0.60 0.00 0.00];
-                th.planeGreenTxt =[0.00 0.40 0.00];
-
-                th.wireKerf    =[1.00 0.75 0.00];
-                th.wireNeutral =[0.20 0.20 0.20];
-                th.rawMeshCol  =[0.40 0.40 0.40];
-                th.wireLead    =[0.85 0.35 0.00];
-
-                % Status Box Colors
-                th.statErrBg   =[1.00 0.80 0.80];
-                th.statErrTxt  =[0.80 0.00 0.00];
-                th.statWarnBg  =[1.00 0.90 0.70];
-                th.statWarnTxt =[0.65 0.30 0.00];
-                th.statPassBg  = th.panelBg;
-                th.statPassTxt = th.planeGreen;
-
-                th.modelColor  =[0.50 0.50 0.60];
-                th.modelAlpha  = 0.30;
-                th.billetColor = [0.30 0.50 0.80];
-                th.billetAlpha = 0.20;
-                th.billetLine  =[0.00 0.20 0.80]; % Deep Blue to pop against grid
-
-                th.bedCol      =[0.80 0.80 0.80];
-                th.bedEdge     =[0.50 0.50 0.50];
-                th.cageCol     =[0.30 0.30 0.30];
-                th.wireBaseCol =[0.40 0.40 0.40];
-
-                th.ghostRed    =[th.planeRed, 0.6];
-                th.ghostGreen  =[th.planeGreen, 0.6];
-                th.ghostNeutral=[0.20 0.20 0.20, 0.5];
-            end
-        end
-
-        function applyTheme(app)
-            % Sweeps the UI on startup to replace any hardcoded colors with the active theme.
-            t = app.getTheme();
-            app.UIFigure.Color = t.sideBg;
-
-            % 1. Paint ALL Physical Tabs
-            tabs =[app.TabWelcome, app.TabModel, app.TabProfiles, app.TabBillet, ...
-                app.TabMachine, app.TabCutting, app.TabSimulation, app.TabPostProcess];
-            for i = 1:numel(tabs)
-                if isgraphics(tabs(i))
-                    tabs(i).BackgroundColor = t.sideBg;
-                end
-            end
-
-            % 2. Sweep and update ALL layout grids and panels
-            containers = {app.GLWelcome, app.GLModel, app.GLProfiles, app.GLBillet, ...
-                app.GLMachine, app.GLCutting, app.GLSimulation, app.GLPostProcess, ...
-                app.GLLeft, app.profilesLeft, app.BilletLeftPanel, app.BilletRightPanel, ...
-                app.MachineLeftPanel, app.CuttingLeftPanel, ...
-                app.SimLeftPanel, app.PostLeftPanel, ...
-                app.PanelGCode, app.GridGCode};
-
-            for i = 1:numel(containers)
-                c = containers{i};
-                if isempty(c) || ~isgraphics(c), continue; end
-
-                c.BackgroundColor = t.sideBg;
-
-                kids = findall(c);
-                for j = 1:numel(kids)
-                    obj = kids(j);
-
-                    % A. Protect Readouts
-                    isReadout = false;
-                    if ~isempty(app.BilletModelDimLabels) && any(obj == app.BilletModelDimLabels)
-                        isReadout = true;
-                    end
-                    if isprop(app, 'LblBaseFeed') && ~isempty(app.LblBaseFeed) && any(obj == app.LblBaseFeed)
-                        isReadout = true;
-                    end
-                    if isReadout
-                        obj.BackgroundColor = t.readoutBg;
-                        obj.FontColor       = t.readoutTxt;
-                        continue;
-                    end
-
-                    % B. Update Status Boxes to match theme (formerly protected hardcoded dark)
-                    if isprop(obj, 'BackgroundColor') && isequal(obj.BackgroundColor, [0.2 0.2 0.2]) && isa(obj, 'matlab.ui.control.TextArea')
-                        if t.sideBg(1) < 0.5
-                            % Keep it dark for Dark Mode
-                            obj.BackgroundColor = [0.15 0.15 0.15];
-                        else
-                            % Make it very light for Light Mode to ensure text contrast
-                            obj.BackgroundColor = [0.98 0.98 0.98];
-                        end
-                        continue;
-                    end
-
-                    % FIX C: Protect Billet Shift & Size Edit Fields
-                    isShiftField = false;
-                    if ~isempty(app.BilletSizeEdits) && any(obj == app.BilletSizeEdits)
-                        isShiftField = true;
-                    end
-                    if ~isempty(app.BilletCenterOffsetEdits) && any(obj == app.BilletCenterOffsetEdits)
-                        isShiftField = true;
-                    end
-
-                    % --- Special Case: Plane Offset Spinners ---
-                    if obj == app.NumLeftOffset
-                        obj.FontColor = t.planeRedTxt;
-                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
-                        continue; % Skip standard styling for this object
-                    elseif obj == app.NumRightOffset
-                        obj.FontColor = t.planeGreenTxt;
-                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
-                        continue; % Skip standard styling for this object
-                    % --- Special Case: Kerf Spinners ---
-                    elseif obj == app.KerfLeftSpinner
-                        obj.FontColor = t.wireKerf; % Orange text
-                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85; % Red background
-                        continue; % Skip standard styling for this object
-                    elseif obj == app.KerfRightSpinner
-                        obj.FontColor = t.wireKerf; % Orange text
-                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85; % Green background
-                        continue; % Skip standard styling for this object
-                    end
-
-                    % D. Standard Component Styling
-                    if isa(obj, 'matlab.ui.container.Panel') || isa(obj, 'matlab.ui.container.GridLayout')
-                        obj.BackgroundColor = t.sideBg;
-                        if isprop(obj, 'ForegroundColor')
-                            obj.ForegroundColor = t.labelCol;
-                        end
-                    elseif isa(obj, 'matlab.ui.control.Label') || isa(obj, 'matlab.ui.control.Switch') || isa(obj, 'matlab.ui.control.CheckBox') || isa(obj, 'matlab.ui.control.Slider')
-                        obj.FontColor = t.labelCol;
-                    elseif isa(obj, 'matlab.ui.control.TextArea') || isa(obj, 'matlab.ui.control.ListBox')
-                        obj.BackgroundColor = t.sideBg;
-                        obj.FontColor = t.labelCol;
-                    elseif isa(obj, 'matlab.ui.control.NumericEditField') || isa(obj, 'matlab.ui.control.EditField') || isa(obj, 'matlab.ui.control.Spinner')
-                        % Apply the special accent color to the protected shift fields!
-                        if isShiftField
-                            obj.BackgroundColor = t.shiftBg;
-                            obj.FontColor       = t.shiftTxt;
-                        else
-                            obj.BackgroundColor = t.inputBg;
-                            obj.FontColor       = t.inputTxt;
-                        end
-                    elseif isa(obj, 'matlab.ui.control.Button') || isa(obj, 'matlab.ui.control.StateButton')
-                        % Safely theme standard buttons without touching Semantic (Green/Red) buttons
-                        bg = obj.BackgroundColor;
-                        if abs(bg(1)-bg(2)) < 1e-3 && abs(bg(2)-bg(3)) < 1e-3
-                            obj.BackgroundColor = t.btnBg;
-                            obj.FontColor = t.btnTxt;
-                        end
-                    end
-                end
-            end
-
-            % 3. Sweep and update All Axes
-            allAxes =[app.AxModel, app.AxLeftProfile, app.AxRightProfile, ...
-                app.AxBilletTop, app.AxBilletFront, app.AxBilletRight, app.AxBilletIso, ...
-                app.AxMachine, app.AxCutLeft, app.AxCutRight, app.AxSim, app.AxPost];
-
-            for i = 1:numel(allAxes)
-                ax = allAxes(i);
-                if isgraphics(ax)
-                    ax.Color = t.axBg;
-                    if isprop(ax, 'BackgroundColor')
-                        ax.BackgroundColor = t.sideBg;
-                    end
-                    ax.XColor = t.labelCol;
-                    ax.YColor = t.labelCol;
-                    ax.ZColor = t.labelCol;
-                    ax.GridColor = t.labelCol;
-
-                    if isprop(ax, 'Title') && isgraphics(ax.Title)
-                        ax.Title.Color = t.labelCol;
-                    end
-                end
-            end
-
-            % 4. Sweep and update all Legends
-            lgds = findall(app.UIFigure, 'Type', 'legend');
-            for i = 1:numel(lgds)
-                lgds(i).TextColor = t.labelCol;
-            end
-        end
-
-        function onThemeToggleChanged(app, src)
-            % Ask for confirmation before restarting
-            sel = uiconfirm(app.UIFigure, ...
-                'Changing the theme requires the application to restart. Any unsaved progress will be lost. Do you wish to restart now?', ...
-                'Restart Required', ...
-                'Options', {'Restart Now', 'Cancel'}, ...
-                'DefaultOption', 1, 'CancelOption', 2, 'Icon', 'info');
-
-            if strcmp(sel, 'Restart Now')
-                % Save the new preference
-                setpref('HotWireSTEPApp', 'Theme', src.Value);
-
-                % Safely close current app and launch a new instance
-                delete(app.UIFigure);
-                HotWireSTEPApp_v6_2();
-            else
-                % Revert the switch visually if they cancelled
-                if strcmp(src.Value, 'Dark')
-                    src.Value = 'Light';
-                else
-                    src.Value = 'Dark';
-                end
-            end
-        end
-
-        function cols = getInteractionColors(app)
-            t = app.getTheme();
-            isDark = app.UIFigure.Color(1) < 0.5;
-
-            cols = struct();
-
-            if isDark
-                cols.StartActive   = [0.0 0.8 0.0]; % Green
-                cols.StartInactive = [0.15 0.25 0.15];
-                cols.EntryActive   = [1.0 0.6 0.0]; % Orange (Lead In)
-                cols.EntryInactive = [0.30 0.20 0.10];
-                cols.LinkActive    = [0.9 0.8 0.0]; % Yellow (Links)
-                cols.LinkInactive  = [0.30 0.30 0.10];
-                cols.TextActive    = [0 0 0];
-                cols.TextInactive  = [0.9 0.9 0.9];
-            else
-                cols.StartActive   = [0.4 1.0 0.4];
-                cols.StartInactive = [0.90 0.96 0.90];
-                cols.EntryActive   = [1.0 0.7 0.4];
-                cols.EntryInactive = [0.98 0.94 0.90];
-                cols.LinkActive    = [0.9 0.9 0.4];
-                cols.LinkInactive  = [0.98 0.98 0.90];
-                cols.TextActive    = [0 0 0];
-                cols.TextInactive  = [0 0 0];
-            end
-        end
-    end
+end
 
     methods (Access = private)
         % ===========================================================
