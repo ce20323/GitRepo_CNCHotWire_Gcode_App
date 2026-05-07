@@ -277,16 +277,25 @@ classdef HotWireSTEPApp_v6_helpers
             zLoop = pts(:,2);
         end
         
-        % ===============================================================
-        % RESAMPLING & SYNC HELPERS
-        % ===============================================================
-        function [yR, zR] = resampleProfileByTolerance(y, z, tol)
-            y = y(:); z = z(:); if numel(y) < 2, yR=y; zR=z; return; end
-            yExt = [y; y(1)]; zExt = [z; z(1)];
+        %% ===============================================================
+        %% --- GROUP 3: PROFILE RESAMPLING & SYNCING ---
+        %% ===============================================================
 
-            s = [0; cumsum(hypot(diff(yExt), diff(zExt)))];
+        function [ yR, zR ] = resampleProfileByTolerance(y, z, tol)
+            % Purpose: Reduces the number of points in a single profile while maintaining shape.
+            % WHY: Raw mesh slices can have thousands of points, which chokes the CNC controller.
+            % HOW: Calculates cumulative arc length, interpolates to a fine grid, and applies tolerance.
+            
+            y = y(:); z = z(:); 
+            if numel(y) < 2, yR=y; zR=z; return; end
+            
+            yExt =[ y; y(1) ]; zExt =[ z; z(1) ];
+
+            s =[ 0; cumsum(hypot(diff(yExt), diff(zExt))) ];
+            
             % Ensure unique samples to avoid interp1 errors
-            [sU, idxU] = unique(s, 'stable');
+            %parserbug
+            [ sU, idxU ] = unique(s, 'stable');
             if numel(sU) < 2, yR=y; zR=z; return; end
 
             totalLen = sU(end);
@@ -295,12 +304,21 @@ classdef HotWireSTEPApp_v6_helpers
             zR = interp1(sU, zExt(idxU), linspace(0, totalLen, N).', 'linear');
         end
 
-        function[yLS, zLS, yRS, zRS] = resampleProfilesSynced(yL, zL, yR, zR, tol)
-            function [x,y] = clean_path(x,y)
+        function[ yLS, zLS, yRS, zRS ] = resampleProfilesSynced(yL, zL, yR, zR, tol)
+            % Purpose: Resamples Left and Right profiles simultaneously to ensure 1:1 point topology.
+            % WHY: 4-axis CNC requires exactly the same number of points on the left and right profiles 
+            %      so the controller knows how to interpolate the wire between them.
+            % HOW: 1. Aligns both profiles to start at the exact same physical feature (Front Face).
+            %      2. Checks winding direction (CW/CCW) and flips one if they are mismatched.
+            %      3. Interpolates both onto a highly dense, shared parametric grid (0 to 1).
+            %      4. Runs a custom 4D Ramer-Douglas-Peucker (RDP) algorithm to strip out unnecessary 
+            %         points while guaranteeing the deviation never exceeds the user's tolerance.
+
+            function[ x, y ] = clean_path(x,y)
                 if numel(x) < 2
                     return;
                 end
-                d2 =[1; (diff(x).^2 + diff(y).^2)];
+                d2 =[ 1; (diff(x).^2 + diff(y).^2) ];
                 keep = d2 > 1e-8;
                 x = x(keep);
                 y = y(keep);
@@ -310,46 +328,44 @@ classdef HotWireSTEPApp_v6_helpers
                 end
             end
 
-            d1 = 0; % Anti-markdown bug
-            [yL, zL] = clean_path(yL, zL);
-
-            d2 = 0; % Anti-markdown bug
-            [yR, zR] = clean_path(yR, zR);
+            %parserbug
+            [ yL, zL ] = clean_path(yL, zL);
+            %parserbug
+            [ yR, zR ] = clean_path(yR, zR);
 
             if numel(yL) < 3 || numel(yR) < 3
-                yLS = yL;
-                zLS = zL;
-                yRS = yR;
-                zRS = zR;
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
                 return;
             end
 
-            d3 = 0; % Anti-markdown bug[yL, zL] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+            % 1. Align start points to the front face
+            %parserbug
+            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
+            %parserbug
+            [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
-            d4 = 0; % Anti-markdown bug[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
-
+            % 2. Ensure winding directions match by calculating polygon area
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
             areaR = sum((yR(1:end-1).*zR(2:end)) - (yR(2:end).*zR(1:end-1)));
 
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
                 zR = flipud(zR);
-
-                d5 = 0; % Anti-markdown bug[yR, zR] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+                %parserbug
+                [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
-            distL =[0; cumsum(hypot(diff(yL), diff(zL)))];
-            distR =[0; cumsum(hypot(diff(yR), diff(zR)))];
+            % 3. Calculate parametric arc lengths (0 to 1)
+            distL =[ 0; cumsum(hypot(diff(yL), diff(zL))) ];
+            distR =[ 0; cumsum(hypot(diff(yR), diff(zR))) ];
             maxLen = max(distL(end), distR(end));
 
             if maxLen < 1e-6
-                yLS = yL;
-                zLS = zL;
-                yRS = yR;
-                zRS = zR;
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
                 return;
             end
 
+            % 4. Create a dense, shared parametric grid
             baselineRes = 0.1;
             N = ceil(maxLen / baselineRes);
             N = max(N, 1000);
@@ -367,31 +383,34 @@ classdef HotWireSTEPApp_v6_helpers
             s_fine = linspace(0, 1, N)';
 
             % Exact grid merging (No rounding!) preserves exact corner vertices
-            s_eval = unique([s_fine; s_rawL; s_rawR]);
+            s_eval = unique([ s_fine; s_rawL; s_rawR ]);
 
-            d6 = 0; % Anti-markdown bug
-            [suL, iuL] = unique(s_rawL, 'stable');
-
-            d7 = 0; % Anti-markdown bug
-            [suR, iuR] = unique(s_rawR, 'stable');
+            %parserbug
+            [ suL, iuL ] = unique(s_rawL, 'stable');
+            %parserbug
+            [ suR, iuR ] = unique(s_rawR, 'stable');
 
             yLf = interp1(suL, yL(iuL), s_eval, 'linear');
             zLf = interp1(suL, zL(iuL), s_eval, 'linear');
             yRf = interp1(suR, yR(iuR), s_eval, 'linear');
             zRf = interp1(suR, zR(iuR), s_eval, 'linear');
 
-            % Independent 2D RDP checks prevent 4D twisting/smoothing
-            pts4D = [yLf, zLf, yRf, zRf];
+            % 5. 4D Ramer-Douglas-Peucker (RDP) Algorithm
+            % We treat the [yL, zL, yR, zR] coordinates as a single 4D point.
+            % We only remove a point if its removal causes BOTH the left and right 
+            % 2D profiles to deviate by less than the user's tolerance.
+            
+            pts4D =[ yLf, zLf, yRf, zRf ];
             keepMask = false(size(pts4D, 1), 1);
             keepMask(1) = true;
             keepMask(end) = true;
 
-            stack =[1, size(pts4D, 1)];
+            stack =[ 1, size(pts4D, 1) ];
 
             while ~isempty(stack)
                 idxEnd = stack(end);
                 idxStart = stack(end-1);
-                stack(end-1:end) =[];
+                stack(end-1:end) =[ ];
 
                 if idxEnd - idxStart < 2
                     continue;
@@ -436,14 +455,14 @@ classdef HotWireSTEPApp_v6_helpers
                 % We split if EITHER side exceeds tolerance
                 max_distsSq = max(distsSq_L, distsSq_R);
 
-                d8 = 0; % Anti-markdown bug
-                [maxSq, localIdx] = max(max_distsSq);
+                %parserbug
+                [ maxSq, localIdx ] = max(max_distsSq);
 
                 if maxSq > (tol^2)
                     splitIdx = idxStart + localIdx;
                     keepMask(splitIdx) = true;
-                    stack =[stack, splitIdx, idxEnd];
-                    stack = [stack, idxStart, splitIdx];
+                    stack =[ stack, splitIdx, idxEnd ];
+                    stack =[ stack, idxStart, splitIdx ];
                 end
             end
 
@@ -458,12 +477,16 @@ classdef HotWireSTEPApp_v6_helpers
             zRS(end) = zRS(1);
         end
 
-        function [yLS, zLS, yRS, zRS] = syncPointCounts(yL, zL, yR, zR)
-            function [x, y] = clean(x, y)
+        function [ yLS, zLS, yRS, zRS ] = syncPointCounts(yL, zL, yR, zR)
+            % Purpose: A lightweight synchronizer used after Kerf is applied.
+            % WHY: Applying kerf (polybuffer) can slightly alter the point count of a profile.
+            %      This function forces them back into a 1:1 topology without running the heavy RDP algorithm.
+            
+            function[ x, y ] = clean(x, y)
                 if numel(x) < 2
                     return;
                 end
-                dist =[1; sqrt(diff(x).^2 + diff(y).^2)];
+                dist =[ 1; sqrt(diff(x).^2 + diff(y).^2) ];
                 keep = dist > 1e-6;
                 x = x(keep);
                 y = y(keep);
@@ -471,15 +494,19 @@ classdef HotWireSTEPApp_v6_helpers
                     x(end+1) = x(1);
                     y(end+1) = y(1);
                 end
-            end[yL, zL] = clean(yL, zL);
-            [yR, zR] = clean(yR, zR);
+            end
+            
+            %parserbug
+            [ yL, zL ] = clean(yL, zL);
+            %parserbug
+            [ yR, zR ] = clean(yR, zR);
 
             function s = getArcParam(y, z)
                 if numel(y) < 2
                     s=zeros(size(y));
                     return;
                 end
-                d =[0; cumsum(hypot(diff(y), diff(z)))];
+                d =[ 0; cumsum(hypot(diff(y), diff(z))) ];
                 maxD = d(end);
                 if maxD < 1e-6
                     maxD = 1;
@@ -491,18 +518,12 @@ classdef HotWireSTEPApp_v6_helpers
             sR = getArcParam(yR, zR);
 
             if isempty(sL) || isempty(sR)
-                yLS = yL;
-                zLS = zL;
-                yRS = yR;
-                zRS = zR;
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
                 return;
             end
 
             if numel(sL) == numel(sR) && max(abs(sL - sR)) < 1e-3
-                yLS = yL;
-                zLS = zL;
-                yRS = yR;
-                zRS = zR;
+                yLS = yL; zLS = zL; yRS = yR; zRS = zR;
                 return;
             end
 
@@ -510,10 +531,10 @@ classdef HotWireSTEPApp_v6_helpers
             sR(1) = 0; sR(end) = 1;
 
             % Exact grid merging (No rounding!)
-            s_target = unique([sL; sR]);
+            s_target = unique([ sL; sR ]);
 
-            [sL_u, idxL] = unique(sL, 'stable');
-            [sR_u, idxR] = unique(sR, 'stable');
+            %parserbug[ sL_u, idxL ] = unique(sL, 'stable');
+            %parserbug[ sR_u, idxR ] = unique(sR, 'stable');
 
             yLS = interp1(sL_u, yL(idxL), s_target, 'linear');
             zLS = interp1(sL_u, zL(idxL), s_target, 'linear');
@@ -521,14 +542,29 @@ classdef HotWireSTEPApp_v6_helpers
             zRS = interp1(sR_u, zR(idxR), s_target, 'linear');
         end
 
-        function [towerL, towerR] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
+        %% ===============================================================
+        %% --- GROUP 4: GEOMETRY MODIFICATION & KINEMATICS ---
+        %% ===============================================================
+
+        function [ towerL, towerR ] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
+            % Purpose: Projects a 3D model toolpath outwards onto the physical machine towers.
+            % WHY: The CNC controller only knows how to move the Left and Right towers. It doesn't
+            %      know where the billet is. We must calculate where the towers need to be to make 
+            %      the wire intersect the model at the correct coordinates.
+            % HOW: Uses similar triangles / linear extrapolation from the model planes to the tower planes.
+            
             towerL.y = yL + (0 - xL) .* (yR - yL) ./ (xR - xL);
             towerL.z = zL + (0 - xL) .* (zR - zL) ./ (xR - xL);
+            
             towerR.y = yL + (spanX - xL) .* (yR - yL) ./ (xR - xL);
             towerR.z = zL + (spanX - xL) .* (zR - zL) ./ (xR - xL);
         end
 
-        function [yo, zo] = offsetProfileLoop(yIn, zIn, kerf, tol)
+        function [ yo, zo ] = offsetProfileLoop(yIn, zIn, kerf, tol)
+            % Purpose: Expands or shrinks a 2D profile to compensate for the thickness of the hot wire.
+            % WHY: If we cut exactly on the line, the part will be too small by half the width of the wire.
+            % HOW: Converts the points into a MATLAB 'polyshape', applies 'polybuffer', and extracts the new boundary.
+            
             yo = yIn;
             zo = zIn;
             if nargin < 4
@@ -549,15 +585,19 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
+            % Offset distance is half the kerf (radius of the wire cut)
             offsetDist = kerf / 2.0;
 
-            inputPoints = round([y, z], 8);
+            % Rounding prevents microscopic self-intersections that crash polyshape
+            inputPoints = round([ y, z ], 8);
 
-            [~, uniqueIdx] = unique(inputPoints, 'rows', 'stable');
+            %parserbug
+            [ ~, uniqueIdx ] = unique(inputPoints, 'rows', 'stable');
 
             y = y(uniqueIdx);
             z = z(uniqueIdx);
 
+            % Suppress polyshape warnings (e.g., "Polygon is self-intersecting")
             originalState = warning('off', 'all');
             cleanupObj = onCleanup(@() warning(originalState));
 
@@ -572,14 +612,15 @@ classdef HotWireSTEPApp_v6_helpers
                     return;
                 end
 
+                % If polybuffer creates multiple islands, keep the largest one
                 if pgonOut.NumRegions > 1
                     areaList = area(pgonOut.regions);
-
-                    [~, maxIdx] = max(areaList);
-
+                    %parserbug[ ~, maxIdx ] = max(areaList);
                     pgonOut = pgonOut.regions(maxIdx);
                 end
-                [yo, zo] = boundary(pgonOut);
+                
+                %parserbug
+                [ yo, zo ] = boundary(pgonOut);
 
                 nanIdx = find(isnan(yo), 1);
                 if ~isempty(nanIdx)
@@ -591,19 +632,20 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
+            % If a tolerance is provided, run RDP to clean up the dense arcs created by polybuffer
             if tol > 0 && numel(yo) > 5
-                pts =[yo, zo];
+                pts =[ yo, zo ];
                 N = size(pts, 1);
                 keepMask = false(N, 1);
                 keepMask(1) = true;
                 keepMask(end) = true;
 
-                stack = [1, N];
+                stack =[ 1, N ];
 
                 while ~isempty(stack)
                     idxEnd = stack(end);
                     idxStart = stack(end-1);
-                    stack(end-1:end) =[];
+                    stack(end-1:end) =[ ];
 
                     if idxEnd - idxStart < 2
                         continue;
@@ -626,13 +668,14 @@ classdef HotWireSTEPApp_v6_helpers
                         Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
                         distsSq = sum((Pts - Closest).^2, 2);
                     end
-                    [maxSq, localIdx] = max(distsSq);
+                    
+                    %parserbug[ maxSq, localIdx ] = max(distsSq);
 
                     if maxSq > (tol^2)
                         splitIdx = rng(localIdx);
                         keepMask(splitIdx) = true;
-                        stack =[stack, splitIdx, idxEnd];
-                        stack = [stack, idxStart, splitIdx];
+                        stack =[ stack, splitIdx, idxEnd ];
+                        stack =[ stack, idxStart, splitIdx ];
                     end
                 end
 
@@ -640,7 +683,8 @@ classdef HotWireSTEPApp_v6_helpers
                 zo = pts(keepMask, 2);
             end
 
-            [yo, zo] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
+            % Re-align the start point to the front face after buffering
+            %parserbug[ yo, zo ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
 
             if isrow(yIn)
                 yo = yo.';
@@ -648,13 +692,19 @@ classdef HotWireSTEPApp_v6_helpers
             end
         end
 
-        function [yOut, zOut] = reorderLoopByMinY(y, z)
+        function [ yOut, zOut ] = reorderLoopByMinY(y, z)
+            % Purpose: Aligns the start point of a profile loop to the physical front face of the model.
+            % WHY: If Left and Right profiles start at different physical features, the 4-axis 
+            %      interpolation will twist the wire through the foam, destroying the part.
+            % HOW: Finds the minimum Y value (front face). If the front face is a tall vertical flat, 
+            %      it injects a new point exactly at the Z-centroid to guarantee perfect alignment.
+
             % 1. Force to Column Vectors
             y = y(:); z = z(:);
 
             % 2. Remove tailing point duplicate
             if numel(y) > 1 && abs(y(1)-y(end)) < 1e-6 && abs(z(1)-z(end)) < 1e-6
-                y(end) = []; z(end) =[];
+                y(end) =[ ]; z(end) =[ ];
             end
 
             if numel(y) < 3
@@ -662,7 +712,6 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % 3. Find Bounding Box Center in Z and Front Face (min Y)
-            % FIX: Use true bounding box center, NOT point average!
             cz = (min(z) + max(z)) / 2.0;
             minY = min(y);
 
@@ -694,26 +743,28 @@ classdef HotWireSTEPApp_v6_helpers
             % 5. Reorder or Inject
             if insert_idx > 0
                 % INJECT: Split the front face and insert a point exactly at the Z-centroid!
-                y_new =[y(1:insert_idx); best_yi; y(insert_idx+1:end)];
-                z_new =[z(1:insert_idx); cz;      z(insert_idx+1:end)];
+                y_new =[ y(1:insert_idx); best_yi; y(insert_idx+1:end) ];
+                z_new =[ z(1:insert_idx); cz;      z(insert_idx+1:end) ];
 
                 startIdx = insert_idx + 1;
-                yOut =[y_new(startIdx:end); y_new(1:startIdx-1)];
-                zOut =[z_new(startIdx:end); z_new(1:startIdx-1)];
+                yOut =[ y_new(startIdx:end); y_new(1:startIdx-1) ];
+                zOut =[ z_new(startIdx:end); z_new(1:startIdx-1) ];
             else
                 % FALLBACK: Find existing points on the front face
                 front_indices = find(abs(y - minY) < 1e-3);
 
                 if isempty(front_indices)
-                    [~, startIdx] = min(y);
+                    %parserbug
+                    [ ~, startIdx ] = min(y);
                 else
                     % Pick the one closest to Z-centroid
-                    [~, local_idx] = min(abs(z(front_indices) - cz));
+                    %parserbug
+                    [ ~, local_idx ] = min(abs(z(front_indices) - cz));
                     startIdx = front_indices(local_idx);
                 end
 
-                yOut =[y(startIdx:end); y(1:startIdx-1)];
-                zOut = [z(startIdx:end); z(1:startIdx-1)];
+                yOut =[ y(startIdx:end); y(1:startIdx-1) ];
+                zOut =[ z(startIdx:end); z(1:startIdx-1) ];
             end
 
             % 6. Force exact closure
@@ -722,12 +773,17 @@ classdef HotWireSTEPApp_v6_helpers
         end
 
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB, bufferY, bufferZ)
-            % Calculates billet size with configurable buffers.
+            % Purpose: Calculates the default physical dimensions of the foam stock required.
+            % WHY: Used by the Billet tab's "Auto-Fit" button.
+            % HOW: Takes the bounding box of the model, adds safety buffers, and snaps the Z-height 
+            %      to standard physical foam block thicknesses (e.g., 50mm, 75mm, 100mm).
 
             if nargin < 4, bufferY = 5.0; end
             if nargin < 5, bufferZ = 5.0; end
 
-            mins = min(V,[],1); maxs = max(V,[],1);
+            %parserbug
+            [ mins ] = min(V, [ ], 1); 
+            %parserbug[ maxs ] = max(V, [ ], 1);
 
             % X Logic
             billet.Xmin = min(xPlaneA, xPlaneB) - 0.001;
