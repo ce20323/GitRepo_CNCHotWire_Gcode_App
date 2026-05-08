@@ -1,6 +1,6 @@
 classdef CNCHotWire_GCodeGenerator_V1 < handle
     % ===========================================================
-    % HOTWIRE CNC G-CODE GENERATOR (v6.2)
+    % HOTWIRE CNC G-CODE GENERATOR (V1)
     % University of Bristol — Rapid Prototyping Workshop
     %
     % A comprehensive 4-axis CAM application for hot wire foam cutting.
@@ -25,7 +25,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
     %
     % ARCHITECTURE:
     % - Main App: CNCHotWire_GCodeGenerator_V1 (UI, State Machine, Plotting)
-    % - Helpers: HotWireSTEPApp_v6_helpers (STEP Import, Geometry Math)
+    % - Helpers: CNCHotWire_GCodeGenerator_V1_Helpers (STEP Import, Geometry Math)
     % ===========================================================
 
     properties (Constant)
@@ -832,7 +832,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 app.CurrentModelName = string(file);
 
                 % Delegate STEP import to the helpers class
-                [ V, F ] = HotWireSTEPApp_v6_helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
+                [ V, F ] = CNCHotWire_GCodeGenerator_V1_Helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
 
                 if isempty(V)
                     close(d);
@@ -1398,7 +1398,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             %% --- 2. LEFT PROFILE EXTRACTION ---
             meshL = cell(1,3);
-            [ meshL{1}, meshL{2}, meshL{3} ] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            [ meshL{1}, meshL{2}, meshL{3} ] = CNCHotWire_GCodeGenerator_V1_Helpers.sliceMeshAtX(V, F, xLeft + epsX);
             xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
 
             if ~isempty(ysL) && any(~isnan(ysL))
@@ -1406,14 +1406,14 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             end
 
             loopL = cell(1,2);
-            [ loopL{1}, loopL{2} ] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsL, ysL, zsL);
+            [ loopL{1}, loopL{2} ] = CNCHotWire_GCodeGenerator_V1_Helpers.buildMainProfileLoop(xsL, ysL, zsL);
             yLoopL = loopL{1}; zLoopL = loopL{2};
 
             %% --- 3. RIGHT PROFILE EXTRACTION ---
             yLoopR = []; zLoopR =[];
             if isTaper
                 meshR = cell(1,3);
-                [ meshR{1}, meshR{2}, meshR{3} ] = HotWireSTEPApp_v6_helpers.sliceMeshAtX(V, F, xRight - epsX);
+                [ meshR{1}, meshR{2}, meshR{3} ] = CNCHotWire_GCodeGenerator_V1_Helpers.sliceMeshAtX(V, F, xRight - epsX);
                 xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
 
                 if ~isempty(ysR) && any(~isnan(ysR))
@@ -1421,7 +1421,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 end
 
                 loopR = cell(1,2);
-                [ loopR{1}, loopR{2} ] = HotWireSTEPApp_v6_helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                [ loopR{1}, loopR{2} ] = CNCHotWire_GCodeGenerator_V1_Helpers.buildMainProfileLoop(xsR, ysR, zsR);
                 yLoopR = loopR{1}; zLoopR = loopR{2};
             else
                 % Prismatic cut: Right profile is identical to Left
@@ -1433,7 +1433,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             % Resample the raw loops based on the user's tolerance setting
             if ~isempty(yLoopL) && ~isempty(yLoopR)
                 resmp = cell(1,4);
-                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = HotWireSTEPApp_v6_helpers.resampleProfilesSynced(...
+                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = CNCHotWire_GCodeGenerator_V1_Helpers.resampleProfilesSynced(...
                     yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
                 yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
             end
@@ -1533,17 +1533,17 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
 
             if doKerfL
-                [ final_yL, final_zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                [ final_yL, final_zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
 
             if doKerfR
-                [ final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                [ final_yR, final_zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
             %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
             % Always sync the final shapes so the UI exactly matches the Simulation.
             if ~isempty(final_yL) && ~isempty(final_yR)
-                [ final_yL, final_zL, final_yR, final_zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+                [ final_yL, final_zL, final_yR, final_zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
             end
 
             nLk = numel(final_yL);
@@ -1878,20 +1878,20 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             if app.KerfEnabled
                 if app.KerfLeftValue ~= 0
-                    [ yL, zL ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                    [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
                 end
                 if app.KerfRightValue ~= 0
-                    [ yR, zR ] = HotWireSTEPApp_v6_helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                    [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
                 end
             end
 
             % ALWAYS re-align start points before syncing!
             % This prevents twist when Kerf is 0, ensuring both profiles
             % are anchored to the exact front face before parameter blending.
-            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
-            [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+            [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yL, zL);
+            [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
 
-            [ yL, zL, yR, zR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(yL, zL, yR, zR);
+            [ yL, zL, yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(yL, zL, yR, zR);
         end
 
         function[ yOut, zOut ] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
@@ -2486,7 +2486,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                             xR_m = x + app.BilletShift(1) + pXR;
 
                             % Project the toolpath to the physical towers at this test X position
-                            [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                            [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                             % Calculate total path length for each tower
                             lenL = sum(hypot(diff(tL.y), diff(tL.z)));
@@ -2511,7 +2511,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                     xL_m = bestX + app.BilletShift(1) + pXL;
                     xR_m = bestX + app.BilletShift(1) + pXR;
 
-                    [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                    [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                     % Find the lowest point the wire reaches on either tower
                     minProjZ = min([tL.z; tR.z]);
@@ -2665,7 +2665,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
                     % Draw Ghost Profiles (Raw extracted profiles before kerf/sync)
-                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(...
                         app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
@@ -2695,7 +2695,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
                         % Project paths outwards to the physical towers
-                        [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
+                        [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
@@ -4170,7 +4170,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             % 3. Draw Ghost Profiles (Raw extracted profiles in neutral grey)
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = HotWireSTEPApp_v6_helpers.syncPointCounts(...
+                [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(...
                     app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
