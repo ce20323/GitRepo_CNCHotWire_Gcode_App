@@ -1,4 +1,4 @@
-classdef HotWireSTEPApp_v6_helpers
+classdef CNCHotWire_GCodeGenerator_V1_Helpers
     % ===========================================================
     % HOTWIRE CNC G-CODE GENERATOR - MATH & GEOMETRY HELPERS
     %
@@ -78,7 +78,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Apply meshing deflections (lower = higher resolution mesh)
             fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
-                HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
+                CNCHotWire_GCodeGenerator_V1_Helpers.FreeCADLinearDeflection, CNCHotWire_GCodeGenerator_V1_Helpers.FreeCADAngularDeflection);
 
             fprintf(fid,"mesh.write(r'%s')\n", safeOutSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
@@ -332,8 +332,8 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % 1. Align start points to the front face
-            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
-            [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+            [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yL, zL);
+            [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
 
             % 2. Ensure winding directions match by calculating polygon area
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
@@ -342,7 +342,7 @@ classdef HotWireSTEPApp_v6_helpers
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
                 zR = flipud(zR);
-                [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
+                [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
             end
 
             % 3. Calculate parametric arc lengths (0 to 1)
@@ -667,7 +667,7 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % Re-align the start point to the front face after buffering
-            [ yo, zo ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
+            [ yo, zo ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yo, zo);
 
             if isrow(yIn)
                 yo = yo.';
@@ -777,7 +777,7 @@ classdef HotWireSTEPApp_v6_helpers
             modelH = maxs(3) - mins(3);
             requiredH = modelH + (bufferZ * 2);
 
-            stocks = HotWireSTEPApp_v6_helpers.BilletStockHeights;
+            stocks = CNCHotWire_GCodeGenerator_V1_Helpers.BilletStockHeights;
             stockH = requiredH;
 
             for i = 1:numel(stocks)
