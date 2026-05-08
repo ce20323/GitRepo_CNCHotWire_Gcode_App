@@ -44,8 +44,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             cadPath = char(cadPath);
             freeCADExe = char(freeCADExe);
-
-            %parserbug
+            
             [ ~, modelName, ext ] = fileparts(cadPath);
 
             disp(['[HotWire CAM] Importing ', modelName, ext, ' via FreeCAD...']);
@@ -86,14 +85,12 @@ classdef HotWireSTEPApp_v6_helpers
             fclose(fid);
 
             %% --- 3. EXECUTE FREECAD ---
-            % The Bulletproof Windows CMD workaround: Change directory to the FreeCAD bin folder first
-            %parserbug
+            % The Bulletproof Windows CMD workaround: Change directory to the FreeCAD bin folder first           
             [ fcDir, fcName, fcExt ] = fileparts(freeCADExe);
 
             fcExeName = [fcName, fcExt];
             cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
-
-            %parserbug
+          
             [ status, cmdout ] = system(cmdStr);
 
             if status ~= 0
@@ -268,8 +265,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             % 6. Select the primary loop
             % If there are multiple loops (e.g., internal holes), we assume the longest 
-            % perimeter is the outer boundary we want to cut.
-            %parserbug
+            % perimeter is the outer boundary we want to cut.            
             [ ~, bestIdx ] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
             
             pts = nodePos(loops{bestIdx},:);
@@ -293,8 +289,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             s =[ 0; cumsum(hypot(diff(yExt), diff(zExt))) ];
             
-            % Ensure unique samples to avoid interp1 errors
-            %parserbug
+            % Ensure unique samples to avoid interp1 errors            
             [ sU, idxU ] = unique(s, 'stable');
             if numel(sU) < 2, yR=y; zR=z; return; end
 
@@ -327,10 +322,8 @@ classdef HotWireSTEPApp_v6_helpers
                     y(end+1) = y(1);
                 end
             end
-
-            %parserbug
-            [ yL, zL ] = clean_path(yL, zL);
-            %parserbug
+            
+            [ yL, zL ] = clean_path(yL, zL);            
             [ yR, zR ] = clean_path(yR, zR);
 
             if numel(yL) < 3 || numel(yR) < 3
@@ -338,10 +331,8 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            % 1. Align start points to the front face
-            %parserbug
-            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
-            %parserbug
+            % 1. Align start points to the front face            
+            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);            
             [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
             % 2. Ensure winding directions match by calculating polygon area
@@ -350,8 +341,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
-                zR = flipud(zR);
-                %parserbug
+                zR = flipud(zR);                
                 [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
@@ -384,10 +374,8 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Exact grid merging (No rounding!) preserves exact corner vertices
             s_eval = unique([ s_fine; s_rawL; s_rawR ]);
-
-            %parserbug
-            [ suL, iuL ] = unique(s_rawL, 'stable');
-            %parserbug
+            
+            [ suL, iuL ] = unique(s_rawL, 'stable');            
             [ suR, iuR ] = unique(s_rawR, 'stable');
 
             yLf = interp1(suL, yL(iuL), s_eval, 'linear');
@@ -454,8 +442,7 @@ classdef HotWireSTEPApp_v6_helpers
 
                 % We split if EITHER side exceeds tolerance
                 max_distsSq = max(distsSq_L, distsSq_R);
-
-                %parserbug
+                
                 [ maxSq, localIdx ] = max(max_distsSq);
 
                 if maxSq > (tol^2)
@@ -495,10 +482,8 @@ classdef HotWireSTEPApp_v6_helpers
                     y(end+1) = y(1);
                 end
             end
-            
-            %parserbug
-            [ yL, zL ] = clean(yL, zL);
-            %parserbug
+                        
+            [ yL, zL ] = clean(yL, zL);           
             [ yR, zR ] = clean(yR, zR);
 
             function s = getArcParam(y, z)
@@ -533,8 +518,8 @@ classdef HotWireSTEPApp_v6_helpers
             % Exact grid merging (No rounding!)
             s_target = unique([ sL; sR ]);
 
-            %parserbug[ sL_u, idxL ] = unique(sL, 'stable');
-            %parserbug[ sR_u, idxR ] = unique(sR, 'stable');
+            [ sL_u, idxL ] = unique(sL, 'stable');
+            [ sR_u, idxR ] = unique(sR, 'stable');
 
             yLS = interp1(sL_u, yL(idxL), s_target, 'linear');
             zLS = interp1(sL_u, zL(idxL), s_target, 'linear');
@@ -590,8 +575,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Rounding prevents microscopic self-intersections that crash polyshape
             inputPoints = round([ y, z ], 8);
-
-            %parserbug
+            
             [ ~, uniqueIdx ] = unique(inputPoints, 'rows', 'stable');
 
             y = y(uniqueIdx);
@@ -615,11 +599,10 @@ classdef HotWireSTEPApp_v6_helpers
                 % If polybuffer creates multiple islands, keep the largest one
                 if pgonOut.NumRegions > 1
                     areaList = area(pgonOut.regions);
-                    %parserbug[ ~, maxIdx ] = max(areaList);
+                    [ ~, maxIdx ] = max(areaList);
                     pgonOut = pgonOut.regions(maxIdx);
                 end
-                
-                %parserbug
+                                
                 [ yo, zo ] = boundary(pgonOut);
 
                 nanIdx = find(isnan(yo), 1);
@@ -669,7 +652,7 @@ classdef HotWireSTEPApp_v6_helpers
                         distsSq = sum((Pts - Closest).^2, 2);
                     end
                     
-                    %parserbug[ maxSq, localIdx ] = max(distsSq);
+                    [ maxSq, localIdx ] = max(distsSq);
 
                     if maxSq > (tol^2)
                         splitIdx = rng(localIdx);
@@ -684,7 +667,7 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % Re-align the start point to the front face after buffering
-            %parserbug[ yo, zo ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
+            [ yo, zo ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yo, zo);
 
             if isrow(yIn)
                 yo = yo.';
@@ -753,12 +736,10 @@ classdef HotWireSTEPApp_v6_helpers
                 % FALLBACK: Find existing points on the front face
                 front_indices = find(abs(y - minY) < 1e-3);
 
-                if isempty(front_indices)
-                    %parserbug
+                if isempty(front_indices)                    
                     [ ~, startIdx ] = min(y);
                 else
-                    % Pick the one closest to Z-centroid
-                    %parserbug
+                    % Pick the one closest to Z-centroid                    
                     [ ~, local_idx ] = min(abs(z(front_indices) - cz));
                     startIdx = front_indices(local_idx);
                 end
@@ -780,10 +761,9 @@ classdef HotWireSTEPApp_v6_helpers
 
             if nargin < 4, bufferY = 5.0; end
             if nargin < 5, bufferZ = 5.0; end
-
-            %parserbug
+            
             [ mins ] = min(V, [ ], 1); 
-            %parserbug[ maxs ] = max(V, [ ], 1);
+            [ maxs ] = max(V, [ ], 1);
 
             % X Logic
             billet.Xmin = min(xPlaneA, xPlaneB) - 0.001;
@@ -810,6 +790,5 @@ classdef HotWireSTEPApp_v6_helpers
             billet.Zmin = mins(3) - bufferZ;
             billet.Zmax = billet.Zmin + stockH;
         end
-
     end
 end
