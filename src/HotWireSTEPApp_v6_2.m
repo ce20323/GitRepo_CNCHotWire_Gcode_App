@@ -561,7 +561,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 % Case A: CRITICAL ERROR (Red) - Block movement to Sim/Post, but allow Cutting
                 if ~isValidMach || isExtRed
-                    if isSim || isPost
+                    if isPost
                         reason = "Billet is outside machine limits.";
                         if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
                         uialert(app.UIFigure, reason, 'Machine Safety Error');
@@ -733,14 +733,15 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function enterState0(app)
             % Purpose: Resets the app to "State 0" (Model loaded, but no planes/profiles).
-            % WHY: Used when a new model is imported, invalidating previous work.
-
             app.AppState = 0;
 
             app.clearPlanes();
             app.clearProfiles();
             app.clearProfiles2D();
-            app.invalidateKerf();
+
+            % Hard reset the kerf flag for new models
+            app.KerfEnabled = false;
+            app.clearKerfPaths();
 
             % Disable the Continue button visually
             if ~isempty(app.BtnContinue) && isgraphics(app.BtnContinue)
@@ -914,10 +915,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onTaperModeChanged(app)
             % Purpose: Handles switching between Straight (Prismatic) and Tapered cuts.
-            % WHY: Straight cuts enforce coupled kerf and disable dynamic feed.
-            %      Tapered cuts allow independent kerf and dynamic feed scaling.
-
-            % --- 1. UI LOGIC (Always run this, regardless of model state) ---
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
 
             if ~isTaper
@@ -938,16 +935,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
                 if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
                     app.ChkDynamicFeed.Enable = 'on';
+                    app.ChkDynamicFeed.Value = true; % Default to true
                 end
             end
 
-            % --- 2. CALCULATION LOGIC (Only if model exists) ---
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
 
-            % Re-run planes + profiles under the new taper mode
-            app.invalidateKerf();
             app.updatePlanes();
         end
 
@@ -1001,6 +996,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
+            if isprop(app, 'FieldFilename') && isgraphics(app.FieldFilename)
+                app.updatePostProcessUI();
+            end
         end
 
         function autoFitView(app)
@@ -1184,10 +1182,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Update view and store as new "home" orientation
             app.autoFitView();
-            app.captureHomeView();
-            
-            % Rotation changes the geometry → invalidate kerf
-            app.invalidateKerf();
+            app.captureHomeView();            
             
             app.updateModelBoundsAndDefaultOffsets(true);
             
@@ -1216,8 +1211,6 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             app.autoFitView();
             app.captureHomeView();
-
-            app.invalidateKerf();
 
             % Reset model bounds & plane offsets to defaults
             app.updateModelBoundsAndDefaultOffsets(true); 
@@ -1285,15 +1278,10 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onPlaneOffsetChanged(app, ~, ~)
             % Purpose: Callback for when the user manually adjusts the Left/Right plane spinners.
-            
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return
             end
-
-            % Moving the planes changes the extracted geometry, so kerf must be recalculated
-            app.invalidateKerf();
-            
-            % Redraw planes (which indirectly calls computeProfiles in State 1)
+            % Redraw planes (which indirectly calls computeProfiles and reapplies kerf)
             app.updatePlanes();  
         end
 
@@ -1304,7 +1292,6 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
 
-            app.invalidateKerf();
             app.updateModelBoundsAndDefaultOffsets(true);
             app.updatePlanes();
         end
@@ -2077,7 +2064,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 P = app.ModelPatch.Vertices;
             end
 
-            [ localMins ] = min(P, [], 1);
+            [ localMins ] = min(P, [], 1);            
             [ localMaxs ] = max(P,[], 1);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
@@ -2091,18 +2078,20 @@ classdef HotWireSTEPApp_v6_2 < handle
             bSizeZ = ceil((localMaxs(3) - localMins(3)) + (2.0 * buf));
 
             app.BilletSize =[ bSizeX, bSizeY, bSizeZ ];
-            app.BilletShift = [ 0 0 0 ];
-
             app.IsBilletUserModified = false; % Unlock Size auto-calculation
 
-            % Mark downstream tabs as stale so they re-calculate if not locked
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
 
-            app.syncBilletUI();
-            app.refreshBilletPlots();
+            % If position isn't locked, auto-position it inside the new size!
+            if ~app.IsBilletPosUserModified
+                app.onAutoPositionModel();
+            else
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+            end
         end
-
+        
         function onAutoPositionModel(app)
             % Purpose: Automatically shifts the model to sit safely inside the billet.
             if isempty(app.ModelPatch)
@@ -2172,8 +2161,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsCuttingInit = false;
             app.IsBilletUserModified = true;
 
-            app.syncBilletUI();
-            app.refreshBilletPlots();
+            % If position isn't locked, auto-position it inside the new size!
+            if ~app.IsBilletPosUserModified
+                app.onAutoPositionModel();
+            else
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+            end
         end
 
         function onBilletSizeEdited(app, axisIdx, src)
@@ -2196,8 +2190,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.IsCuttingInit = false;
             app.IsBilletUserModified = true;
 
-            app.syncBilletUI();
-            app.refreshBilletPlots();
+            % If position isn't locked, auto-position it inside the new size!
+            if ~app.IsBilletPosUserModified
+                app.onAutoPositionModel();
+            else
+                app.syncBilletUI();
+                app.refreshBilletPlots();
+            end
         end
 
         function onBilletOffsetEdited(app, axisIdx, whichField, src)
@@ -5751,7 +5750,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             % 2. Guidance (Pushed to bottom by 1x spacer in Row 4)
-            pnl2 = uipanel(leftPnl, 'Title', '2. Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnl2 = uipanel(leftPnl, 'Title', 'Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnl2.Layout.Row = 5;
             gl2 = uigridlayout(pnl2,[1 1]); gl2.Padding =[0 0 0 0]; gl2.BackgroundColor = sideBg;
             uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
@@ -6397,7 +6396,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- 4. GUIDANCE ---
             % Purpose: Instructions for reducing foam waste
-            pnlGuide = uipanel(app.BilletLeftPanel, 'Title', '4. Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.BilletLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 5;
             glGuide = uigridlayout(pnlGuide, [1 1]);
             glGuide.Padding =[0 0 0 0]; % Zero padding for max text space
@@ -7133,7 +7132,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             gridExport.RowSpacing=5;
             gridExport.BackgroundColor=panelBg;
 
-            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt);
+            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.updatePostStatus());
 
             app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
