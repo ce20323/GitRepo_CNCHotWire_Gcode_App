@@ -20,10 +20,10 @@ A MATLAB-based application for generating, simulating, and exporting G-code for 
 /data             → CAD models for testing
 
 ## 🛠 Requirements
-
-- MATLAB R2021a or later  
-- Optional:  
-  - Image Processing Toolbox (for previews)  
+- MATLAB R2021a or later
+- **FreeCAD (v1.0 or newer)** - Required for importing .STEP files.
+- Optional:
+  - Image Processing Toolbox (for previews)
   - Curve Fitting Toolbox (for smoothing)
 
 ## ▶️ How to Run

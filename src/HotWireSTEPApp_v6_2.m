@@ -36,7 +36,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         MachineBedPos  (1,3) double = [44, 50, -24];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
         MachineBedSize (1,3) double = [1088, 700, 24]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
         BrassJointOffsetRight (1,1) double = -50.0;    % [mm] Neutral position of brass joint relative to right bed edge (negative = inward/over bed)
-        
+
         %% --- SAFETY THRESHOLDS ---
         SafetyBuffer_BedEdge   (1,1) double = 10.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
         BilletRoundingY        (1,1) double = 10.0;   % [mm] Rounding grid increment for billet auto-placement
@@ -802,7 +802,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         %% ===========================================================
         %% --- GROUP 4: TAB 2 - MODEL IMPORT & ORIENTATION ---
         %% ===========================================================
-        % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group 
+        % Note: onImportSTEP, onImportSTL, and plotMesh belong in this group
         % (provided in the first patch).
 
         %%                    - IMPORT STEP / STL -
@@ -982,7 +982,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % ONLY reset the manual lock on a brand new file import
             app.IsBilletUserModified = false;
-            
+
             app.autoFitView();
             drawnow;
             app.captureHomeView();
@@ -1048,34 +1048,34 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.DefaultCameraPosition     = ax.CameraPosition;
             app.DefaultCameraTarget       = ax.CameraTarget;
             app.DefaultCameraUpVector     = ax.CameraUpVector;
-            app.DefaultCameraViewAngle    = ax.CameraViewAngle; 
+            app.DefaultCameraViewAngle    = ax.CameraViewAngle;
         end
 
         function resetPlotView(app)
             % Purpose: Restores the 3D axes to the previously captured "Home" view.
             if isempty(app.DefaultXLim)
-                app.autoFitView(); 
-                return; 
+                app.autoFitView();
+                return;
             end
             ax = app.AxModel;
 
-            xlim(ax, app.DefaultXLim); 
-            ylim(ax, app.DefaultYLim); 
+            xlim(ax, app.DefaultXLim);
+            ylim(ax, app.DefaultYLim);
             zlim(ax, app.DefaultZLim);
-            
+
             ax.DataAspectRatio    = app.DefaultDataAspectRatio;
             ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
             ax.CameraPosition     = app.DefaultCameraPosition;
             ax.CameraTarget       = app.DefaultCameraTarget;
             ax.CameraUpVector     = app.DefaultCameraUpVector;
-            ax.CameraViewAngle    = app.DefaultCameraViewAngle; 
+            ax.CameraViewAngle    = app.DefaultCameraViewAngle;
 
             delete(findall(ax, 'Type', 'light'));
-            camlight(ax, 'headlight'); 
+            camlight(ax, 'headlight');
             lighting(ax, 'gouraud');
             drawnow limitrate;
         end
-        
+
         %%                    - ROTATION -
         function updateRotation(app, axisChar, newVal)
             % Purpose: Rotates the 3D model to a specific absolute angle.
@@ -1111,14 +1111,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                 case 'Y'
                     R = makehgtform('yrotate', deg2rad(delta));
                 case 'Z'
-                    R = makehgtform('zrotate', deg2rad(-delta)); 
+                    R = makehgtform('zrotate', deg2rad(-delta));
             end
 
             % Rotate mesh vertices about their centroid
             V = app.ModelPatch.Vertices;
             C = mean(V, 1);
             V = V - C;
-            
+
             % Apply 4x4 transformation matrix
             V =[ V, ones(size(V,1),1) ] * R.';
             V = V(:, 1:3) + C;
@@ -1129,27 +1129,27 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Recompute model bounds and reset offsets so planes snap to the new extents
             app.updateModelBoundsAndDefaultOffsets(true);
-            
+
             % Rotation defines a new "Home" position for the Billet tab
             app.BilletRefXMin = app.ModelXMin;
             app.BilletRefYMin = app.ModelYMin;
             app.BilletRefZMin = app.ModelZMin;
             app.BilletShift   = [0 0 0]; % Reset the UI offset counter
-            
+
             app.updatePlanes();
         end
 
         function rotateModel(app, cmd)
             % Purpose: Increments/Decrements the model rotation by 90 degrees.
             % WHY: Triggered by the +/- 90 buttons for quick orthogonal alignment.
-            
+
             if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
                 return
             end
 
             ax = cmd(1);
             d  = cmd(2);
-            
+
             % 'p' = plus (+90), 'm' = minus (-90)
             theta = 90*(d=='p') - 90*(d=='m');
 
@@ -1182,22 +1182,22 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Update view and store as new "home" orientation
             app.autoFitView();
-            app.captureHomeView();            
-            
+            app.captureHomeView();
+
             app.updateModelBoundsAndDefaultOffsets(true);
-            
+
             % Rotation defines a new "Home" position for the Billet tab
             app.BilletRefXMin = app.ModelXMin;
             app.BilletRefYMin = app.ModelYMin;
             app.BilletRefZMin = app.ModelZMin;
-            app.BilletShift   = [0 0 0]; 
-            
+            app.BilletShift   = [0 0 0];
+
             app.updatePlanes();
         end
 
         function resetOrientation(app)
             % Purpose: Restores the model to its original imported orientation.
-            
+
             if isempty(app.ModelVerticesOriginal) || isempty(app.ModelPatch)
                 return
             end
@@ -1213,22 +1213,22 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.captureHomeView();
 
             % Reset model bounds & plane offsets to defaults
-            app.updateModelBoundsAndDefaultOffsets(true); 
-            
+            app.updateModelBoundsAndDefaultOffsets(true);
+
             app.BilletRefXMin = app.ModelXMin;
             app.BilletRefYMin = app.ModelYMin;
             app.BilletRefZMin = app.ModelZMin;
-            app.BilletShift   = [0 0 0]; 
-            
+            app.BilletShift   = [0 0 0];
+
             app.updatePlanes();
         end
-       
+
         %%                    - PLANES -
-        
+
         function updateModelBoundsAndDefaultOffsets(app, resetOffsets)
             % Purpose: Calculates the physical bounding box of the model and updates the UI plane spinners.
             % WHY: The cutting planes are constrained to the physical width of the model.
-            % HOW: Finds the min/max of the vertices. The UI displays '0' as the left face 
+            % HOW: Finds the min/max of the vertices. The UI displays '0' as the left face
             %      and 'Model Width' as the right face.
 
             if isempty(app.ModelPatch), return; end
@@ -1251,7 +1251,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.NumLeftOffset.Limits  = [0, modelWidth];
             app.NumRightOffset.Limits =[0, modelWidth];
 
-            t = app.getTheme(); 
+            t = app.getTheme();
 
             if nargin < 2, resetOffsets = true; end
 
@@ -1262,7 +1262,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 if ~isempty(app.TxtModelStatus)
                     app.TxtModelStatus.Value = {'Model loaded.', sprintf('Size: %.1f x %.1f x %.1f mm', ...
                         modelWidth, app.ModelYMax-app.ModelYMin, app.ModelZMax-app.ModelZMin)};
-                    app.TxtModelStatus.FontColor = t.statPassTxt; 
+                    app.TxtModelStatus.FontColor = t.statPassTxt;
                 end
             else
                 % Clamp values if the model was rotated and became narrower
@@ -1271,7 +1271,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                 if ~isempty(app.TxtModelStatus)
                     app.TxtModelStatus.Value = {'Model re-oriented.', 'Check plane positions.'};
-                    app.TxtModelStatus.FontColor = t.statWarnTxt; 
+                    app.TxtModelStatus.FontColor = t.statWarnTxt;
                 end
             end
         end
@@ -1282,12 +1282,12 @@ classdef HotWireSTEPApp_v6_2 < handle
                 return
             end
             % Redraw planes (which indirectly calls computeProfiles and reapplies kerf)
-            app.updatePlanes();  
+            app.updatePlanes();
         end
 
         function resetPlanes(app)
             % Purpose: Snaps the cutting planes back to the absolute left and right faces of the model.
-            
+
             if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch)
                 return
             end
@@ -1961,7 +1961,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 P = app.ModelPatch.Vertices;
             end
 
-            
+
             [ localMins ] = min(P,[], 1);
             [ localMaxs ] = max(P,[], 1);
 
@@ -2064,7 +2064,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 P = app.ModelPatch.Vertices;
             end
 
-            [ localMins ] = min(P, [], 1);            
+            [ localMins ] = min(P, [], 1);
             [ localMaxs ] = max(P,[], 1);
 
             xL = app.ModelXMin + app.NumLeftOffset.Value;
@@ -2091,7 +2091,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.refreshBilletPlots();
             end
         end
-        
+
         function onAutoPositionModel(app)
             % Purpose: Automatically shifts the model to sit safely inside the billet.
             if isempty(app.ModelPatch)
@@ -2392,7 +2392,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function onMachinePosEdited(app, axisIdx, src)
             % Purpose: Handles manual text/spinner entry for the billet's position on the machine bed.
             % WHY: Allows the user to manually override the auto-placement if they have a specific fixture.
-            
+
             val = src.Value;
             oldY = app.MachineBilletPos(2);
             oldZ = app.MachineBilletPos(3);
@@ -2404,7 +2404,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.MachineBilletPos(axisIdx) = val;
             end
 
-            % HOW: If the billet moves on the bed, the manual entry/link points 
+            % HOW: If the billet moves on the bed, the manual entry/link points
             %      (which are tied to the billet) must shift by the exact same amount.
             dY = app.MachineBilletPos(2) - oldY;
             dZ = app.MachineBilletPos(3) - oldZ;
@@ -2425,13 +2425,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Lock the auto-positioner since the user took manual control
             app.IsMachineUserModified = true;
             app.IsMachineInit = true;
-            
+
             app.refreshMachinePlot();
         end
 
         function onResetMachineBilletPosition(app)
             % Purpose: Automatically places the billet on the machine bed in the optimal location.
-            % WHY: To minimize wire extension, balance left/right tower travel, and align with 
+            % WHY: To minimize wire extension, balance left/right tower travel, and align with
             %      standard physical foam stock heights and bed grid holes.
 
             if isempty(app.ModelPatch)
@@ -2485,7 +2485,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                             xL_m = x + app.BilletShift(1) + pXL;
                             xR_m = x + app.BilletShift(1) + pXR;
 
-                            % Project the toolpath to the physical towers at this test X position                        
+                            % Project the toolpath to the physical towers at this test X position
                             [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                             % Calculate total path length for each tower
@@ -2510,7 +2510,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     % Re-evaluate the tower heights at the chosen bestX position
                     xL_m = bestX + app.BilletShift(1) + pXL;
                     xR_m = bestX + app.BilletShift(1) + pXR;
-                    
+
                     [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                     % Find the lowest point the wire reaches on either tower
@@ -2524,7 +2524,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         % HOW: We snap to standard 25mm increments (e.g., 25, 50, 75mm blocks).
                         reqZ = -minProjZ;
                         targetZ = ceil(reqZ / 25.0) * 25.0;
-                        
+
                         % Force a minimum of 50mm packing if any packing is required at all
                         if targetZ > 0 && targetZ < 50
                             targetZ = 50.0;
@@ -2535,10 +2535,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                     %% --- 4. Y-AXIS LOGIC (SAFE CLEARANCE) ---
                     % Find the furthest forward the wire reaches
                     minProjY = min([tL.y; tR.y]);
-                    
+
                     % Ensure the wire never gets closer than 50mm to the absolute front of the machine
                     reqBilletY = max(50.0, 50.0 - minProjY);
-                    
+
                     % Snap the Y position to a 50mm grid for easy physical measurement
                     targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
 
@@ -2571,7 +2571,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
 
-            app.BtnMachineContinue.Enable = 'on'; 
+            app.BtnMachineContinue.Enable = 'on';
             app.IsMachineUserModified = false; % Mark as auto-calculated
             app.refreshMachinePlot();
         end
@@ -2610,7 +2610,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             bp = app.MachineBedPos;
 
             %% --- 2. DRAW STATIC MACHINE COMPONENTS ---
-            
+
             % Draw Machine Bed (Sacrificial foam layer)
             [ xb, yb, zb ] = app.makeBoxVertices(0, bp(2), -bs(3), bs(1), bs(2), bs(3));
             hBed = patch(ax, 'Vertices',[ xb, yb, zb ], 'Faces', app.boxFaces, ...
@@ -2644,13 +2644,13 @@ classdef HotWireSTEPApp_v6_2 < handle
                 totalShift = bPlotPos + app.BilletShift;
 
                 % Draw Packing Block (If Billet is raised off the bed)
-                if app.MachineBilletPos(3) > 0                   
+                if app.MachineBilletPos(3) > 0
                     [ xPack, yPack, zPack ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), 0, app.BilletSize(1), app.BilletSize(2), app.MachineBilletPos(3));
                     patch(ax, 'Vertices',[ xPack, yPack, zPack ], 'Faces', app.boxFaces, ...
                         'FaceColor',[0.25 0.25 0.25], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'HandleVisibility', 'off');
                 end
 
-                % Draw Billet (Thin solid lines to prevent aliasing)                
+                % Draw Billet (Thin solid lines to prevent aliasing)
                 [ xm, ym, zm ] = app.makeBoxVertices(bPlotPos(1), bPlotPos(2), bPlotPos(3), app.BilletSize(1), app.BilletSize(2), app.BilletSize(3));
                 hBillet = patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, ...
                     'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, ...
@@ -2678,14 +2678,14 @@ classdef HotWireSTEPApp_v6_2 < handle
                     plot3(ax, xR_world * ones(size(yS_rawR)), yS_rawR + totalShift(2), zS_rawR + totalShift(3), ...
                         'Color', t.ghostGreen, 'LineWidth', 0.75, 'LineStyle', '-');
 
-                    % Fetch Kerf-Compensated Wire Paths                    
+                    % Fetch Kerf-Compensated Wire Paths
                     [ ySyncL, zSyncL, ySyncR, zSyncR ] = app.getSyncedKerfProfiles();
 
                     if ~isempty(ySyncL)
                         isCCW = strcmp(app.SwitchCutDir.Value, 'Bottom (CCW)');
-                        
-                        % Apply start point shifts and cut direction                        
-                        [ ySyncL, zSyncL ] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);                        
+
+                        % Apply start point shifts and cut direction
+                        [ ySyncL, zSyncL ] = app.applyMods(ySyncL, zSyncL, 0, 0, app.SelectedStartIdxL, isCCW);
                         [ ySyncR, zSyncR ] = app.applyMods(ySyncR, zSyncR, 0, 0, app.SelectedStartIdxR, isCCW);
 
                         % Plot the actual cut paths on the model faces
@@ -2694,7 +2694,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         plot3(ax, xR_world * ones(size(ySyncR)), ySyncR + totalShift(2), zSyncR + totalShift(3), ...
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
-                        % Project paths outwards to the physical towers                        
+                        % Project paths outwards to the physical towers
                         [ tL, tR ] = HotWireSTEPApp_v6_helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
@@ -2705,7 +2705,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                         %% --- SMART WIRE DISTRIBUTION ALGORITHM ---
                         % WHY: Drawing a wire at every single point creates a solid, unreadable wall of color.
                         % HOW: We selectively pick indices to draw the wire based on distance, curvature, and sharp corners.
-                        
+
                         N_pts = numel(tL.y);
                         idx = 1;
                         last_idx = 1;
@@ -2713,14 +2713,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
                         % 1. Straight Lines: Target distance between wires (scales with total path length)
                         total_len = sum(hypot(diff(ySyncL), diff(zSyncL)));
-                        target_spacing = max(10.0, total_len / 40.0); 
-                        
+                        target_spacing = max(10.0, total_len / 40.0);
+
                         % 2. Curves: Degrees of cumulative bending before drawing a wire
-                        curve_angle_threshold = 10.0; 
-                        
+                        curve_angle_threshold = 10.0;
+
                         % 3. Minimum Spacing: Prevents crowding/pairing on curves and noisy straights
-                        min_spacing = 4.0; 
-                        
+                        min_spacing = 4.0;
+
                         % 4. Hard Corners: Always draw if the angle exceeds this (ignores min_spacing)
                         sharp_corner_threshold = 10.0;
 
@@ -2739,7 +2739,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                                 dp = dot(v1, v2) / (n1 * n2);
                                 angle_deg = acosd(max(-1, min(1, dp)));
                             end
-                            
+
                             accumulated_angle = accumulated_angle + angle_deg;
 
                             % Rule 1: Traveled far enough along a gentle curve or straight
@@ -2751,7 +2751,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                             % Rule 3: Transition (Start/End of an external curve or straight).
                             % Must bend at least 2 degrees to ignore noisy straight lines.
                             isTransition = (max(n1, n2) > 1.0) && (max(n1, n2) > 3.0 * min(n1, n2)) && (angle_deg > 2.0);
-                            
+
                             % Rule 4: Fanning around smooth curves based on accumulated angle
                             isCurved = (accumulated_angle >= curve_angle_threshold);
 
@@ -2788,7 +2788,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                             % Tower connection points for this step
                             pTL_i =[-offX, tL.y(currIdx), tL.z(currIdx)];
                             pTR_i =[mX-offX, tR.y(currIdx), tR.z(currIdx)];
-                            
+
                             % Calculate Brass Joint Position
                             wireVec = pTR_i - pTL_i;
                             wireLen = norm(wireVec);
@@ -2839,7 +2839,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             ylim(ax,[ -padY, mLimY + padY ]);
             zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
 
-            %% --- 6. SAFETY CHECKS & UI UPDATE ---            
+            %% --- 6. SAFETY CHECKS & UI UPDATE ---
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
             if isViolated
@@ -2879,7 +2879,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
 
-            app.BtnMachineContinue.Enable = 'on'; 
+            app.BtnMachineContinue.Enable = 'on';
             drawnow limitrate;
         end
 
@@ -3002,7 +3002,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Validates the cutting path against physical constraints and model geometry.
             % WHY: Prevents the machine from dragging the wire through solid foam during a rapid move,
             %      and ensures the lead-in cut doesn't slice through the actual part.
-            % HOW: Uses a custom 2D line-intersection algorithm to check the rapid paths against 
+            % HOW: Uses a custom 2D line-intersection algorithm to check the rapid paths against
             %      the billet bounding box, and the lead-in path against the model profile polygon.
 
             isValid = true;
@@ -3022,9 +3022,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Get Final Profiles (Machine Absolute) to check for gouging
             offsetY = app.BilletShift(2) + bMinY;
             offsetZ = app.BilletShift(3) + bMinZ;
-                        
-            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();            
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);            
+
+            [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);
             [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
 
             %% --- NESTED HELPER: INTERSECTION MATH ---
@@ -3085,7 +3085,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 for k = 1:size(pathPts, 1)-1
                     p1 = pathPts(k,:);
                     p2 = pathPts(k+1,:);
-                                        
+
                     [ xi, zi ] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
 
                     if ~isempty(xi)
@@ -3097,7 +3097,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 % C. CRITICAL: Lead-In Gouging (Bisecting) Model
                 if ~isempty(profY)
                     startPt = [ profY(1), profZ(1) ];
-                                        
+
                     [ xi, zi ] = intersectSegPoly([ lead(1), lead(2) ],[ startPt(1), startPt(2) ], profY, profZ);
 
                     validHit = false;
@@ -3125,7 +3125,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
             end
 
-            t = app.getTheme(); 
+            t = app.getTheme();
 
             if ~isempty(crit)
                 isValid = false;
@@ -3513,7 +3513,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % If the user wanted to enable a button, turn THAT one back on
             if wantsToEnable
-                src.Value = true; 
+                src.Value = true;
                 app.UIFigure.Pointer = 'crosshair';
 
                 % Enable Click Listeners
@@ -3573,7 +3573,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onCutAxesClick(app, ax, ~, side)
             % Purpose: Handles user clicks on the 2D plots to set Start, Entry, or Link points.
-            
+
             cp = ax.CurrentPoint(1, 1:2);
             clickY = cp(1);
             clickZ = cp(2);
@@ -3607,7 +3607,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 end
 
                 distances = (yData - clickY).^2 + (zData - clickZ).^2;
-                
+
                 [ ~, minIdx ] = min(distances);
 
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
@@ -3621,7 +3621,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
 
-            % --- CASE 2: LEAD IN ---
+                % --- CASE 2: LEAD IN ---
             elseif app.BtnPickEntry.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPointL = cp;
@@ -3634,7 +3634,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
 
-            % --- CASE 3: LINK 1 ---
+                % --- CASE 3: LINK 1 ---
             elseif app.BtnPickEntry2.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPoint2L = cp;
@@ -3647,7 +3647,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     end
                 end
 
-            % --- CASE 4: LINK 2 ---
+                % --- CASE 4: LINK 2 ---
             elseif isprop(app, 'BtnPickEntry3') && app.BtnPickEntry3.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPoint3L = cp;
@@ -3701,8 +3701,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             if isempty(yL_b)
                 return;
             end
-            
-            [ ~, idxL ] = min(yL_b);            
+
+            [ ~, idxL ] = min(yL_b);
             [ ~, idxR ] = min(yR_b);
 
             if strcmp(app.SwitchSyncStart.Value, 'Coupled')
@@ -3811,18 +3811,18 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             yL_s = yL + offY; zL_s = zL + offZ;
-            
+
             [ eL, l1L, l2L ] = calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
-            
+
             app.EntryPointL=eL; app.EntryPoint2L=l1L; app.EntryPoint3L=l2L;
 
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                 app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
             else
                 yR_s = yR + offY; zR_s = zR + offZ;
-                
+
                 [ eR, l1R, l2R ] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
-                
+
                 app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
             end
 
@@ -3854,7 +3854,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Generates high-resolution, interpolated 3D paths for the simulation playback.
             % WHY: The raw G-code/toolpath only contains corner points. To animate the wire smoothly,
             %      we must interpolate points at a fixed spatial resolution along the entire path.
-            % HOW: Breaks the path into phases (Rapid, Lead-In, Cut, Lead-Out, Return), densifies 
+            % HOW: Breaks the path into phases (Rapid, Lead-In, Cut, Lead-Out, Return), densifies
             %      each segment, concatenates them, and calculates cumulative arc lengths for timing.
 
             if isempty(app.AxSim) || ~isgraphics(app.AxSim)
@@ -3869,8 +3869,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Fetch Truth Data
             [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
 
-            % Apply user start points and direction            
-            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);            
+            % Apply user start points and direction
+            [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, isCCW);
             [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
             if isempty(yL) || isempty(yR)
@@ -3955,7 +3955,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 nSteps = max(N, ceil(totalLen / step));
                 s_smooth = linspace(0, 1, nSteps)';
                 s_combined = unique([ s_orig; s_smooth ]);
-                
+
                 [ su, iu ] = unique(s_orig, 'stable');
                 yLD = interp1(su, yiL(iu), s_combined, 'linear');
                 zLD = interp1(su, ziL(iu), s_combined, 'linear');
@@ -4097,7 +4097,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function idx = simIndexAtDistance(app, dist)
             % Purpose: Returns the simulation array index corresponding to a physical distance.
             % WHY: Required so the slider can scrub through the animation based on distance traveled.
-            
+
             dist = max(0, min(dist, app.SimTotalLength));
 
             if isempty(app.SimArcLenL) || isempty(app.SimArcLenR)
@@ -4127,7 +4127,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function initSimulationPlot(app)
             % Purpose: Initializes the 3D simulation plot with static geometry
             %          (bed, towers, billet, model) and empty dynamic graphics objects.
-            % WHY: Drawing static objects once and only updating the X/Y/Z data of 
+            % WHY: Drawing static objects once and only updating the X/Y/Z data of
             %      dynamic objects is required for smooth 25fps animation.
 
             ax = app.AxSim;
@@ -4139,7 +4139,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             mSpan = app.MachineSpanX;
             bp = app.MachineBilletPos;
             bSize = app.BilletSize;
-            bs = app.MachineBedSize; 
+            bs = app.MachineBedSize;
 
             % 1. Draw Static Machine Components
             [ xb, yb, zb ] = app.makeBoxVertices(0, app.MachineBedPos(2), -bs(3), bs(1), bs(2), bs(3));
@@ -4159,10 +4159,10 @@ classdef HotWireSTEPApp_v6_2 < handle
                 patch(ax, 'Vertices',[ xPack, yPack, zPack ], 'Faces', app.boxFaces, ...
                     'FaceColor',[ 0.25 0.25 0.25 ], 'FaceAlpha', 0.9, 'EdgeColor', t.bedEdge, 'LineStyle', '-', 'Tag', 'SimPackingBlock');
             end
-            
+
             [ xm, ym, zm ] = app.makeBoxVertices(bX, bY, bZ, bSize(1), bSize(2), bSize(3));
             patch(ax, 'Vertices',[ xm, ym, zm ], 'Faces', app.boxFaces, 'FaceColor', t.billetColor, 'FaceAlpha', t.billetAlpha, 'EdgeColor', t.billetLine, 'LineStyle', '-', 'LineWidth', 0.5, 'EdgeAlpha', 0.5);
-            
+
             if ~isempty(app.ModelPatch)
                 patch(ax, 'Vertices', app.ModelPatch.Vertices +[ bX, bY, bZ ] + app.BilletShift, 'Faces', app.ModelPatch.Faces, ...
                     'FaceColor', t.modelColor, 'FaceAlpha', t.modelAlpha, 'EdgeColor', 'none', 'Tag', 'SimModel');
@@ -4342,7 +4342,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function onSimTimerTick(app)
             % Purpose: Timer callback. Advances the playback distance based on feed rate and speed multiplier.
-            
+
             if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
                 feed_mm_min = app.SpinFeedRate.Value;
             else
@@ -4421,7 +4421,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 app.SimIndexSpinner.Value = idx;
             end
         end
-        
+
         %% ===========================================================
         %% --- GROUP 10: TAB 8 - POST-PROCESSING ---
         %% ===========================================================
@@ -4432,7 +4432,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Auto-fills the default G-code filename based on the imported CAD model.
 
             rawName = "Output";
-            if ~isempty(app.CurrentModelName)                
+            if ~isempty(app.CurrentModelName)
                 [ ~, rawName, ~ ] = fileparts(app.CurrentModelName);
             end
 
@@ -4605,7 +4605,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % Nested Helper 4: Dynamic Feed G1 Move
             function addDynamicG1(targL, tgtR, prevL, prevR, commentStr)
-                [ tx, ty, tz, ta ] = project(targL(1), targL(2), tgtR(1), tgtR(2));                
+                [ tx, ty, tz, ta ] = project(targL(1), targL(2), tgtR(1), tgtR(2));
                 [ px, py, pz, pa ] = project(prevL(1), prevL(2), prevR(1), prevR(2));
 
                 if app.ChkDynamicFeed.Value
@@ -4670,15 +4670,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
             e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
 
-            if ~isempty(e2L)                
+            if ~isempty(e2L)
                 [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
             end
-            if ~isempty(e3L)                
+            if ~isempty(e3L)
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
             end
-            if ~isempty(e1L)                
+            if ~isempty(e1L)
                 [ tx, ty, tz, ta ] = project(e1L(1), e1L(2), e1R(1), e1R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
             end
@@ -4715,7 +4715,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
 
             % Correct Order for Retraction
-            if ~isempty(e3L)                
+            if ~isempty(e3L)
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
                 add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
             end
@@ -4725,7 +4725,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             end
 
             bY_RetFinal = app.MachineBilletPos(2) - 10.0;
-            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;            
+            bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
             [ tx, ty, tz, ta ] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
             add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
 
@@ -4987,7 +4987,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 '*.txt', 'Text File (*.txt)'};
 
             defaultName = app.FieldFilename.Value;
-            
+
             [ file, path ] = uiputfile(filter, 'Save Toolpath', defaultName);
 
             if isequal(file, 0), return; end
@@ -5020,8 +5020,8 @@ classdef HotWireSTEPApp_v6_2 < handle
                 uialert(app.UIFigure, ['Error saving file:' newline ME.message], 'File Error');
             end
         end
-                
-        
+
+
         %% ===========================================================
         %% --- GROUP 11: SHARED GRAPHICS & THEME HELPERS ---
         %% ===========================================================
@@ -5103,14 +5103,14 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.LeftKerf2DLine  = gobjects(0);
             app.RightKerf2DLine = gobjects(0);
         end
-        
+
         %%                    - SHARED VIEW HELPERS ---
 
         function resetViewToMachine(app, ax)
             % Purpose: Standardizes the 3D camera view to show the entire machine bed.
-            % WHY: Used by the Machine, Cutting, Simulation, and Post-Process tabs 
+            % WHY: Used by the Machine, Cutting, Simulation, and Post-Process tabs
             %      to provide a consistent "zoomed out" perspective.
-            
+
             offX = app.MachineBedPos(1);
             mX   = app.MachineSpanX;
             mLimY = app.MachineLimitY;
@@ -5136,7 +5136,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function resetViewToBillet(app, ax)
             % Purpose: Standardizes the 3D camera view to focus tightly on the billet.
             % WHY: Used across multiple tabs to inspect the toolpath relative to the stock.
-            
+
             offX = app.MachineBedPos(1);
             bp   = app.MachineBilletPos; % [X Y Z] absolute machine coords
             bs   = app.BilletSize;       % [W D H]
@@ -5176,11 +5176,11 @@ classdef HotWireSTEPApp_v6_2 < handle
         function f = boxFaces(~)
             % Purpose: Returns the face connectivity matrix for a standard 8-vertex box.
             f =[ 1 2 3 4; % Bottom
-                 5 6 7 8; % Top
-                 1 2 6 5; % Front
-                 2 3 7 6; % Right
-                 3 4 8 7; % Back
-                 4 1 5 8 ]; % Left
+                5 6 7 8; % Top
+                1 2 6 5; % Front
+                2 3 7 6; % Right
+                3 4 8 7; % Back
+                4 1 5 8 ]; % Left
         end
 
         %%                    - THEME MANAGEMENT ---
@@ -5188,7 +5188,7 @@ classdef HotWireSTEPApp_v6_2 < handle
         function th = getTheme(app)
             % Purpose: Central source of truth for all App Colors.
             % WHY: Allows the app to seamlessly switch between Light and Dark modes.
-            
+
             if ispref('HotWireSTEPApp', 'Theme')
                 themeStr = getpref('HotWireSTEPApp', 'Theme');
             else
@@ -5311,9 +5311,9 @@ classdef HotWireSTEPApp_v6_2 < handle
 
         function applyTheme(app)
             % Purpose: Sweeps the entire UI on startup to replace hardcoded colors with the active theme.
-            % WHY: MATLAB's UI components don't natively support CSS-style themes, so we must 
+            % WHY: MATLAB's UI components don't natively support CSS-style themes, so we must
             %      programmatically iterate through the component tree and paint them.
-            
+
             t = app.getTheme();
             app.UIFigure.Color = t.sideBg;
 
@@ -5381,20 +5381,20 @@ classdef HotWireSTEPApp_v6_2 < handle
                     if obj == app.NumLeftOffset
                         obj.FontColor = t.planeRedTxt;
                         obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
-                        continue; 
+                        continue;
                     elseif obj == app.NumRightOffset
                         obj.FontColor = t.planeGreenTxt;
                         obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
-                        continue; 
-                    % --- Special Case: Kerf Spinners ---
+                        continue;
+                        % --- Special Case: Kerf Spinners ---
                     elseif obj == app.KerfLeftSpinner
-                        obj.FontColor = t.wireKerf; 
-                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85; 
-                        continue; 
+                        obj.FontColor = t.wireKerf;
+                        obj.BackgroundColor = t.planeRed * 0.15 + t.sideBg * 0.85;
+                        continue;
                     elseif obj == app.KerfRightSpinner
-                        obj.FontColor = t.wireKerf; 
-                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85; 
-                        continue; 
+                        obj.FontColor = t.wireKerf;
+                        obj.BackgroundColor = t.planeGreen * 0.15 + t.sideBg * 0.85;
+                        continue;
                     end
 
                     % D. Standard Component Styling
@@ -5506,7 +5506,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 cols.TextInactive  =[ 0 0 0 ];
             end
         end
-        
+
     end
 
     methods (Access = private)
@@ -5614,7 +5614,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Most steps offer auto or manual configuration.';
                 '';
                 'Workflow:';
-                '- Export your model form your chosen CAD package, preferably as a STEP file (or STL)';              
+                '- Export your model form your chosen CAD package, preferably as a STEP file (or STL)';
                 '- Import and orient your 3D CAD  model (STEP/STL).';
                 '- Slice models, extract and sync 2D profiles.';
                 '- Apply kerf compensation to allow for the width of the cut, preserving dimensional accuracy.';
@@ -5671,7 +5671,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     app.FreeCADExe = "freecadcmd";
                 end
             end
-            
+
             app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
             btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
 
@@ -5800,7 +5800,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             % Purpose: Builds the Model Import & Orientation tab UI components.
             %
             % Layout Strategy:
-            %   - Left Panel (320px): Step-by-step controls for importing, 
+            %   - Left Panel (320px): Step-by-step controls for importing,
             %     orienting, and slicing the 3D model.
             %   - Right Panel (1x): 3D interactive visualization axes.
             %
@@ -5814,7 +5814,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             % 2. Main Tab Container
             app.TabModel = uitab(app.TabGroup,'Title','Model');
-            
+
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
             app.GLModel.ColumnWidth   = {HotWireSTEPApp_v6_2.PanelWidth, '1x'};
             app.GLModel.Padding       =[5 5 5 5];
@@ -5823,7 +5823,7 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- LEFT CONTROL PANEL (Sidebar) ---
             app.GLLeft = uigridlayout(app.GLModel,[8 1]);
-            app.GLLeft.Layout.Column = 1; 
+            app.GLLeft.Layout.Column = 1;
             app.GLLeft.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % Rows: 1:View, 2:Import, 3:Taper, 4:Orientation, 5:Planes, 6:Guidance(1x), 7:Status(70px), 8:Buttons
@@ -5835,8 +5835,8 @@ classdef HotWireSTEPApp_v6_2 < handle
             pnlView = uipanel(app.GLLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
-            gridView = uigridlayout(pnlView,[1 1]); 
-            gridView.Padding=[5 5 5 5]; 
+            gridView = uigridlayout(pnlView,[1 1]);
+            gridView.Padding=[5 5 5 5];
             gridView.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
@@ -5845,7 +5845,7 @@ classdef HotWireSTEPApp_v6_2 < handle
             %% --- 1. FILE IMPORT ---
             pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlImport.Layout.Row = 2;
-            
+
             gridImport = uigridlayout(pnlImport,[3 1]);
             gridImport.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight, HotWireSTEPApp_v6_2.ButtonHeight, 'fit'};
             gridImport.Padding =[5 5 5 5];
@@ -5867,13 +5867,13 @@ classdef HotWireSTEPApp_v6_2 < handle
             %% --- 2. TAPER MODE ---
             pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType', 'line');
             pnlTaper.Layout.Row = 3;
-            
-            gridTaper = uigridlayout(pnlTaper,[1 3]); 
-            gridTaper.ColumnWidth = {'1x','fit','1x'}; 
+
+            gridTaper = uigridlayout(pnlTaper,[1 3]);
+            gridTaper.ColumnWidth = {'1x','fit','1x'};
             gridTaper.RowHeight = {HotWireSTEPApp_v6_2.RowHeightNormal};
-            gridTaper.Padding=[5 5 5 5]; 
+            gridTaper.Padding=[5 5 5 5];
             gridTaper.BackgroundColor = panelBg;
-            
+
             uilabel(gridTaper,'Text',''); % Left Spacer
 
             app.TaperToggle = uiswitch(gridTaper,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
@@ -5881,7 +5881,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                 'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
                 'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
             app.TaperToggle.Layout.Column = 2;
-            
+
             uilabel(gridTaper,'Text',''); % Right Spacer
 
             %% --- 3. ORIENTATION ---
@@ -5891,9 +5891,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             % 3 rows, 7 columns to center the controls and fix the button width
             % Col 1 & 7 act as flexible spacers to keep the block centered
             app.RotGrid = uigridlayout(pnlRot,[3 7]);
-            app.RotGrid.ColumnWidth={'1x', 'fit', 'fit', 60, 'fit', HotWireSTEPApp_v6_2.ButtonHeight, '1x'}; 
+            app.RotGrid.ColumnWidth={'1x', 'fit', 'fit', 60, 'fit', HotWireSTEPApp_v6_2.ButtonHeight, '1x'};
             app.RotGrid.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.RowHeightNormal};
-            app.RotGrid.Padding=[5 5 5 5]; 
+            app.RotGrid.Padding=[5 5 5 5];
             app.RotGrid.ColumnSpacing = 10; % Increased spacing for better breathing room!
             app.RotGrid.RowSpacing = 2;
             app.RotGrid.BackgroundColor=panelBg;
@@ -5901,10 +5901,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             axesLabels = {'X','Y','Z'};
             app.RotEdit = gobjects(1,3);
             for i = 1:3
-                lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol); 
+                lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol);
                 lblRot.Layout.Row=i; lblRot.Layout.Column=2;
-                
-                btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm'])); 
+
+                btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
                 btnNeg.Layout.Row=i; btnNeg.Layout.Column=3;
 
                 app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
@@ -5913,7 +5913,7 @@ classdef HotWireSTEPApp_v6_2 < handle
                     'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
                 app.RotEdit(i).Layout.Row=i; app.RotEdit(i).Layout.Column=4;
 
-                btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p'])); 
+                btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
                 btnPos.Layout.Row=i; btnPos.Layout.Column=5;
             end
 
@@ -5926,15 +5926,15 @@ classdef HotWireSTEPApp_v6_2 < handle
             %% --- 4. PLANE OFFSETS ---
             pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeHeader, 'BorderType','line');
             pnlOff.Layout.Row = 5;
-            
-            gridOff = uigridlayout(pnlOff,[2 4]); 
-            gridOff.ColumnWidth={'fit','1x','fit','1x'}; 
+
+            gridOff = uigridlayout(pnlOff,[2 4]);
+            gridOff.ColumnWidth={'fit','1x','fit','1x'};
             gridOff.RowHeight={HotWireSTEPApp_v6_2.RowHeightNormal, HotWireSTEPApp_v6_2.ButtonHeight};
             gridOff.Padding=[5 5 5 5];
             gridOff.BackgroundColor = panelBg;
 
             % Left Spinner
-            lblOffL = uilabel(gridOff,'Text','Left:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal); 
+            lblOffL = uilabel(gridOff,'Text','Left:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblOffL.Layout.Row=1; lblOffL.Layout.Column=1;
 
             app.NumLeftOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
@@ -5944,9 +5944,9 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
 
             % Right Spinner
-            lblOffR = uilabel(gridOff,'Text','Right:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal); 
+            lblOffR = uilabel(gridOff,'Text','Right:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
             lblOffR.Layout.Row=1; lblOffR.Layout.Column=3;
-            
+
             app.NumRightOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
                 'ValueDisplayFormat','%.1f', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
@@ -5991,10 +5991,10 @@ classdef HotWireSTEPApp_v6_2 < handle
             app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal);
 
             %% --- 7. ACTION BUTTONS ---
-            gridBtn = uigridlayout(app.GLLeft,[1 2]); 
+            gridBtn = uigridlayout(app.GLLeft,[1 2]);
             gridBtn.Layout.Row = 8;
             gridBtn.RowHeight = {HotWireSTEPApp_v6_2.ButtonHeight};
-            gridBtn.Padding=[0 0 0 0]; 
+            gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
             app.BtnGenerateProfiles = uibutton(gridBtn, 'Text','Generate Profiles', 'FontWeight','bold', 'FontSize', HotWireSTEPApp_v6_2.FontSizeNormal, 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
@@ -6006,14 +6006,14 @@ classdef HotWireSTEPApp_v6_2 < handle
 
             %% --- RIGHT PANEL: 3D MODEL AXES ---
             app.AxModel = uiaxes(app.GLModel);
-            app.AxModel.Layout.Column = 2; 
+            app.AxModel.Layout.Column = 2;
             app.AxModel.BackgroundColor = t.axBg; % Use theme axBg
-            
-            xlabel(app.AxModel,'X (mm)'); 
-            ylabel(app.AxModel,'Y (mm)'); 
+
+            xlabel(app.AxModel,'X (mm)');
+            ylabel(app.AxModel,'Y (mm)');
             zlabel(app.AxModel,'Z (mm)');
-            
-            grid(app.AxModel,'on'); 
+
+            grid(app.AxModel,'on');
             view(app.AxModel,3);
             hold(app.AxModel,'on');
         end

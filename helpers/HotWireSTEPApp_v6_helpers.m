@@ -2,9 +2,9 @@ classdef HotWireSTEPApp_v6_helpers
     % ===========================================================
     % HOTWIRE CNC G-CODE GENERATOR - MATH & GEOMETRY HELPERS
     %
-    % Purpose: A static utility class containing the heavy mathematical 
+    % Purpose: A static utility class containing the heavy mathematical
     %          and geometric algorithms required by the main application.
-    % WHY: Keeps the main UI class clean and separates the "View/Controller" 
+    % WHY: Keeps the main UI class clean and separates the "View/Controller"
     %      logic from the "Model/Math" logic.
     % ===========================================================
 
@@ -32,11 +32,11 @@ classdef HotWireSTEPApp_v6_helpers
         %% ===============================================================
         %% --- GROUP 1: FILE I/O & MESHING ---
         %% ===============================================================
-        
+
         function [ V, F ] = importSTEP_FreeCAD(cadPath, freeCADExe)
             % Purpose: Converts a STEP file into a triangulated 3D mesh using FreeCAD.
             % WHY: MATLAB does not natively parse STEP geometry into meshes without expensive toolboxes.
-            % HOW: Dynamically writes a Python script, executes FreeCAD in headless mode via the 
+            % HOW: Dynamically writes a Python script, executes FreeCAD in headless mode via the
             %      command line to generate a temporary STL, and then reads that STL into MATLAB.
 
             V = [];
@@ -44,7 +44,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             cadPath = char(cadPath);
             freeCADExe = char(freeCADExe);
-            
+
             [ ~, modelName, ext ] = fileparts(cadPath);
 
             disp(['[HotWire CAM] Importing ', modelName, ext, ' via FreeCAD...']);
@@ -75,22 +75,22 @@ classdef HotWireSTEPApp_v6_helpers
             fprintf(fid,"doc = FreeCAD.newDocument()\n");
             fprintf(fid,"shape = Part.Shape()\n");
             fprintf(fid,"shape.read(r'%s')\n", safeCadPath);
-            
+
             % Apply meshing deflections (lower = higher resolution mesh)
             fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
                 HotWireSTEPApp_v6_helpers.FreeCADLinearDeflection, HotWireSTEPApp_v6_helpers.FreeCADAngularDeflection);
-            
+
             fprintf(fid,"mesh.write(r'%s')\n", safeOutSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
             fclose(fid);
 
             %% --- 3. EXECUTE FREECAD ---
-            % The Bulletproof Windows CMD workaround: Change directory to the FreeCAD bin folder first           
+            % The Bulletproof Windows CMD workaround: Change directory to the FreeCAD bin folder first
             [ fcDir, fcName, fcExt ] = fileparts(freeCADExe);
 
             fcExeName = [fcName, fcExt];
             cmdStr = sprintf('cd /d "%s" & %s "%s"', fcDir, fcExeName, pyFile);
-          
+
             [ status, cmdout ] = system(cmdStr);
 
             if status ~= 0
@@ -117,48 +117,48 @@ classdef HotWireSTEPApp_v6_helpers
         %% ===============================================================
         %% --- GROUP 2: MESH SLICING & LOOP EXTRACTION ---
         %% ===============================================================
-        
+
         function[ xs, ys, zs ] = sliceMeshAtX(V, F, x0)
             % Purpose: Intersects a 3D triangle mesh with a 2D plane at a specific X coordinate.
             % WHY: To extract the raw 2D cross-section (profile) of the model at the Left/Right cutting planes.
-            % HOW: Iterates through every face. If the face spans across the X-plane, it calculates 
+            % HOW: Iterates through every face. If the face spans across the X-plane, it calculates
             %      the exact 3D intersection points of the triangle's edges.
-            
+
             xs = []; ys = []; zs =[];
-            
+
             for k = 1:size(F,1)
-                tri = F(k,:); 
-                A = V(tri(1),:); 
-                B = V(tri(2),:); 
+                tri = F(k,:);
+                A = V(tri(1),:);
+                B = V(tri(2),:);
                 C = V(tri(3),:);
-                
+
                 X =[A(1), B(1), C(1)];
-                
+
                 % Fast rejection: If all 3 vertices are on the same side of the plane, skip it.
                 if all(X < x0) || all(X > x0), continue; end
-                
-                pts = zeros(2,3); 
-                count = 0; 
+
+                pts = zeros(2,3);
+                count = 0;
                 edges =[A; B; C; A]; % Close the loop for easy iteration
-                
+
                 % Check each of the 3 edges of the triangle
                 for i = 1:3
-                    P1 = edges(i,:); 
+                    P1 = edges(i,:);
                     P2 = edges(i+1,:);
-                    
+
                     % If the edge crosses the plane...
                     if (P1(1)-x0)*(P2(1)-x0) <= 0 && P1(1) ~= P2(1)
                         % Calculate interpolation factor 't'
                         t = (x0 - P1(1)) / (P2(1)-P1(1));
-                        
+
                         if t >= 0 && t <= 1
-                            count = count + 1; 
+                            count = count + 1;
                             pts(count,:) = P1 + t*(P2-P1);
                             if count == 2, break; end % A plane can only intersect a triangle at 2 points max
                         end
                     end
                 end
-                
+
                 % If we found a valid intersection line segment across this face, store it.
                 % We append NaN to break the line segments for plotting purposes later.
                 if count == 2
@@ -172,12 +172,12 @@ classdef HotWireSTEPApp_v6_helpers
         function [ yLoop, zLoop ] = buildMainProfileLoop(xs, ys, zs)
             % Purpose: Converts a "soup" of disconnected line segments into a continuous, ordered polygon loop.
             % WHY: The slicer returns random, unordered segments. CNC machines need a continuous path.
-            % HOW: Welds coincident vertices together to form a graph, then walks the edges to find 
+            % HOW: Welds coincident vertices together to form a graph, then walks the edges to find
             %      closed loops. If multiple loops exist (e.g., a hollow tube), it returns the longest one.
 
             yLoop = [];
             zLoop =[];
-            
+
             if isempty(xs) || all(isnan(xs))
                 return;
             end
@@ -264,15 +264,15 @@ classdef HotWireSTEPApp_v6_helpers
             end
 
             % 6. Select the primary loop
-            % If there are multiple loops (e.g., internal holes), we assume the longest 
-            % perimeter is the outer boundary we want to cut.            
+            % If there are multiple loops (e.g., internal holes), we assume the longest
+            % perimeter is the outer boundary we want to cut.
             [ ~, bestIdx ] = max(cellfun(@(p) sum(sqrt(sum(diff(nodePos(p,:),1,1).^2,2))), loops));
-            
+
             pts = nodePos(loops{bestIdx},:);
             yLoop = pts(:,1);
             zLoop = pts(:,2);
         end
-        
+
         %% ===============================================================
         %% --- GROUP 3: PROFILE RESAMPLING & SYNCING ---
         %% ===============================================================
@@ -281,15 +281,15 @@ classdef HotWireSTEPApp_v6_helpers
             % Purpose: Reduces the number of points in a single profile while maintaining shape.
             % WHY: Raw mesh slices can have thousands of points, which chokes the CNC controller.
             % HOW: Calculates cumulative arc length, interpolates to a fine grid, and applies tolerance.
-            
-            y = y(:); z = z(:); 
+
+            y = y(:); z = z(:);
             if numel(y) < 2, yR=y; zR=z; return; end
-            
+
             yExt =[ y; y(1) ]; zExt =[ z; z(1) ];
 
             s =[ 0; cumsum(hypot(diff(yExt), diff(zExt))) ];
-            
-            % Ensure unique samples to avoid interp1 errors            
+
+            % Ensure unique samples to avoid interp1 errors
             [ sU, idxU ] = unique(s, 'stable');
             if numel(sU) < 2, yR=y; zR=z; return; end
 
@@ -301,12 +301,12 @@ classdef HotWireSTEPApp_v6_helpers
 
         function[ yLS, zLS, yRS, zRS ] = resampleProfilesSynced(yL, zL, yR, zR, tol)
             % Purpose: Resamples Left and Right profiles simultaneously to ensure 1:1 point topology.
-            % WHY: 4-axis CNC requires exactly the same number of points on the left and right profiles 
+            % WHY: 4-axis CNC requires exactly the same number of points on the left and right profiles
             %      so the controller knows how to interpolate the wire between them.
             % HOW: 1. Aligns both profiles to start at the exact same physical feature (Front Face).
             %      2. Checks winding direction (CW/CCW) and flips one if they are mismatched.
             %      3. Interpolates both onto a highly dense, shared parametric grid (0 to 1).
-            %      4. Runs a custom 4D Ramer-Douglas-Peucker (RDP) algorithm to strip out unnecessary 
+            %      4. Runs a custom 4D Ramer-Douglas-Peucker (RDP) algorithm to strip out unnecessary
             %         points while guaranteeing the deviation never exceeds the user's tolerance.
 
             function[ x, y ] = clean_path(x,y)
@@ -322,8 +322,8 @@ classdef HotWireSTEPApp_v6_helpers
                     y(end+1) = y(1);
                 end
             end
-            
-            [ yL, zL ] = clean_path(yL, zL);            
+
+            [ yL, zL ] = clean_path(yL, zL);
             [ yR, zR ] = clean_path(yR, zR);
 
             if numel(yL) < 3 || numel(yR) < 3
@@ -331,8 +331,8 @@ classdef HotWireSTEPApp_v6_helpers
                 return;
             end
 
-            % 1. Align start points to the front face            
-            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);            
+            % 1. Align start points to the front face
+            [ yL, zL ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yL, zL);
             [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
 
             % 2. Ensure winding directions match by calculating polygon area
@@ -341,7 +341,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
-                zR = flipud(zR);                
+                zR = flipud(zR);
                 [ yR, zR ] = HotWireSTEPApp_v6_helpers.reorderLoopByMinY(yR, zR);
             end
 
@@ -374,8 +374,8 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Exact grid merging (No rounding!) preserves exact corner vertices
             s_eval = unique([ s_fine; s_rawL; s_rawR ]);
-            
-            [ suL, iuL ] = unique(s_rawL, 'stable');            
+
+            [ suL, iuL ] = unique(s_rawL, 'stable');
             [ suR, iuR ] = unique(s_rawR, 'stable');
 
             yLf = interp1(suL, yL(iuL), s_eval, 'linear');
@@ -385,9 +385,9 @@ classdef HotWireSTEPApp_v6_helpers
 
             % 5. 4D Ramer-Douglas-Peucker (RDP) Algorithm
             % We treat the [yL, zL, yR, zR] coordinates as a single 4D point.
-            % We only remove a point if its removal causes BOTH the left and right 
+            % We only remove a point if its removal causes BOTH the left and right
             % 2D profiles to deviate by less than the user's tolerance.
-            
+
             pts4D =[ yLf, zLf, yRf, zRf ];
             keepMask = false(size(pts4D, 1), 1);
             keepMask(1) = true;
@@ -442,7 +442,7 @@ classdef HotWireSTEPApp_v6_helpers
 
                 % We split if EITHER side exceeds tolerance
                 max_distsSq = max(distsSq_L, distsSq_R);
-                
+
                 [ maxSq, localIdx ] = max(max_distsSq);
 
                 if maxSq > (tol^2)
@@ -468,7 +468,7 @@ classdef HotWireSTEPApp_v6_helpers
             % Purpose: A lightweight synchronizer used after Kerf is applied.
             % WHY: Applying kerf (polybuffer) can slightly alter the point count of a profile.
             %      This function forces them back into a 1:1 topology without running the heavy RDP algorithm.
-            
+
             function[ x, y ] = clean(x, y)
                 if numel(x) < 2
                     return;
@@ -482,8 +482,8 @@ classdef HotWireSTEPApp_v6_helpers
                     y(end+1) = y(1);
                 end
             end
-                        
-            [ yL, zL ] = clean(yL, zL);           
+
+            [ yL, zL ] = clean(yL, zL);
             [ yR, zR ] = clean(yR, zR);
 
             function s = getArcParam(y, z)
@@ -534,13 +534,13 @@ classdef HotWireSTEPApp_v6_helpers
         function [ towerL, towerR ] = projectToTowers(yL, zL, xL, yR, zR, xR, spanX)
             % Purpose: Projects a 3D model toolpath outwards onto the physical machine towers.
             % WHY: The CNC controller only knows how to move the Left and Right towers. It doesn't
-            %      know where the billet is. We must calculate where the towers need to be to make 
+            %      know where the billet is. We must calculate where the towers need to be to make
             %      the wire intersect the model at the correct coordinates.
             % HOW: Uses similar triangles / linear extrapolation from the model planes to the tower planes.
-            
+
             towerL.y = yL + (0 - xL) .* (yR - yL) ./ (xR - xL);
             towerL.z = zL + (0 - xL) .* (zR - zL) ./ (xR - xL);
-            
+
             towerR.y = yL + (spanX - xL) .* (yR - yL) ./ (xR - xL);
             towerR.z = zL + (spanX - xL) .* (zR - zL) ./ (xR - xL);
         end
@@ -549,7 +549,7 @@ classdef HotWireSTEPApp_v6_helpers
             % Purpose: Expands or shrinks a 2D profile to compensate for the thickness of the hot wire.
             % WHY: If we cut exactly on the line, the part will be too small by half the width of the wire.
             % HOW: Converts the points into a MATLAB 'polyshape', applies 'polybuffer', and extracts the new boundary.
-            
+
             yo = yIn;
             zo = zIn;
             if nargin < 4
@@ -575,7 +575,7 @@ classdef HotWireSTEPApp_v6_helpers
 
             % Rounding prevents microscopic self-intersections that crash polyshape
             inputPoints = round([ y, z ], 8);
-            
+
             [ ~, uniqueIdx ] = unique(inputPoints, 'rows', 'stable');
 
             y = y(uniqueIdx);
@@ -602,7 +602,7 @@ classdef HotWireSTEPApp_v6_helpers
                     [ ~, maxIdx ] = max(areaList);
                     pgonOut = pgonOut.regions(maxIdx);
                 end
-                                
+
                 [ yo, zo ] = boundary(pgonOut);
 
                 nanIdx = find(isnan(yo), 1);
@@ -651,7 +651,7 @@ classdef HotWireSTEPApp_v6_helpers
                         Closest = bsxfun(@plus, P1, bsxfun(@times, t, V));
                         distsSq = sum((Pts - Closest).^2, 2);
                     end
-                    
+
                     [ maxSq, localIdx ] = max(distsSq);
 
                     if maxSq > (tol^2)
@@ -677,9 +677,9 @@ classdef HotWireSTEPApp_v6_helpers
 
         function [ yOut, zOut ] = reorderLoopByMinY(y, z)
             % Purpose: Aligns the start point of a profile loop to the physical front face of the model.
-            % WHY: If Left and Right profiles start at different physical features, the 4-axis 
+            % WHY: If Left and Right profiles start at different physical features, the 4-axis
             %      interpolation will twist the wire through the foam, destroying the part.
-            % HOW: Finds the minimum Y value (front face). If the front face is a tall vertical flat, 
+            % HOW: Finds the minimum Y value (front face). If the front face is a tall vertical flat,
             %      it injects a new point exactly at the Z-centroid to guarantee perfect alignment.
 
             % 1. Force to Column Vectors
@@ -736,10 +736,10 @@ classdef HotWireSTEPApp_v6_helpers
                 % FALLBACK: Find existing points on the front face
                 front_indices = find(abs(y - minY) < 1e-3);
 
-                if isempty(front_indices)                    
+                if isempty(front_indices)
                     [ ~, startIdx ] = min(y);
                 else
-                    % Pick the one closest to Z-centroid                    
+                    % Pick the one closest to Z-centroid
                     [ ~, local_idx ] = min(abs(z(front_indices) - cz));
                     startIdx = front_indices(local_idx);
                 end
@@ -756,13 +756,13 @@ classdef HotWireSTEPApp_v6_helpers
         function billet = computeDefaultBilletFromMesh(V, xPlaneA, xPlaneB, bufferY, bufferZ)
             % Purpose: Calculates the default physical dimensions of the foam stock required.
             % WHY: Used by the Billet tab's "Auto-Fit" button.
-            % HOW: Takes the bounding box of the model, adds safety buffers, and snaps the Z-height 
+            % HOW: Takes the bounding box of the model, adds safety buffers, and snaps the Z-height
             %      to standard physical foam block thicknesses (e.g., 50mm, 75mm, 100mm).
 
             if nargin < 4, bufferY = 5.0; end
             if nargin < 5, bufferZ = 5.0; end
-            
-            [ mins ] = min(V, [ ], 1); 
+
+            [ mins ] = min(V, [ ], 1);
             [ maxs ] = max(V, [ ], 1);
 
             % X Logic
