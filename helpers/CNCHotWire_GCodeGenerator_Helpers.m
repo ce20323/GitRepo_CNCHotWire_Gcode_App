@@ -1,4 +1,4 @@
-classdef CNCHotWire_GCodeGenerator_V1_Helpers
+classdef CNCHotWire_GCodeGenerator_Helpers
     % ===========================================================
     % HOTWIRE CNC G-CODE GENERATOR - MATH & GEOMETRY HELPERS
     %
@@ -78,7 +78,7 @@ classdef CNCHotWire_GCodeGenerator_V1_Helpers
 
             % Apply meshing deflections (lower = higher resolution mesh)
             fprintf(fid, "mesh = MeshPart.meshFromShape(Shape=shape,LinearDeflection=%g,AngularDeflection=%g)\n", ...
-                CNCHotWire_GCodeGenerator_V1_Helpers.FreeCADLinearDeflection, CNCHotWire_GCodeGenerator_V1_Helpers.FreeCADAngularDeflection);
+                CNCHotWire_GCodeGenerator_Helpers.FreeCADLinearDeflection, CNCHotWire_GCodeGenerator_Helpers.FreeCADAngularDeflection);
 
             fprintf(fid,"mesh.write(r'%s')\n", safeOutSTL);
             fprintf(fid,"FreeCAD.closeDocument(doc.Name)\n");
@@ -332,8 +332,8 @@ classdef CNCHotWire_GCodeGenerator_V1_Helpers
             end
 
             % 1. Align start points to the front face
-            [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yL, zL);
-            [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
+            [ yL, zL ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
+            [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
 
             % 2. Ensure winding directions match by calculating polygon area
             areaL = sum((yL(1:end-1).*zL(2:end)) - (yL(2:end).*zL(1:end-1)));
@@ -342,7 +342,7 @@ classdef CNCHotWire_GCodeGenerator_V1_Helpers
             if sign(areaL) ~= sign(areaR)
                 yR = flipud(yR);
                 zR = flipud(zR);
-                [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
+                [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
             end
 
             % 3. Calculate parametric arc lengths (0 to 1)
@@ -667,7 +667,7 @@ classdef CNCHotWire_GCodeGenerator_V1_Helpers
             end
 
             % Re-align the start point to the front face after buffering
-            [ yo, zo ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yo, zo);
+            [ yo, zo ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yo, zo);
 
             if isrow(yIn)
                 yo = yo.';
@@ -777,7 +777,7 @@ classdef CNCHotWire_GCodeGenerator_V1_Helpers
             modelH = maxs(3) - mins(3);
             requiredH = modelH + (bufferZ * 2);
 
-            stocks = CNCHotWire_GCodeGenerator_V1_Helpers.BilletStockHeights;
+            stocks = CNCHotWire_GCodeGenerator_Helpers.BilletStockHeights;
             stockH = requiredH;
 
             for i = 1:numel(stocks)

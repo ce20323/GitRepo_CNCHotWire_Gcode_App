@@ -1,4 +1,4 @@
-classdef CNCHotWire_GCodeGenerator_V1 < handle
+classdef CNCHotWire_GCodeGenerator < handle
     % ===========================================================
     % HOTWIRE CNC G-CODE GENERATOR (V1)
     % University of Bristol — Rapid Prototyping Workshop
@@ -24,8 +24,8 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
     %   feed rate scaling for tapered cuts and an interactive G-code viewer.
     %
     % ARCHITECTURE:
-    % - Main App: CNCHotWire_GCodeGenerator_V1 (UI, State Machine, Plotting)
-    % - Helpers: CNCHotWire_GCodeGenerator_V1_Helpers (STEP Import, Geometry Math)
+    % - Main App: CNCHotWire_GCodeGenerator (UI, State Machine, Plotting)
+    % - Helpers: CNCHotWire_GCodeGenerator_Helpers (STEP Import, Geometry Math)
     % ===========================================================
 
     properties (Constant)
@@ -254,8 +254,8 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
         KerfEnabled    (1,1) logical = false % Flag indicating if kerf is currently applied
         KerfValue      (1,1) double = 0.5    % Global kerf value (used when coupled)
-        KerfLeftValue  (1,1) double = CNCHotWire_GCodeGenerator_V1.DefaultKerf % Independent left kerf value
-        KerfRightValue (1,1) double = CNCHotWire_GCodeGenerator_V1.DefaultKerf % Independent right kerf value
+        KerfLeftValue  (1,1) double = CNCHotWire_GCodeGenerator.DefaultKerf % Independent left kerf value
+        KerfRightValue (1,1) double = CNCHotWire_GCodeGenerator.DefaultKerf % Independent right kerf value
         LeftKerf2DLine; RightKerf2DLine      % 2D line objects for kerf-offset paths
 
         %% --- MACHINE & BILLET STATE ---
@@ -326,7 +326,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
         %% --- GROUP 1: LIFECYCLE & INITIALIZATION ---
         %% ===========================================================
 
-        function app = CNCHotWire_GCodeGenerator_V1()
+        function app = CNCHotWire_GCodeGenerator()
             % Constructor: Called when the app is launched.
             % Closes any existing instances of the app to prevent duplicates,
             % then triggers the UI build process.
@@ -834,7 +834,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 app.CurrentModelName = string(file);
 
                 % Delegate STEP import to the helpers class
-                [ V, F ] = CNCHotWire_GCodeGenerator_V1_Helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
+                [ V, F ] = CNCHotWire_GCodeGenerator_Helpers.importSTEP_FreeCAD(fullfile(path, file), app.FreeCADExe);
 
                 if isempty(V)
                     close(d);
@@ -1400,7 +1400,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             %% --- 2. LEFT PROFILE EXTRACTION ---
             meshL = cell(1,3);
-            [ meshL{1}, meshL{2}, meshL{3} ] = CNCHotWire_GCodeGenerator_V1_Helpers.sliceMeshAtX(V, F, xLeft + epsX);
+            [ meshL{1}, meshL{2}, meshL{3} ] = CNCHotWire_GCodeGenerator_Helpers.sliceMeshAtX(V, F, xLeft + epsX);
             xsL = meshL{1}; ysL = meshL{2}; zsL = meshL{3};
 
             if ~isempty(ysL) && any(~isnan(ysL))
@@ -1408,14 +1408,14 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             end
 
             loopL = cell(1,2);
-            [ loopL{1}, loopL{2} ] = CNCHotWire_GCodeGenerator_V1_Helpers.buildMainProfileLoop(xsL, ysL, zsL);
+            [ loopL{1}, loopL{2} ] = CNCHotWire_GCodeGenerator_Helpers.buildMainProfileLoop(xsL, ysL, zsL);
             yLoopL = loopL{1}; zLoopL = loopL{2};
 
             %% --- 3. RIGHT PROFILE EXTRACTION ---
             yLoopR = []; zLoopR =[];
             if isTaper
                 meshR = cell(1,3);
-                [ meshR{1}, meshR{2}, meshR{3} ] = CNCHotWire_GCodeGenerator_V1_Helpers.sliceMeshAtX(V, F, xRight - epsX);
+                [ meshR{1}, meshR{2}, meshR{3} ] = CNCHotWire_GCodeGenerator_Helpers.sliceMeshAtX(V, F, xRight - epsX);
                 xsR = meshR{1}; ysR = meshR{2}; zsR = meshR{3};
 
                 if ~isempty(ysR) && any(~isnan(ysR))
@@ -1423,7 +1423,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 end
 
                 loopR = cell(1,2);
-                [ loopR{1}, loopR{2} ] = CNCHotWire_GCodeGenerator_V1_Helpers.buildMainProfileLoop(xsR, ysR, zsR);
+                [ loopR{1}, loopR{2} ] = CNCHotWire_GCodeGenerator_Helpers.buildMainProfileLoop(xsR, ysR, zsR);
                 yLoopR = loopR{1}; zLoopR = loopR{2};
             else
                 % Prismatic cut: Right profile is identical to Left
@@ -1435,7 +1435,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             % Resample the raw loops based on the user's tolerance setting
             if ~isempty(yLoopL) && ~isempty(yLoopR)
                 resmp = cell(1,4);
-                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = CNCHotWire_GCodeGenerator_V1_Helpers.resampleProfilesSynced(...
+                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = CNCHotWire_GCodeGenerator_Helpers.resampleProfilesSynced(...
                     yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
                 yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
             end
@@ -1535,17 +1535,17 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             doKerfR = app.KerfEnabled && ~isempty(yR) && app.KerfRightValue ~= 0;
 
             if doKerfL
-                [ final_yL, final_zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                [ final_yL, final_zL ] = CNCHotWire_GCodeGenerator_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
             end
 
             if doKerfR
-                [ final_yR, final_zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                [ final_yR, final_zR ] = CNCHotWire_GCodeGenerator_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
             end
 
             %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
             % Always sync the final shapes so the UI exactly matches the Simulation.
             if ~isempty(final_yL) && ~isempty(final_yR)
-                [ final_yL, final_zL, final_yR, final_zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+                [ final_yL, final_zL, final_yR, final_zR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
             end
 
             nLk = numel(final_yL);
@@ -1707,7 +1707,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
         function onResetProfileTolerance(app)
             % Purpose: Resets tolerance to default and triggers a recompute.
-            defaultTol = CNCHotWire_GCodeGenerator_V1.DefaultProfileTolerance;
+            defaultTol = CNCHotWire_GCodeGenerator.DefaultProfileTolerance;
             app.ProfileTolerance = defaultTol;
 
             if ~isempty(app.ProfileTolSpinner) && isgraphics(app.ProfileTolSpinner)
@@ -1791,7 +1791,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
         function onResetKerf(app)
             % Purpose: Resets kerf values to default and re-applies.
-            defaultK = CNCHotWire_GCodeGenerator_V1.DefaultKerf;
+            defaultK = CNCHotWire_GCodeGenerator.DefaultKerf;
 
             app.KerfLeftValue = defaultK;
             app.KerfRightValue = defaultK;
@@ -1880,20 +1880,20 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             if app.KerfEnabled
                 if app.KerfLeftValue ~= 0
-                    [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
+                    [ yL, zL ] = CNCHotWire_GCodeGenerator_Helpers.offsetProfileLoop(yL, zL, app.KerfLeftValue, app.ProfileTolerance);
                 end
                 if app.KerfRightValue ~= 0
-                    [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
+                    [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.offsetProfileLoop(yR, zR, app.KerfRightValue, app.ProfileTolerance);
                 end
             end
 
             % ALWAYS re-align start points before syncing!
             % This prevents twist when Kerf is 0, ensuring both profiles
             % are anchored to the exact front face before parameter blending.
-            [ yL, zL ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yL, zL);
-            [ yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.reorderLoopByMinY(yR, zR);
+            [ yL, zL ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
+            [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
 
-            [ yL, zL, yR, zR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(yL, zL, yR, zR);
+            [ yL, zL, yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(yL, zL, yR, zR);
         end
 
         function[ yOut, zOut ] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
@@ -2488,7 +2488,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                             xR_m = x + app.BilletShift(1) + pXR;
 
                             % Project the toolpath to the physical towers at this test X position
-                            [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                            [ tL, tR ] = CNCHotWire_GCodeGenerator_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                             % Calculate total path length for each tower
                             lenL = sum(hypot(diff(tL.y), diff(tL.z)));
@@ -2513,7 +2513,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                     xL_m = bestX + app.BilletShift(1) + pXL;
                     xR_m = bestX + app.BilletShift(1) + pXR;
 
-                    [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                    [ tL, tR ] = CNCHotWire_GCodeGenerator_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
 
                     % Find the lowest point the wire reaches on either tower
                     minProjZ = min([tL.z; tR.z]);
@@ -2667,7 +2667,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
 
                     % Draw Ghost Profiles (Raw extracted profiles before kerf/sync)
-                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(...
+                    [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(...
                         app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                         app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
@@ -2697,7 +2697,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                             'Color', t.wireKerf, 'LineWidth', 0.75);
 
                         % Project paths outwards to the physical towers
-                        [ tL, tR ] = CNCHotWire_GCodeGenerator_V1_Helpers.projectToTowers(...
+                        [ tL, tR ] = CNCHotWire_GCodeGenerator_Helpers.projectToTowers(...
                             ySyncL + totalShift(2), zSyncL + totalShift(3), xL_world + offX, ...
                             ySyncR + totalShift(2), zSyncR + totalShift(3), xR_world + offX, app.MachineSpanX);
 
@@ -3939,7 +3939,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             %% --- NESTED HELPERS: DENSIFICATION ---
             function [ yLD, zLD, yRD, zRD ] = densifySynced(yiL, ziL, yiR, ziR, step)
                 % Interpolates synced profiles ensuring L and R stay perfectly coupled
-                if nargin < 5, step = CNCHotWire_GCodeGenerator_V1.SimSpatialResolution; end
+                if nargin < 5, step = CNCHotWire_GCodeGenerator.SimSpatialResolution; end
                 N = numel(yiL);
                 if N < 2
                     yLD=yiL; zLD=ziL; yRD=yiR; zRD=ziR; return;
@@ -3967,7 +3967,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             function out = densifyWaypoints(yiL, ziL, yiR, ziR, step)
                 % Interpolates independent waypoints (like rapid moves)
-                if nargin < 5, step = CNCHotWire_GCodeGenerator_V1.SimSpatialResolution; end
+                if nargin < 5, step = CNCHotWire_GCodeGenerator.SimSpatialResolution; end
                 N_max = max(numel(yiL), numel(yiR));
 
                 % Pad arrays if one side has fewer waypoints
@@ -4172,7 +4172,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             % 3. Draw Ghost Profiles (Raw extracted profiles in neutral grey)
             if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
-                [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_V1_Helpers.syncPointCounts(...
+                [ yS_rawL, zS_rawL, yS_rawR, zS_rawR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(...
                     app.LeftProfilePoints(:,2), app.LeftProfilePoints(:,3), ...
                     app.RightProfilePoints(:,2), app.RightProfilePoints(:,3));
 
@@ -4319,7 +4319,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             if app.SimPlayDist >= app.SimTotalLength - 1e-3, app.SimPlayDist = 0; end
 
             if isempty(app.SimTimer) || ~isvalid(app.SimTimer)
-                periodSec = 1.0 / CNCHotWire_GCodeGenerator_V1.SimFramesPerSecond;
+                periodSec = 1.0 / CNCHotWire_GCodeGenerator.SimFramesPerSecond;
                 app.SimTimer = timer('ExecutionMode', 'fixedRate', 'Period', periodSec, 'TimerFcn', @(~,~)app.onSimTimerTick());
             end
             if strcmp(app.SimTimer.Running, 'off')
@@ -4348,11 +4348,11 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             if ~isempty(app.SpinFeedRate) && isgraphics(app.SpinFeedRate)
                 feed_mm_min = app.SpinFeedRate.Value;
             else
-                feed_mm_min = CNCHotWire_GCodeGenerator_V1.DefaultFeedRate;
+                feed_mm_min = CNCHotWire_GCodeGenerator.DefaultFeedRate;
             end
 
             feed_mm_sec = feed_mm_min / 60.0;
-            periodSec = 1.0 / CNCHotWire_GCodeGenerator_V1.SimFramesPerSecond;
+            periodSec = 1.0 / CNCHotWire_GCodeGenerator.SimFramesPerSecond;
             baseStepDist = feed_mm_sec * periodSec;
 
             if ~isempty(app.SimSpeedSpinner) && isgraphics(app.SimSpeedSpinner)
@@ -5470,7 +5470,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             if strcmp(sel, 'Restart Now')
                 setpref('HotWireSTEPApp', 'Theme', src.Value);
                 delete(app.UIFigure);
-                CNCHotWire_GCodeGenerator_V1();
+                CNCHotWire_GCodeGenerator();
             else
                 % Revert the switch visually if they cancelled
                 if strcmp(src.Value, 'Dark')
@@ -5543,7 +5543,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabWelcome = uitab(app.TabGroup, 'Title', 'Welcome & Setup');
 
             app.GLWelcome = uigridlayout(app.TabWelcome,[1 2]);
-            app.GLWelcome.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLWelcome.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLWelcome.Padding = [5 5 5 5];
             app.GLWelcome.ColumnSpacing = 5;
             app.GLWelcome.BackgroundColor = sideBg;
@@ -5552,7 +5552,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             leftPnl = uigridlayout(app.GLWelcome,[3 1]);
             leftPnl.Layout.Column = 1;
             % '1x' pushes the theme toggle and button to the bottom
-            leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
 
@@ -5562,13 +5562,13 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             glTheme.ColumnWidth = {'fit', 'fit'};
             glTheme.Padding =[0 0 0 0];
             glTheme.BackgroundColor = panelBg;
-            uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uilabel(glTheme, 'Text', 'App Theme:', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             if ispref('HotWireSTEPApp', 'Theme'), currentTheme = getpref('HotWireSTEPApp', 'Theme'); else, currentTheme = 'Dark'; end
-            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn', @(src,evt)app.onThemeToggleChanged(src));
+            app.ThemeSwitch = uiswitch(glTheme, 'slider', 'Items', {'Dark', 'Light'}, 'Value', currentTheme, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn', @(src,evt)app.onThemeToggleChanged(src));
 
             % Continue Button
-            btnWelcomeCont = uibutton(leftPnl, 'Text','Continue to Guide →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            btnWelcomeCont = uibutton(leftPnl, 'Text','Continue to Guide →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
             btnWelcomeCont.Layout.Row = 3;
 
             %% --- RIGHT PANEL (Content) ---
@@ -5603,7 +5603,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.ImgWelcomeLogo.Layout.Column = 2;
 
             % --- About Section ---
-            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            pnlAbout = uipanel(glRight, 'Title', 'About This Software', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             pnlAbout.Layout.Row = 2;
             glAbout = uigridlayout(pnlAbout,[1 1]);
             glAbout.RowHeight = {'1x'};
@@ -5625,40 +5625,40 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
                 '- Post-process and export Mach4-compatible G-code.'
                 };
-            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(glAbout, 'Value', txtAbout, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % --- FreeCAD Setup Section (Step-by-Step) ---
-            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            pnlFC = uipanel(glRight, 'Title', 'Required Setup: FreeCAD Engine', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             pnlFC.Layout.Row = 3;
 
             glFC = uigridlayout(pnlFC,[4 2]);
             glFC.ColumnWidth = {'1x', 300};
-            glFC.RowHeight = {'fit', CNCHotWire_GCodeGenerator_V1.ButtonHeight, 'fit', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            glFC.RowHeight = {'fit', CNCHotWire_GCodeGenerator.ButtonHeight, 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
             glFC.Padding =[10 10 10 10];
             glFC.BackgroundColor = panelBg;
 
             % Intro
-            lblIntro = uilabel(glFC, 'Text', 'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files. You only need to set this up once!', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblIntro = uilabel(glFC, 'Text', 'This app requires FreeCAD (v1.0 or newer) behind the scenes to accurately mesh STEP files. You only need to set this up once!', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblIntro.Layout.Row = 1; lblIntro.Layout.Column =[1 2];
 
             % Step 1
-            lblS1 = uilabel(glFC, 'Text', 'Step 1. Download and run the standard Windows Installer.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblS1 = uilabel(glFC, 'Text', 'Step 1. Download and run the standard Windows Installer.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblS1.Layout.Row = 2; lblS1.Layout.Column = 1;
-            btnDL = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.2 0.5 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
+            btnDL = uibutton(glFC, 'Text', 'Download FreeCAD', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.2 0.5 0.8], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)web('https://www.freecad.org/downloads.php', '-browser'));
             btnDL.Layout.Row = 2; btnDL.Layout.Column = 2;
 
             % Step 2
-            lblS2 = uilabel(glFC, 'Text', 'Step 2. Install FreeCAD to the default directory.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblS2 = uilabel(glFC, 'Text', 'Step 2. Install FreeCAD to the default directory.', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblS2.Layout.Row = 3; lblS2.Layout.Column = [1 2];
 
             % Step 3
-            lblS3 = uilabel(glFC, 'Text', 'Step 3. Locate "FreeCADCmd.exe" (Typically: C:\Program Files\FreeCAD 1.0\bin\)', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblS3 = uilabel(glFC, 'Text', 'Step 3. Locate "FreeCADCmd.exe" (Typically: C:\Program Files\FreeCAD 1.0\bin\)', 'FontColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblS3.Layout.Row = 4; lblS3.Layout.Column = 1;
 
             glFCBrowse = uigridlayout(glFC,[1 2]);
             glFCBrowse.Layout.Row = 4; glFCBrowse.Layout.Column = 2;
             glFCBrowse.ColumnWidth = {'1x', 80};
-            glFCBrowse.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            glFCBrowse.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             glFCBrowse.Padding =[0 0 0 0];
             glFCBrowse.BackgroundColor = panelBg;
 
@@ -5674,8 +5674,8 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 end
             end
 
-            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
-            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
+            app.FieldFreeCADPath = uieditfield(glFCBrowse, 'text', 'Value', app.FreeCADExe, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.onFreeCADPathEdited(src));
+            btnBrowseFC = uibutton(glFCBrowse, 'Text', 'Browse...', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, 'ButtonPushedFcn', @(~,~)app.onBrowseFreeCAD());
 
             % --- Footer Panels ---
             glFooter = uigridlayout(glRight,[1 3]);
@@ -5686,17 +5686,17 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             glFooter.ColumnSpacing = 5;
             glFooter.BackgroundColor = sideBg;
 
-            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            pnlContact = uipanel(glFooter, 'Title', 'Contact', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             glContact = uigridlayout(pnlContact,[1 1]); glContact.Padding =[0 0 0 0]; glContact.BackgroundColor = panelBg;
-            uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(glContact, 'Value', {'Author: Matthew Richardson'; 'Email: matthew.richardson@bristol.ac.uk'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
-            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            pnlLicense = uipanel(glFooter, 'Title', 'License', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             glLicense = uigridlayout(pnlLicense,[1 1]); glLicense.Padding =[0 0 0 0]; glLicense.BackgroundColor = panelBg;
-            uitextarea(glLicense, 'Value', {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(glLicense, 'Value', {'Released under the MIT Open Source License.'; 'Free for academic, personal, or commercial use.'}, 'Editable', 'off', 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
-            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
+            pnlSource = uipanel(glFooter, 'Title', 'Source Code', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BackgroundColor', panelBg, 'ForegroundColor', labelCol);
             glSource = uigridlayout(pnlSource,[1 1]); glSource.Padding =[5 5 5 5]; glSource.BackgroundColor = panelBg;
-            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
+            uibutton(glSource, 'Text', 'View Source on GitHub', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.2 0.2 0.2], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)web(app.GitHubLink, '-browser'));
         end
 
         % TAB 1 (INTERFACE GUIDE)
@@ -5715,7 +5715,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             % Mimic the standard app layout
             app.GLGuide = uigridlayout(app.TabGuide, [1 2]);
-            app.GLGuide.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLGuide.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLGuide.Padding =[5 5 5 5];
             app.GLGuide.ColumnSpacing = 5;
             app.GLGuide.BackgroundColor = sideBg;
@@ -5724,51 +5724,51 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             leftPnl = uigridlayout(app.GLGuide,[7 1]);
             leftPnl.Layout.Column = 1;
             % 1x spacer pushes Guidance and Status to the bottom!
-            leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 70, CNCHotWire_GCodeGenerator.ButtonHeight};
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % 1. Controls Intro
-            pnl1 = uipanel(leftPnl, 'Title', '1. Controls & Inputs', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnl1 = uipanel(leftPnl, 'Title', '1. Controls & Inputs', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             gl1 = uigridlayout(pnl1, [1 1]); gl1.Padding =[0 0 0 0]; gl1.BackgroundColor = sideBg;
-            uitextarea(gl1, 'Value', 'The top of the left panel contains inputs, toggles, and buttons.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(gl1, 'Value', 'The top of the left panel contains inputs, toggles, and buttons.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % Dummy Controls Panel
-            pnlDummy = uipanel(leftPnl, 'Title','Example Controls', 'BackgroundColor',sideBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlDummy = uipanel(leftPnl, 'Title','Example Controls', 'BackgroundColor',sideBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlDummy.Layout.Row = 2;
             gridDummy = uigridlayout(pnlDummy, [3 2]);
             gridDummy.ColumnWidth = {'1x', '1x'};
-            gridDummy.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridDummy.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight};
             gridDummy.Padding=[5 5 5 5];
             gridDummy.BackgroundColor=sideBg;
 
-            uilabel(gridDummy, 'Text', 'Example Toggle:', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'right');
-            uiswitch(gridDummy, 'slider', 'Items', {'Off', 'On'}, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uilabel(gridDummy, 'Text', 'Example Toggle:', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'right');
+            uiswitch(gridDummy, 'slider', 'Items', {'Off', 'On'}, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
-            uilabel(gridDummy, 'Text', 'Example Spinner:', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'right');
-            uispinner(gridDummy, 'Value', 10.0, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uilabel(gridDummy, 'Text', 'Example Spinner:', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'right');
+            uispinner(gridDummy, 'Value', 10.0, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
-            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
-            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
+            uibutton(gridDummy, 'Text','Example Button', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % 2. Guidance (Pushed to bottom by 1x spacer in Row 4)
-            pnl2 = uipanel(leftPnl, 'Title', 'Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnl2 = uipanel(leftPnl, 'Title', 'Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnl2.Layout.Row = 5;
             gl2 = uigridlayout(pnl2,[1 1]); gl2.Padding =[0 0 0 0]; gl2.BackgroundColor = sideBg;
-            uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % 3. Status
-            pnl3 = uipanel(leftPnl, 'Title', 'Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnl3 = uipanel(leftPnl, 'Title', 'Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnl3.Layout.Row = 6;
             gl3 = uigridlayout(pnl3, [1 1]); gl3.Padding =[0 0 0 0]; gl3.BackgroundColor = sideBg;
-            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % Continue Button
-            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
             btnCont.Layout.Row = 7;
 
             %% --- RIGHT PANEL (Mimics Plot) ---
-            rightPnl = uipanel(app.GLGuide, 'Title', '4. Main Plot (Right Side) →', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeTitle, 'BorderType', 'line');
+            rightPnl = uipanel(app.GLGuide, 'Title', '4. Main Plot (Right Side) →', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeTitle, 'BorderType', 'line');
             rightPnl.Layout.Column = 2;
 
             glR = uigridlayout(rightPnl,[2 1]);
@@ -5780,7 +5780,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 'The large right panel always contains your interactive 2D or 3D visuals.';
                 'Move through the tabs at the top of the window one by one, left to right.'
                 };
-            uitextarea(glR, 'Value', txt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeTitle);
+            uitextarea(glR, 'Value', txt, 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeTitle);
 
             % Dummy 3D Plot
             axDummy = uiaxes(glR);
@@ -5818,7 +5818,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabModel = uitab(app.TabGroup,'Title','Model');
 
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
-            app.GLModel.ColumnWidth   = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLModel.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLModel.Padding       =[5 5 5 5];
             app.GLModel.ColumnSpacing = 5;
             app.GLModel.BackgroundColor = sideBg;
@@ -5829,57 +5829,57 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.GLLeft.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % Rows: 1:View, 2:Import, 3:Taper, 4:Orientation, 5:Planes, 6:Guidance(1x), 7:Status(70px), 8:Buttons
-            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 70, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.GLLeft.Padding =[5 5 5 5];
-            app.GLLeft.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.GLLeft.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
 
             %% --- VIEW CONTROLS (Unnumbered) ---
-            pnlView = uipanel(app.GLLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.GLLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView,[1 1]);
             gridView.Padding=[5 5 5 5];
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnMResP = uibutton(gridView, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
+            btnMResP = uibutton(gridView, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
 
             %% --- 1. FILE IMPORT ---
-            pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlImport.Layout.Row = 2;
 
             gridImport = uigridlayout(pnlImport,[3 1]);
-            gridImport.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight, CNCHotWire_GCodeGenerator_V1.ButtonHeight, 'fit'};
+            gridImport.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.ButtonHeight, 'fit'};
             gridImport.Padding =[5 5 5 5];
             gridImport.BackgroundColor = panelBg;
 
-            app.BtnImportSTEP = uibutton(gridImport, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnImportSTEP = uibutton(gridImport, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTEP());
             app.BtnImportSTEP.Layout.Row = 1;
 
-            app.BtnImportSTL = uibutton(gridImport, 'Text','Import STL', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnImportSTL = uibutton(gridImport, 'Text','Import STL', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTL());
             app.BtnImportSTL.Layout.Row = 2;
 
-            app.FileLabel = uilabel(gridImport, 'Text','Current File: ---', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            app.FileLabel = uilabel(gridImport, 'Text','Current File: ---', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             app.FileLabel.Layout.Row = 3;
 
             %% --- 2. TAPER MODE ---
-            pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlTaper.Layout.Row = 3;
 
             gridTaper = uigridlayout(pnlTaper,[1 3]);
             gridTaper.ColumnWidth = {'1x','fit','1x'};
-            gridTaper.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridTaper.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridTaper.Padding=[5 5 5 5];
             gridTaper.BackgroundColor = panelBg;
 
             uilabel(gridTaper,'Text',''); % Left Spacer
 
             app.TaperToggle = uiswitch(gridTaper,'slider', 'Items',{'Straight','Tapered'}, 'Value','Straight', ...
-                'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor', labelCol, ...
+                'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor', labelCol, ...
                 'Tooltip', sprintf('Straight: Prismatic (Identical profiles).\nTapered: Independent Left/Right profiles.'), ...
                 'ValueChangedFcn',@(~,~)app.onTaperModeChanged());
             app.TaperToggle.Layout.Column = 2;
@@ -5887,14 +5887,14 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             uilabel(gridTaper,'Text',''); % Right Spacer
 
             %% --- 3. ORIENTATION ---
-            pnlRot = uipanel(app.GLLeft, 'Title','3. Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'ForegroundColor',labelCol);
+            pnlRot = uipanel(app.GLLeft, 'Title','3. Model Orientation', 'BackgroundColor',panelBg, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'ForegroundColor',labelCol);
             pnlRot.Layout.Row = 4;
 
             % 3 rows, 7 columns to center the controls and fix the button width
             % Col 1 & 7 act as flexible spacers to keep the block centered
             app.RotGrid = uigridlayout(pnlRot,[3 7]);
-            app.RotGrid.ColumnWidth={'1x', 'fit', 'fit', 60, 'fit', CNCHotWire_GCodeGenerator_V1.ButtonHeight, '1x'};
-            app.RotGrid.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            app.RotGrid.ColumnWidth={'1x', 'fit', 'fit', 60, 'fit', CNCHotWire_GCodeGenerator.ButtonHeight, '1x'};
+            app.RotGrid.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             app.RotGrid.Padding=[5 5 5 5];
             app.RotGrid.ColumnSpacing = 10; % Increased spacing for better breathing room!
             app.RotGrid.RowSpacing = 2;
@@ -5903,19 +5903,19 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             axesLabels = {'X','Y','Z'};
             app.RotEdit = gobjects(1,3);
             for i = 1:3
-                lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol);
+                lblRot = uilabel(app.RotGrid, 'Text',axesLabels{i}, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','center', 'FontColor',labelCol);
                 lblRot.Layout.Row=i; lblRot.Layout.Column=2;
 
-                btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
+                btnNeg = uibutton(app.RotGrid,'Text','-90°', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'm']));
                 btnNeg.Layout.Row=i; btnNeg.Layout.Column=3;
 
                 app.RotEdit(i) = uieditfield(app.RotGrid,'numeric', 'Limits',[0 360], 'Value',0, 'HorizontalAlignment','center', 'ValueDisplayFormat','%.0f°', ...
-                    'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+                    'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                     'Tooltip',['Rotate model around the ' axesLabels{i} ' axis.'], ...
                     'ValueChangedFcn',@(src,~)app.updateRotation(axesLabels{i},src.Value));
                 app.RotEdit(i).Layout.Row=i; app.RotEdit(i).Layout.Column=4;
 
-                btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
+                btnPos = uibutton(app.RotGrid,'Text','+90°', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.rotateModel([axesLabels{i} 'p']));
                 btnPos.Layout.Row=i; btnPos.Layout.Column=5;
             end
 
@@ -5926,41 +5926,41 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             btnResO.Layout.Column = 6;
 
             %% --- 4. PLANE OFFSETS ---
-            pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlOff = uipanel(app.GLLeft, 'Title', '4. Plane Offsets [mm]', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlOff.Layout.Row = 5;
 
             gridOff = uigridlayout(pnlOff,[2 4]);
             gridOff.ColumnWidth={'fit','1x','fit','1x'};
-            gridOff.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridOff.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight};
             gridOff.Padding=[5 5 5 5];
             gridOff.BackgroundColor = panelBg;
 
             % Left Spinner
-            lblOffL = uilabel(gridOff,'Text','Left:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblOffL = uilabel(gridOff,'Text','Left:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblOffL.Layout.Row=1; lblOffL.Layout.Column=1;
 
             app.NumLeftOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+                'ValueDisplayFormat','%.1f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Left Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
             app.NumLeftOffset.Layout.Row=1; app.NumLeftOffset.Layout.Column=2;
 
             % Right Spinner
-            lblOffR = uilabel(gridOff,'Text','Right:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblOffR = uilabel(gridOff,'Text','Right:','HorizontalAlignment','right','FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblOffR.Layout.Row=1; lblOffR.Layout.Column=3;
 
             app.NumRightOffset = uispinner(gridOff, 'Limits',[0 10000], 'Value',0, 'Step',1, ...
-                'ValueDisplayFormat','%.1f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+                'ValueDisplayFormat','%.1f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Distance from Model Left Face (X Min) to Right Cutting Plane', ...
                 'ValueChangedFcn',@(src,evt)app.onPlaneOffsetChanged(src,evt));
             app.NumRightOffset.Layout.Row=1; app.NumRightOffset.Layout.Column=4;
 
             % Reset Button
-            btnResPlane = uibutton(gridOff, 'Text','Reset Planes', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlanes());
+            btnResPlane = uibutton(gridOff, 'Text','Reset Planes', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlanes());
             btnResPlane.Layout.Row=2; btnResPlane.Layout.Column=[1 4];
 
             %% --- 5. GUIDANCE ---
-            pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.GLLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 6;
             glGuide = uigridlayout(pnlGuide,[1 1]);
             glGuide.Padding =[0 0 0 0]; % Zero padding for max text space
@@ -5981,29 +5981,29 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
                 'Rotate the model so this point is toward the front of the machine (Ymin)';
                 };
-            app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 6. STATUS ---
-            pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.GLLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 7;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding =[0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtModelStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'No model loaded.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 7. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.GLLeft,[1 2]);
             gridBtn.Layout.Row = 8;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnGenerateProfiles = uibutton(gridBtn, 'Text','Generate Profiles', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
+            app.BtnGenerateProfiles = uibutton(gridBtn, 'Text','Generate Profiles', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.15 0.45 0.8], 'FontColor',[1 1 1], ...
                 'Tooltip', 'Slice model at the defined planes.', ...
                 'ButtonPushedFcn',@(~,~)app.onGenerateProfiles());
 
-            app.BtnContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
+            app.BtnContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], ...
                 'Enable','off', 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 3D MODEL AXES ---
@@ -6039,7 +6039,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabProfiles = uitab(app.TabGroup,'Title','Profiles');
 
             app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
-            app.GLProfiles.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLProfiles.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLProfiles.Padding =[5 5 5 5];
             app.GLProfiles.ColumnSpacing = 5;
             app.GLProfiles.BackgroundColor = sideBg;
@@ -6049,93 +6049,93 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.profilesLeft.Layout.Column = 1;
 
             % Rows: 1:View, 2:Sampling, 3:Kerf, 4:Guidance(1x), 5:Status(70px), 6:Continue
-            app.profilesLeft.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.profilesLeft.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.profilesLeft.Padding = [5 5 5 5];
-            app.profilesLeft.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.profilesLeft.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.profilesLeft.BackgroundColor = panelBg;
 
             %% --- VIEW CONTROLS (Unnumbered) ---
-            pnlView = uipanel(app.profilesLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.profilesLeft, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView, [1 1]);
             gridView.Padding=[5 5 5 5];
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            app.BtnResetProfilesView = uibutton(gridView, 'Text','Reset Profiles View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
+            app.BtnResetProfilesView = uibutton(gridView, 'Text','Reset Profiles View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetProfilesView());
 
             %% --- 1. PROFILE SAMPLING ---
-            pnlSampling = uipanel(app.profilesLeft, 'Title','1. Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlSampling = uipanel(app.profilesLeft, 'Title','1. Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlSampling.Layout.Row = 2;
 
             gridSampling = uigridlayout(pnlSampling,[3 2]);
             gridSampling.ColumnWidth = {'1x', 90};
-            gridSampling.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.ButtonHeight, 'fit'};
+            gridSampling.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight, 'fit'};
             gridSampling.Padding =[5 5 5 5];
             gridSampling.BackgroundColor = panelBg;
 
-            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             lblTolerance.Layout.Row = 1; lblTolerance.Layout.Column = 1;
 
-            app.ProfileTolSpinner = uispinner(gridSampling, 'Limits',[CNCHotWire_GCodeGenerator_V1.MinProfileTolerance, CNCHotWire_GCodeGenerator_V1.MaxProfileTolerance], 'Value',CNCHotWire_GCodeGenerator_V1.DefaultProfileTolerance, 'Step',0.01, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolSpinner = uispinner(gridSampling, 'Limits',[CNCHotWire_GCodeGenerator.MinProfileTolerance, CNCHotWire_GCodeGenerator.MaxProfileTolerance], 'Value',CNCHotWire_GCodeGenerator.DefaultProfileTolerance, 'Step',0.01, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
             app.ProfileTolSpinner.Layout.Row = 1; app.ProfileTolSpinner.Layout.Column = 2;
-            app.ProfileTolerance = CNCHotWire_GCodeGenerator_V1.DefaultProfileTolerance;
+            app.ProfileTolerance = CNCHotWire_GCodeGenerator.DefaultProfileTolerance;
 
-            app.BtnResetProfileTol = uibutton(gridSampling, 'Text','Reset Tolerance', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol = uibutton(gridSampling, 'Text','Reset Tolerance', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
             app.BtnResetProfileTol.Layout.Row = 2; app.BtnResetProfileTol.Layout.Column =[1 2];
 
-            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Point Count (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Point Count (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.ProfilePointCountLabel.Layout.Row = 3; app.ProfilePointCountLabel.Layout.Column =[1 2];
 
             %% --- 2. KERF COMPENSATION ---
-            pnlKerf = uipanel(app.profilesLeft, 'Title','2. Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlKerf = uipanel(app.profilesLeft, 'Title','2. Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlKerf.Layout.Row = 3;
 
             gridKerf = uigridlayout(pnlKerf,[5 4]);
             gridKerf.ColumnWidth = {'fit', '1x', 'fit', '1x'};
-            gridKerf.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.ButtonHeight, CNCHotWire_GCodeGenerator_V1.ButtonHeight, 'fit'};
+            gridKerf.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.ButtonHeight, 'fit'};
             gridKerf.Padding =[5 5 5 5];
             gridKerf.BackgroundColor = panelBg;
 
-            lblKerfMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblKerfMode = uilabel(gridKerf, 'Text','Mode:', 'HorizontalAlignment','right', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblKerfMode.Layout.Row = 1; lblKerfMode.Layout.Column = 1;
 
-            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', 'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
+            app.KerfModeSwitch = uiswitch(gridKerf, 'slider', 'Items', {'Coupled', 'Independent'}, 'Value', 'Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn', @(src,~)app.onKerfModeChanged(src));
             app.KerfModeSwitch.Layout.Row = 1; app.KerfModeSwitch.Layout.Column = [2 4];
             app.KerfModeSwitch.Tooltip = 'Uncoupling is only for tapered parts to compensate for the difference in wire speed between left and right profiles.';
 
             % Left Kerf
-            lblKerfLeft = uilabel(gridKerf, 'Text','Left:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblKerfLeft = uilabel(gridKerf, 'Text','Left:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblKerfLeft.Layout.Row = 2; lblKerfLeft.Layout.Column = 1;
 
-            app.KerfLeftSpinner = uispinner(gridKerf, 'Limits',[CNCHotWire_GCodeGenerator_V1.MinKerf, CNCHotWire_GCodeGenerator_V1.MaxKerf], 'Value',app.KerfLeftValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
+            app.KerfLeftSpinner = uispinner(gridKerf, 'Limits',[CNCHotWire_GCodeGenerator.MinKerf, CNCHotWire_GCodeGenerator.MaxKerf], 'Value',app.KerfLeftValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', 'Set Kerf: Note, offset distance = Kerf/2', 'ValueChangedFcn',@(src,~)app.onKerfLeftChanged(src));
             app.KerfLeftSpinner.Layout.Row = 2; app.KerfLeftSpinner.Layout.Column = 2;
             app.KerfLeftSpinner.FontColor = t.wireKerf;
             app.KerfLeftSpinner.BackgroundColor = t.planeRed * 0.15 + panelBg * 0.85;
 
             % Right Kerf
-            lblKerfRight = uilabel(gridKerf, 'Text','Right:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblKerfRight = uilabel(gridKerf, 'Text','Right:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblKerfRight.Layout.Row = 2; lblKerfRight.Layout.Column = 3;
 
-            app.KerfRightSpinner = uispinner(gridKerf, 'Limits',[CNCHotWire_GCodeGenerator_V1.MinKerf, CNCHotWire_GCodeGenerator_V1.MaxKerf], 'Value',app.KerfRightValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Enable', 'off', 'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
+            app.KerfRightSpinner = uispinner(gridKerf, 'Limits',[CNCHotWire_GCodeGenerator.MinKerf, CNCHotWire_GCodeGenerator.MaxKerf], 'Value',app.KerfRightValue, 'Step',0.1, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Enable', 'off', 'ValueChangedFcn',@(src,~)app.onKerfRightChanged(src));
             app.KerfRightSpinner.Layout.Row = 2; app.KerfRightSpinner.Layout.Column = 4;
             app.KerfRightSpinner.FontColor = t.wireKerf;
             app.KerfRightSpinner.BackgroundColor = t.planeGreen * 0.15 + panelBg * 0.85;
 
             % Buttons
-            app.BtnResetKerf = uibutton(gridKerf, 'Text','Reset Kerf', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetKerf());
+            app.BtnResetKerf = uibutton(gridKerf, 'Text','Reset Kerf', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetKerf());
             app.BtnResetKerf.Layout.Row = 3; app.BtnResetKerf.Layout.Column = [1 4];
 
-            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
+            app.BtnApplyKerf = uibutton(gridKerf, 'Text','Apply Kerf Offset', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onApplyKerf());
             app.BtnApplyKerf.Layout.Row = 4; app.BtnApplyKerf.Layout.Column = [1 4];
 
             % Points Readout
-            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Kerf Compensated Point Count (L/R): 0 / 0', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.KerfPointCountLabel = uilabel(gridKerf, 'Text','Kerf Compensated Point Count (L/R): 0 / 0', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.KerfPointCountLabel.Layout.Row = 5; app.KerfPointCountLabel.Layout.Column = [1 4];
 
             %% --- 3. GUIDANCE ---
-            pnlGuide = uipanel(app.profilesLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.profilesLeft, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 4;
             glGuide = uigridlayout(pnlGuide, [1 1]);
             glGuide.Padding =[0 0 0 0];
@@ -6158,25 +6158,25 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 'Note: the offset distance applied is half the kerf value (Kerf/2).'
                 };
 
-            app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 4. STATUS ---
-            pnlStatus = uipanel(app.profilesLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.profilesLeft, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 5;
             glStatus = uigridlayout(pnlStatus, [1 1]);
             glStatus.Padding = [0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtProfileStatus = uitextarea(glStatus, 'Editable','off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtProfileStatus = uitextarea(glStatus, 'Editable','off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- ACTION BUTTONS ---
             gridBtn = uigridlayout(app.profilesLeft,[1 1]);
             gridBtn.Layout.Row = 6;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnProfilesContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], 'ButtonPushedFcn',@(~,~)app.onContinue());
+            app.BtnProfilesContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Enable', 'off', 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 2D PLOTS ---
             gridRight = uigridlayout(app.GLProfiles,[2 1]);
@@ -6226,7 +6226,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabBillet = uitab(app.TabGroup, 'Title', 'Billet');
 
             app.GLBillet = uigridlayout(app.TabBillet,[1 2]);
-            app.GLBillet.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLBillet.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLBillet.Padding =[5 5 5 5];
             app.GLBillet.ColumnSpacing = 5;
             app.GLBillet.BackgroundColor = sideBg;
@@ -6236,64 +6236,64 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.BilletLeftPanel.Layout.Column = 1;
 
             % Rows: 1:View, 2:Auto, 3:Size, 4:Position, 5:Guidance(1x), 6:Status(70px), 7:Continue
-            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.BilletLeftPanel.Padding =[5 5 5 5];
-            app.BilletLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.BilletLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.BilletLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS (Unnumbered) ---
             % Purpose: Toggles the 4-way plot between Billet-centric and Model-centric limits
-            pnlView = uipanel(app.BilletLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.BilletLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing = 5;
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewModel = uibutton(gridView, 'Text','Model View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
+            btnViewModel = uibutton(gridView, 'Text','Model View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetBilletViewModel());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetBilletViewBillet());
 
             %% --- 1. AUTO TOOLS ---
             % Purpose: One-click buttons to perfectly size and position the billet
-            pnlAutoTools = uipanel(app.BilletLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlAutoTools = uipanel(app.BilletLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlAutoTools.Layout.Row = 2;
 
             gridAutoTools = uigridlayout(pnlAutoTools,[1 2]);
             gridAutoTools.Padding=[5 5 5 5];
             gridAutoTools.ColumnSpacing = 5;
-            gridAutoTools.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridAutoTools.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridAutoTools.BackgroundColor=panelBg;
 
-            app.BtnAutoFitBillet = uibutton(gridAutoTools, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
+            app.BtnAutoFitBillet = uibutton(gridAutoTools, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
             app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
 
-            app.BtnAutoPositionModel = uibutton(gridAutoTools, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
+            app.BtnAutoPositionModel = uibutton(gridAutoTools, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
             app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
 
             %% --- 2. SIZE CONTROLS ---
             % Purpose: Manual overrides for the physical stock dimensions
-            pnlSize = uipanel(app.BilletLeftPanel, 'Title', '2. Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlSize = uipanel(app.BilletLeftPanel, 'Title', '2. Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlSize.Layout.Row = 3;
 
             % 7-Column Grid to perfectly match the Position block below it.
             % Col 1 increased to 40px to prevent 'Axis' cropping.
             gridSize = uigridlayout(pnlSize, [4 7]);
-            gridSize.ColumnWidth = {40, '1x', 26, 55, 26, '1x', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
-            gridSize.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridSize.ColumnWidth = {40, '1x', 26, 55, 26, '1x', CNCHotWire_GCodeGenerator.ButtonHeight};
+            gridSize.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridSize.Padding =[5 5 5 5];
             gridSize.ColumnSpacing = 4;
             gridSize.RowSpacing = 2;
             gridSize.BackgroundColor = panelBg;
 
             % Headers
-            uilabel(gridSize, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            uilabel(gridSize, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
 
-            lblStockHeader = uilabel(gridSize, 'Text', 'Stock [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblStockHeader = uilabel(gridSize, 'Text', 'Stock [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblStockHeader.Layout.Column = [3 5]; % Spans the -, Edit, and + columns
 
-            lblModelHeader = uilabel(gridSize, 'Text', 'Model', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblModelHeader = uilabel(gridSize, 'Text', 'Model', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblModelHeader.Layout.Column =[6 7]; % Spans into dummy column to prevent cropping!
 
             axisLabels = {'X','Y','Z'};
@@ -6307,52 +6307,52 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             for i = 1:3
                 r = i + 1;
                 % Axis Label (Col 1)
-                txtLabel = uilabel(gridSize, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+                txtLabel = uilabel(gridSize, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
                 txtLabel.Layout.Row = r; txtLabel.Layout.Column = 1;
 
                 % Minus Button (Col 3)
-                app.BilletSizeMinusBtns(i) = uibutton(gridSize, 'Text', '-', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
+                app.BilletSizeMinusBtns(i) = uibutton(gridSize, 'Text', '-', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,-1));
                 app.BilletSizeMinusBtns(i).Layout.Row = r; app.BilletSizeMinusBtns(i).Layout.Column = 3;
 
                 % Edit Field (Col 4)
-                app.BilletSizeEdits(i) = uieditfield(gridSize, 'numeric', 'Value', 100, 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Tooltip', sizeTooltips{i}, 'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
+                app.BilletSizeEdits(i) = uieditfield(gridSize, 'numeric', 'Value', 100, 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', sizeTooltips{i}, 'ValueChangedFcn', @(src,~)app.onBilletSizeEdited(i,src));
                 app.BilletSizeEdits(i).Layout.Row = r; app.BilletSizeEdits(i).Layout.Column = 4;
                 % Note: Background color is applied by applyTheme() using t.shiftBg
 
                 % Plus Button (Col 5)
-                app.BilletSizePlusBtns(i) = uibutton(gridSize, 'Text', '+', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
+                app.BilletSizePlusBtns(i) = uibutton(gridSize, 'Text', '+', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletSizeStep(i,+1));
                 app.BilletSizePlusBtns(i).Layout.Row = r; app.BilletSizePlusBtns(i).Layout.Column = 5;
 
                 % Model Dim Readout (Col 6 & 7)
-                app.BilletModelDimLabels(i) = uilabel(gridSize, 'Text', '(---)', 'HorizontalAlignment', 'center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+                app.BilletModelDimLabels(i) = uilabel(gridSize, 'Text', '(---)', 'HorizontalAlignment', 'center', 'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
                 app.BilletModelDimLabels(i).Layout.Row = r; app.BilletModelDimLabels(i).Layout.Column = [6 7];
             end
 
             %% --- 3. POSITION CONTROLS ---
             % Purpose: Manual overrides for shifting the model inside the stock
-            pnlPos = uipanel(app.BilletLeftPanel, 'Title', '3. Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlPos = uipanel(app.BilletLeftPanel, 'Title', '3. Model Position in Stock', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlPos.Layout.Row = 4;
 
             % 7-Column Grid matching the Size block exactly.
             % Col 7 holds the vertical Reset button spanning rows 2-4.
             gridPos = uigridlayout(pnlPos, [4 7]);
-            gridPos.ColumnWidth = {40, '1x', 26, 55, 26, '1x', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
-            gridPos.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridPos.ColumnWidth = {40, '1x', 26, 55, 26, '1x', CNCHotWire_GCodeGenerator.ButtonHeight};
+            gridPos.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridPos.Padding =[5 5 5 5];
             gridPos.ColumnSpacing = 4;
             gridPos.RowSpacing = 2;
             gridPos.BackgroundColor = panelBg;
 
             % Headers
-            uilabel(gridPos, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            uilabel(gridPos, 'Text', 'Axis', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
 
-            lblNegHeader = uilabel(gridPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblNegHeader = uilabel(gridPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblNegHeader.Layout.Column = 2;
 
-            lblShiftHeader = uilabel(gridPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblShiftHeader = uilabel(gridPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblShiftHeader.Layout.Column =[3 5]; % Spans -, Edit, +
 
-            lblPosHeader = uilabel(gridPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblPosHeader = uilabel(gridPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblPosHeader.Layout.Column = 6;
 
             app.BilletNegOffsetEdits = gobjects(1,3);
@@ -6362,30 +6362,30 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             for i = 1:3
                 r = i + 1;
                 % Axis Label (Col 1)
-                txtLabelP = uilabel(gridPos, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+                txtLabelP = uilabel(gridPos, 'Text', axisLabels{i}, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
                 txtLabelP.Layout.Row = r; txtLabelP.Layout.Column = 1;
 
                 % Negative Gap Edit (Col 2)
-                app.BilletNegOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"neg",src));
+                app.BilletNegOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"neg",src));
                 app.BilletNegOffsetEdits(i).Layout.Row = r; app.BilletNegOffsetEdits(i).Layout.Column = 2;
                 app.BilletNegOffsetEdits(i).Tooltip = 'Axis offset between model and billet edge (min axes value)';
 
                 % Minus Button (Col 3)
-                btnMinus = uibutton(gridPos, 'Text', '-', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,-0.5));
+                btnMinus = uibutton(gridPos, 'Text', '-', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,-0.5));
                 btnMinus.Layout.Row = r; btnMinus.Layout.Column = 3;
 
                 % Center Shift Edit (Col 4)
-                app.BilletCenterOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"center",src));
+                app.BilletCenterOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"center",src));
                 app.BilletCenterOffsetEdits(i).Layout.Row = r; app.BilletCenterOffsetEdits(i).Layout.Column = 4;
                 app.BilletCenterOffsetEdits(i).Tooltip = 'Offset in axis relative to imported model origin';
                 % Note: Background color is applied by applyTheme() using t.shiftBg
 
                 % Plus Button (Col 5)
-                btnPlus = uibutton(gridPos, 'Text', '+', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,+0.5));
+                btnPlus = uibutton(gridPos, 'Text', '+', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onBilletShift(i,+0.5));
                 btnPlus.Layout.Row = r; btnPlus.Layout.Column = 5;
 
                 % Positive Gap Edit (Col 6)
-                app.BilletPosOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"pos",src));
+                app.BilletPosOffsetEdits(i) = uieditfield(gridPos, 'numeric', 'HorizontalAlignment', 'center', 'ValueDisplayFormat', '%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onBilletOffsetEdited(i,"pos",src));
                 app.BilletPosOffsetEdits(i).Layout.Row = r; app.BilletPosOffsetEdits(i).Layout.Column = 6;
                 app.BilletPosOffsetEdits(i).Tooltip = 'Axis offset between model and billet edge (max axes value)';
             end
@@ -6398,7 +6398,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             %% --- 4. GUIDANCE ---
             % Purpose: Instructions for reducing foam waste
-            pnlGuide = uipanel(app.BilletLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.BilletLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 5;
             glGuide = uigridlayout(pnlGuide, [1 1]);
             glGuide.Padding =[0 0 0 0]; % Zero padding for max text space
@@ -6414,26 +6414,26 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 ''
                 '2. Adjust using the control blocks if needed.'
                 };
-            app.TxtBilletGuide = uitextarea(glGuide, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtBilletGuide = uitextarea(glGuide, 'Editable', 'off', 'Value', guideTxt, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 5. STATUS ---
             % Purpose: Traffic light feedback for model containment
-            pnlStatus = uipanel(app.BilletLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.BilletLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding =[0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtBilletStatus = uitextarea(glStatus, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtBilletStatus = uitextarea(glStatus, 'Editable', 'off', 'Value', {''}, 'BackgroundColor', t.panelBg, 'FontColor', [1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 6. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.BilletLeftPanel,[1 1]);
             gridBtn.Layout.Row = 7;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnBilletContinue = uibutton(gridBtn, 'Text', 'Continue →', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
+            app.BtnBilletContinue = uibutton(gridBtn, 'Text', 'Continue →', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 4 VIEWS ---
             app.BilletRightPanel = uigridlayout(app.GLBillet,[2 2]);
@@ -6492,7 +6492,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabMachine = uitab(app.TabGroup, 'Title', 'Machine');
 
             app.GLMachine = uigridlayout(app.TabMachine,[1 2]);
-            app.GLMachine.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLMachine.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLMachine.Padding =[5 5 5 5];
             app.GLMachine.ColumnSpacing = 5;
             app.GLMachine.BackgroundColor = sideBg;
@@ -6501,50 +6501,50 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.MachineLeftPanel = uigridlayout(app.GLMachine,[6 1]);
 
             % Rows: 1:View, 2:Auto, 3:Placement, 4:Guidance(1x), 5:Status(70px), 6:Continue
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.MachineLeftPanel.Padding =[5 5 5 5];
-            app.MachineLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.MachineLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.MachineLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS (Unnumbered) ---
-            pnlView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.MachineLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing = 5;
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineViewBillet());
 
             %% --- 1. AUTO TOOLS ---
-            pnlAutoTools = uipanel(app.MachineLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlAutoTools = uipanel(app.MachineLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlAutoTools.Layout.Row = 2;
 
             gridAutoTools = uigridlayout(pnlAutoTools,[1 1]);
             gridAutoTools.Padding=[5 5 5 5];
-            gridAutoTools.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridAutoTools.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridAutoTools.BackgroundColor=panelBg;
 
-            btnAutoPosition = uibutton(gridAutoTools, 'Text','Auto-position Billet', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
+            btnAutoPosition = uibutton(gridAutoTools, 'Text','Auto-position Billet', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetMachineBilletPosition());
             btnAutoPosition.Tooltip = 'Optimizes X position to balance tower wire lengths, snaps Z to standard stock heights, and rounds Y to a safe distance.';
 
             %% --- 2. BILLET PLACEMENT ---
-            pnlPlacement = uipanel(app.MachineLeftPanel, 'Title','2. Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlPlacement = uipanel(app.MachineLeftPanel, 'Title','2. Billet Placement', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlPlacement.Layout.Row = 3;
 
             gridPlacement = uigridlayout(pnlPlacement,[4 2]);
             gridPlacement.ColumnWidth={'1x',110};
-            gridPlacement.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridPlacement.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridPlacement.Padding=[10 5 10 5];
             gridPlacement.BackgroundColor=panelBg;
 
-            lblAxisHeader = uilabel(gridPlacement, 'Text','Axis', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            lblAxisHeader = uilabel(gridPlacement, 'Text','Axis', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             lblAxisHeader.Layout.Row=1;
 
-            lblPosHeader = uilabel(gridPlacement, 'Text','Pos [mm]', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            lblPosHeader = uilabel(gridPlacement, 'Text','Pos [mm]', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             lblPosHeader.Layout.Column=2;
 
             mAxisLabels = {'X (Left Bed Edge)','Y (Home Position)','Z (Bed Surface)'};
@@ -6556,16 +6556,16 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
 
             app.MachinePosSpinners = gobjects(1,3);
             for i=1:3
-                lblAxisRow = uilabel(gridPlacement, 'Text',mAxisLabels{i}, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+                lblAxisRow = uilabel(gridPlacement, 'Text',mAxisLabels{i}, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
                 lblAxisRow.Layout.Row=i+1;
 
-                app.MachinePosSpinners(i) = uispinner(gridPlacement, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Tooltip', mTooltips{i}, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
+                app.MachinePosSpinners(i) = uispinner(gridPlacement, 'Limits',[-500 2000], 'Value',app.MachineBilletPos(i), 'ValueDisplayFormat','%.2f', 'Step',1.0, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', mTooltips{i}, 'ValueChangedFcn',@(src,~)app.onMachinePosEdited(i,src));
                 app.MachinePosSpinners(i).Layout.Row=i+1;
                 app.MachinePosSpinners(i).Layout.Column=2;
             end
 
             %% --- 3. GUIDANCE ---
-            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.MachineLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 4;
             glGuide = uigridlayout(pnlGuide,[1 1]);
             glGuide.Padding = [0 0 0 0];
@@ -6582,25 +6582,25 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 '';
                 'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
                 };
-            app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 4. STATUS ---
-            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.MachineLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 5;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding = [0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtMachineStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtMachineStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Machine configuration valid.'}, 'BackgroundColor', t.panelBg, 'FontColor',[1 0.8 0], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 5. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.MachineLeftPanel,[1 1]);
             gridBtn.Layout.Row = 6;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnMachineContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            app.BtnMachineContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 3D MACHINE PLOT ---
@@ -6633,7 +6633,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabCutting = uitab(app.TabGroup, 'Title', 'Cutting Strategy');
 
             app.GLCutting = uigridlayout(app.TabCutting, [2 2]);
-            app.GLCutting.ColumnWidth   = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLCutting.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLCutting.RowHeight     = {'1x', '1x'};
             app.GLCutting.Padding       =[5 5 5 5];
             app.GLCutting.ColumnSpacing = 5;
@@ -6646,125 +6646,125 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.CuttingLeftPanel.Layout.Column  = 1;
 
             % Rows: 1:View, 2:Auto, 3:Modes, 4:Interaction, 5:Guidance(1x), 6:Status(70px), 7:Continue
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.CuttingLeftPanel.Padding   = [5 5 5 5];
-            app.CuttingLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.CuttingLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.CuttingLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS (Unnumbered) ---
-            pnlView = uipanel(app.CuttingLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.CuttingLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView, [1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing=5;
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetCuttingViewBillet());
 
             %% --- 1. AUTO TOOLS ---
-            pnlAuto = uipanel(app.CuttingLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlAuto = uipanel(app.CuttingLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlAuto.Layout.Row = 2;
 
             gridAuto = uigridlayout(pnlAuto, [1 2]);
             gridAuto.Padding=[5 5 5 5];
             gridAuto.ColumnSpacing=5;
-            gridAuto.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridAuto.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridAuto.BackgroundColor=panelBg;
 
-            app.btnAutoStart = uibutton(gridAuto, 'Text','Auto Start', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoStart());
+            app.btnAutoStart = uibutton(gridAuto, 'Text','Auto Start', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoStart());
             app.btnAutoStart.Tooltip = 'Automatically selects the start point closest to the front of the machine (Minimum Y).';
 
-            app.btnAutoEntry = uibutton(gridAuto, 'Text','Auto Entry', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
+            app.btnAutoEntry = uibutton(gridAuto, 'Text','Auto Entry', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
             app.btnAutoEntry.Tooltip = 'Automatically calculates a perpendicular entry path from outside the billet boundary.';
 
             %% --- 2. MODES ---
-            pnlMode = uipanel(app.CuttingLeftPanel, 'Title','2. Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlMode = uipanel(app.CuttingLeftPanel, 'Title','2. Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlMode.Layout.Row = 3;
 
             gridMode = uigridlayout(pnlMode,[3 2]);
-            gridMode.RowHeight = {CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridMode.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridMode.ColumnWidth = {75, '1x'};
             gridMode.Padding=[5 5 5 5];
             gridMode.BackgroundColor=panelBg;
 
-            lblDirection = uilabel(gridMode, 'Text','Direction:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblDirection = uilabel(gridMode, 'Text','Direction:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblDirection.Layout.Row=1;
 
-            app.SwitchCutDir = uiswitch(gridMode, 'slider', 'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
+            app.SwitchCutDir = uiswitch(gridMode, 'slider', 'Items',{'Top (CW)', 'Bottom (CCW)'}, 'Value','Top (CW)', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn',@(~,~)app.onCutDirectionChanged());
             app.SwitchCutDir.Layout.Row=1;
             app.SwitchCutDir.Layout.Column=2;
             app.SwitchCutDir.Tooltip = 'Choses which way around the profile loop the wire goes from the start point';
 
-            lblSyncStart = uilabel(gridMode, 'Text','Start Pts:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblSyncStart = uilabel(gridMode, 'Text','Start Pts:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblSyncStart.Layout.Row=2;
 
-            app.SwitchSyncStart = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
+            app.SwitchSyncStart = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncToggleChanged(src));
             app.SwitchSyncStart.Layout.Row=2;
             app.SwitchSyncStart.Layout.Column=2;
             app.SwitchSyncStart.Tooltip = 'If there are profile sync issues, decouple and manually select start points for each profile';
 
-            lblSyncEntry = uilabel(gridMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblSyncEntry = uilabel(gridMode, 'Text','Entry Pts:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblSyncEntry.Layout.Row=3;
 
-            app.SwitchSyncEntry = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
+            app.SwitchSyncEntry = uiswitch(gridMode, 'slider', 'Items',{'Coupled', 'Independent'}, 'Value','Coupled', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSyncEntryToggleChanged(src));
             app.SwitchSyncEntry.Layout.Row=3;
             app.SwitchSyncEntry.Layout.Column=2;
             app.SwitchSyncEntry.Tooltip = 'Independent entry points can be useful for very tapered or swept parts, entering from the top to reduce waste material';
 
             %% --- 3. MOUSE INTERACTION ---
-            pnlInteraction = uipanel(app.CuttingLeftPanel, 'Title','3. Mouse Interaction', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlInteraction = uipanel(app.CuttingLeftPanel, 'Title','3. Mouse Interaction', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlInteraction.Layout.Row = 4;
 
             % 4 Rows for buttons
             gridInteraction = uigridlayout(pnlInteraction, [4 2]);
-            gridInteraction.RowHeight = {'fit', CNCHotWire_GCodeGenerator_V1.ButtonHeight, CNCHotWire_GCodeGenerator_V1.ButtonHeight, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridInteraction.RowHeight = {'fit', CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.ButtonHeight};
             gridInteraction.Padding=[5 5 5 5];
             gridInteraction.BackgroundColor=panelBg;
 
-            lblInstruction = uilabel(gridInteraction, 'Text','Click plot to set:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            lblInstruction = uilabel(gridInteraction, 'Text','Click plot to set:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             lblInstruction.Layout.Row=1;
             lblInstruction.Layout.Column=[1 2];
 
             bCols = app.getInteractionColors();
 
             % Start (Green) & Lead In (Orange)
-            app.BtnPickStart = uibutton(gridInteraction, 'state', 'Text','Start Pt', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnPickStart = uibutton(gridInteraction, 'state', 'Text','Start Pt', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',bCols.StartInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','First point on the profile cut.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickStart.Layout.Row=2; app.BtnPickStart.Layout.Column=1;
 
-            app.BtnPickEntry = uibutton(gridInteraction, 'state', 'Text','Lead In', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnPickEntry = uibutton(gridInteraction, 'state', 'Text','Lead In', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',bCols.EntryInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Point outside billet where cut begins (Orange line).', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry.Layout.Row=2; app.BtnPickEntry.Layout.Column=2;
 
             % Link 1 & Link 2 (Yellow)
-            app.BtnPickEntry2 = uibutton(gridInteraction, 'state', 'Text','Link 1', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnPickEntry2 = uibutton(gridInteraction, 'state', 'Text','Link 1', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',bCols.LinkInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Rapid move point before Lead In.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry2.Layout.Row=3; app.BtnPickEntry2.Layout.Column=1;
 
-            app.BtnPickEntry3 = uibutton(gridInteraction, 'state', 'Text','Link 2', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnPickEntry3 = uibutton(gridInteraction, 'state', 'Text','Link 2', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',bCols.LinkInactive, 'FontColor',bCols.TextInactive, ...
                 'Tooltip','Optional 2nd Rapid move point (useful to got over the top of the block.', ...
                 'ValueChangedFcn',@(src,evt)app.onInteractionStatsChanged(src));
             app.BtnPickEntry3.Layout.Row=3; app.BtnPickEntry3.Layout.Column=2;
 
             % Clear
-            btnClear = uibutton(gridInteraction, 'Text','Clear Pts', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            btnClear = uibutton(gridInteraction, 'Text','Clear Pts', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, ...
                 'Tooltip','Reset entry/link points.', ...
                 'ButtonPushedFcn',@(~,~)app.onClearEntries());
             btnClear.Layout.Row=4; btnClear.Layout.Column=[1 2];
 
             %% --- GUIDANCE (Unnumbered) ---
-            pnlGuide = uipanel(app.CuttingLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.CuttingLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 5;
             glGuide = uigridlayout(pnlGuide, [1 1]);
             glGuide.Padding = [0 0 0 0]; % Zero padding for max text space
@@ -6785,25 +6785,25 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 'Set it to minimise the change in direction between the orange line and the start/end of the cut.';
                 'If you are entering from the top of the block, or have a lot of sweep, the Link point can route the wire over the top of the block, saving waste material.'
                 };
-            app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- STATUS (Unnumbered) ---
-            pnlStatus = uipanel(app.CuttingLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.CuttingLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 6;
             glStatus = uigridlayout(pnlStatus, [1 1]);
             glStatus.Padding = [0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtCuttingStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtCuttingStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Strategy valid.', 'Review paths and continue.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.4 1 0.4], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- ACTION BUTTONS ---
             gridBtn = uigridlayout(app.CuttingLeftPanel,[1 1]);
             gridBtn.Layout.Row = 7;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnCuttingContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            app.BtnCuttingContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 2D CUT PLOTS ---
@@ -6843,7 +6843,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabSimulation = uitab(app.TabGroup, 'Title', 'Simulation');
 
             app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
-            app.GLSimulation.ColumnWidth = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLSimulation.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLSimulation.Padding = [5 5 5 5];
             app.GLSimulation.ColumnSpacing = 5;
             app.GLSimulation.BackgroundColor = sideBg;
@@ -6853,77 +6853,77 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.SimLeftPanel.Layout.Column = 1;
 
             % Rows: 1:View, 2:Playback, 3:Settings, 4:Status, 5:Extents, 6:Spacer(1x), 7:Continue
-            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.SimLeftPanel.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator.ButtonHeight};
             app.SimLeftPanel.Padding = [5 5 5 5];
-            app.SimLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.SimLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.SimLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS ---
-            pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.SimLeftPanel, 'Title','View', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing = 5;
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetSimViewBillet());
 
             %% --- PLAYBACK CONTROLS ---
-            pnlPlayback = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlPlayback = uipanel(app.SimLeftPanel, 'Title','Playback', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlPlayback.Layout.Row = 2;
 
             gridPlayback = uigridlayout(pnlPlayback,[2 3]);
             gridPlayback.ColumnWidth={'1x','1x','1x'};
-            gridPlayback.RowHeight={CNCHotWire_GCodeGenerator_V1.ButtonHeight, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridPlayback.RowHeight={CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridPlayback.Padding=[5 5 5 5];
             gridPlayback.ColumnSpacing = 5;
             gridPlayback.RowSpacing = 5;
             gridPlayback.BackgroundColor=panelBg;
 
             % Row 1: Buttons
-            app.SimPlayBtn = uibutton(gridPlayback, 'Text','Play', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
-            btnPause = uibutton(gridPlayback, 'Text','Pause', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
-            app.SimStopBtn = uibutton(gridPlayback, 'Text','Reset', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
+            app.SimPlayBtn = uibutton(gridPlayback, 'Text','Play', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onSimPlay());
+            btnPause = uibutton(gridPlayback, 'Text','Pause', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimPause());
+            app.SimStopBtn = uibutton(gridPlayback, 'Text','Reset', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',panelBg, 'FontColor',labelCol, 'ButtonPushedFcn',@(~,~)app.onSimStop());
 
             % Row 2: Slider + Spinner
             app.SimSlider = uislider(gridPlayback, 'Limits',[1 100], 'Value',1, 'ValueChangedFcn',@(src,~)app.onSimSliderChanging(src));
             app.SimSlider.Layout.Row = 2;
             app.SimSlider.Layout.Column = [1 2];
 
-            app.SimIndexSpinner = uispinner(gridPlayback, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
+            app.SimIndexSpinner = uispinner(gridPlayback, 'Limits',[1 100], 'Value',1, 'RoundFractionalValues','on', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ValueChangedFcn',@(src,~)app.onSimIndexSpinnerChanged(src));
             app.SimIndexSpinner.Layout.Row = 2;
             app.SimIndexSpinner.Layout.Column = 3;
 
             %% --- SETTINGS ---
-            pnlSettings = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlSettings = uipanel(app.SimLeftPanel, 'Title','Settings', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlSettings.Layout.Row = 3;
 
             gridSettings = uigridlayout(pnlSettings, [2 2]);
             gridSettings.ColumnWidth={'1x', 80}; % 80px strictly matches the spinner/box width
-            gridSettings.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridSettings.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridSettings.Padding=[5 5 5 5];
             gridSettings.ColumnSpacing = 5;
             gridSettings.RowSpacing = 2;
             gridSettings.BackgroundColor=panelBg;
 
-            lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblSpeed = uilabel(gridSettings, 'Text','Sim Speed Multiplier:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblSpeed.Layout.Row=1; lblSpeed.Layout.Column=1;
 
-            app.SimSpeedSpinner = uispinner(gridSettings, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Tooltip', 'Simulation speed as multiple of set feed rate');
+            app.SimSpeedSpinner = uispinner(gridSettings, 'Limits',[0.1 60], 'Value',40.0, 'Step',1.0, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', 'Simulation speed as multiple of set feed rate');
             app.SimSpeedSpinner.Layout.Row=1; app.SimSpeedSpinner.Layout.Column=2;
 
-            lblBaseFeed = uilabel(gridSettings, 'Text','Base Feed Rate[mm/min]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblBaseFeed = uilabel(gridSettings, 'Text','Base Feed Rate[mm/min]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblBaseFeed.Layout.Row=2; lblBaseFeed.Layout.Column=1;
 
-            app.LblBaseFeed = uilabel(gridSettings, 'Text', sprintf('%.0f', CNCHotWire_GCodeGenerator_V1.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
-                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.LblBaseFeed = uilabel(gridSettings, 'Text', sprintf('%.0f', CNCHotWire_GCodeGenerator.DefaultFeedRate), 'HorizontalAlignment', 'center', ...
+                'BackgroundColor', t.readoutBg, 'FontColor', t.readoutTxt, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.LblBaseFeed.Layout.Row=2; app.LblBaseFeed.Layout.Column=2;
 
             %% --- LIVE SYSTEM STATUS ---
-            pnlStatus = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlStatus = uipanel(app.SimLeftPanel, 'Title','Live System Status', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlStatus.Layout.Row = 4;
 
             % 5 Rows: R1 Header, R2-R3 Coords, R4 Text, R5 Gauge
@@ -6933,36 +6933,36 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             gridStatus.Padding = [5 5 5 5];
             gridStatus.BackgroundColor = panelBg;
 
-            lblHeadL = uilabel(gridStatus, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','center');
+            lblHeadL = uilabel(gridStatus, 'Text','Left Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','center');
             lblHeadL.Layout.Column = [1 2];
 
-            lblHeadR = uilabel(gridStatus, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','center');
+            lblHeadR = uilabel(gridStatus, 'Text','Right Tower', 'FontWeight','bold', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','center');
             lblHeadR.Layout.Column = [4 5];
 
             % Row 2: X/Z
-            lblX = uilabel(gridStatus, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblX = uilabel(gridStatus, 'Text','X:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblX.Layout.Row=2;
 
-            app.LblReadoutX = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.LblReadoutX = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.LblReadoutX.Layout.Row=2; app.LblReadoutX.Layout.Column=2;
 
-            lblZ = uilabel(gridStatus, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblZ = uilabel(gridStatus, 'Text','Z:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblZ.Layout.Row=2; lblZ.Layout.Column=4;
 
-            app.LblReadoutZ = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.LblReadoutZ = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.LblReadoutZ.Layout.Row=2; app.LblReadoutZ.Layout.Column=5;
 
             % Row 3: Y/A
-            lblY = uilabel(gridStatus, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblY = uilabel(gridStatus, 'Text','Y:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblY.Layout.Row=3;
 
-            app.LblReadoutY = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.LblReadoutY = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.LblReadoutY.Layout.Row=3; app.LblReadoutY.Layout.Column=2;
 
-            lblA = uilabel(gridStatus, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblA = uilabel(gridStatus, 'Text','A:', 'FontWeight','bold', 'FontColor',t.accentBg, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblA.Layout.Row=3; lblA.Layout.Column=4;
 
-            app.LblReadoutA = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.LblReadoutA = uilabel(gridStatus, 'Text','0.00', 'FontName','Monospaced', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.LblReadoutA.Layout.Row=3; app.LblReadoutA.Layout.Column=5;
 
             % Row 4: Extension Label
@@ -6972,7 +6972,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             lblGaugeTitle.Text = 'Wire Extension (Pulley Travel) [mm]';
             lblGaugeTitle.FontWeight = 'bold';
             lblGaugeTitle.FontColor = labelCol;
-            lblGaugeTitle.FontSize = CNCHotWire_GCodeGenerator_V1.FontSizeNormal;
+            lblGaugeTitle.FontSize = CNCHotWire_GCodeGenerator.FontSizeNormal;
             lblGaugeTitle.HorizontalAlignment = 'center';
 
             % Row 5: Linear Gauge
@@ -7005,7 +7005,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.SimGaugeExt = gaugeExt;
 
             %% --- PROGRAM EXTENTS ---
-            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlBounds = uipanel(app.SimLeftPanel, 'Title','Program Extents', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlBounds.Layout.Row = 5;
 
             gridBounds = uigridlayout(pnlBounds, [3 1]);
@@ -7014,23 +7014,23 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             gridBounds.RowSpacing = 2;
             gridBounds.BackgroundColor = panelBg;
 
-            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            app.LblSimExtMin = uilabel(gridBounds, 'Text','Extents Min: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             app.LblSimExtMin.Layout.Row = 1;
 
-            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',labelCol);
+            app.LblSimExtMax = uilabel(gridBounds, 'Text','Extents Max: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             app.LblSimExtMax.Layout.Row = 2;
 
-            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'FontColor',t.wireKerf);
+            app.LblSimExtWire = uilabel(gridBounds, 'Text','Max Wire Extension: ---', 'FontName','Monospaced', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',t.wireKerf);
             app.LblSimExtWire.Layout.Row = 3;
 
             %% --- ACTION BUTTONS ---
             gridBtn = uigridlayout(app.SimLeftPanel,[1 1]);
             gridBtn.Layout.Row = 7;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
-            app.BtnSimContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
+            app.BtnSimContinue = uibutton(gridBtn, 'Text','Continue →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~)app.onContinue());
 
             %% --- RIGHT PANEL: 3D SIM PLOT ---
@@ -7064,7 +7064,7 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.TabPostProcess = uitab(app.TabGroup, 'Title', 'Post-Process');
 
             app.GLPostProcess = uigridlayout(app.TabPostProcess,[1 2]);
-            app.GLPostProcess.ColumnWidth   = {CNCHotWire_GCodeGenerator_V1.PanelWidth, '1x'};
+            app.GLPostProcess.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLPostProcess.Padding       =[5 5 5 5];
             app.GLPostProcess.ColumnSpacing = 5;
             app.GLPostProcess.BackgroundColor = sideBg;
@@ -7073,112 +7073,112 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             app.PostLeftPanel = uigridlayout(app.GLPostProcess,[7 1]);
 
             % Rows: 1:View, 2:Settings, 3:Export, 4:GCode(1x), 5:Save, 6:Guidance(1x), 7:Status(70px)
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator_V1.ButtonHeight, '1x', 70};
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator.ButtonHeight, '1x', 70};
             app.PostLeftPanel.Padding =[5 5 5 5];
-            app.PostLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator_V1.BlockSpacing;
+            app.PostLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.PostLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
 
             %% --- VIEW CONTROLS (Unnumbered) ---
-            pnlView = uipanel(app.PostLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlView = uipanel(app.PostLeftPanel, 'Title','View', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlView.Layout.Row = 1;
 
             gridView = uigridlayout(pnlView,[1 2]);
             gridView.Padding=[5 5 5 5];
             gridView.ColumnSpacing=5; % Matches Cutting Tab for consistency!
-            gridView.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridView.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridView.BackgroundColor=panelBg;
 
-            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewMachine());
-            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewBillet());
+            btnViewMachine = uibutton(gridView, 'Text','Machine View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewMachine());
+            btnViewBillet = uibutton(gridView, 'Text','Billet View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetPostViewBillet());
 
             %% --- 1. SETTINGS (FEED & POWER) ---
-            pnlSettings = uipanel(app.PostLeftPanel, 'Title','1. Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlSettings = uipanel(app.PostLeftPanel, 'Title','1. Cutting Parameters', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlSettings.Layout.Row = 2;
 
             gridSettings = uigridlayout(pnlSettings, [2 3]);
             gridSettings.ColumnWidth={'1x', 'fit', 80};
-            gridSettings.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.RowHeightNormal};
+            gridSettings.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.RowHeightNormal};
             gridSettings.Padding=[5 5 5 5];
             gridSettings.ColumnSpacing=5;
             gridSettings.RowSpacing=2;
             gridSettings.BackgroundColor=panelBg;
 
-            app.ChkDynamicFeed = uicheckbox(gridSettings, 'Text', 'Dynamic', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'Value', true);
+            app.ChkDynamicFeed = uicheckbox(gridSettings, 'Text', 'Dynamic', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Value', true);
             app.ChkDynamicFeed.Layout.Row=1; app.ChkDynamicFeed.Layout.Column=1;
             app.ChkDynamicFeed.Tooltip = 'Scale feed rate continuously so the wire maintains constant speed through the foam on tapered parts.';
             app.ChkDynamicFeed.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
-            lblFeed = uilabel(gridSettings, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblFeed = uilabel(gridSettings, 'Text','Feed Rate [mm/min]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblFeed.Layout.Row=1; lblFeed.Layout.Column=2;
 
-            app.SpinFeedRate = uispinner(gridSettings, 'Limits',[10 500], 'Value', CNCHotWire_GCodeGenerator_V1.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.SpinFeedRate = uispinner(gridSettings, 'Limits',[10 500], 'Value', CNCHotWire_GCodeGenerator.DefaultFeedRate, 'Step',5, 'ValueDisplayFormat','%.0f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.SpinFeedRate.Layout.Row=1; app.SpinFeedRate.Layout.Column=3;
             app.SpinFeedRate.Tooltip = 'Programmed speed of wire, kerf is inversely proportional to speed';
             app.SpinFeedRate.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
-            lblPower = uilabel(gridSettings, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'HorizontalAlignment','right');
+            lblPower = uilabel(gridSettings, 'Text','Hot Wire Power [%]:', 'FontColor',labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment','right');
             lblPower.Layout.Row=2; lblPower.Layout.Column=2;
 
-            app.SpinPower = uispinner(gridSettings, 'Limits',[10 100], 'Value', CNCHotWire_GCodeGenerator_V1.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.SpinPower = uispinner(gridSettings, 'Limits',[10 100], 'Value', CNCHotWire_GCodeGenerator.DefaultPower, 'Step',1, 'ValueDisplayFormat','%.0f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
             app.SpinPower.Layout.Row=2; app.SpinPower.Layout.Column=3;
             app.SpinPower.Tooltip = 'Programmed wire power, kerf is proportional to wire power';
             app.SpinPower.ValueChangedFcn = @(src,evt)app.updatePostStatus();
 
             %% --- 2. FILENAME & EXPORT ---
-            pnlExport = uipanel(app.PostLeftPanel, 'Title','2. Filename:', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            pnlExport = uipanel(app.PostLeftPanel, 'Title','2. Filename:', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlExport.Layout.Row = 3;
 
             gridExport = uigridlayout(pnlExport,[2 1]);
-            gridExport.RowHeight={CNCHotWire_GCodeGenerator_V1.RowHeightNormal, CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridExport.RowHeight={CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight};
             gridExport.Padding=[5 5 5 5];
             gridExport.RowSpacing=5;
             gridExport.BackgroundColor=panelBg;
 
-            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.updatePostStatus());
+            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.updatePostStatus());
 
-            app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
             app.BtnPostProcess.Tooltip = 'Press to generate g-code';
 
             %% --- 3. G-CODE VIEWER ---
-            app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','3. G-Code', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType','line');
+            app.PanelGCode = uipanel(app.PostLeftPanel, 'Title','3. G-Code', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             app.PanelGCode.Layout.Row = 4;
 
             app.GridGCode = uigridlayout(app.PanelGCode, [2 2]);
-            app.GridGCode.RowHeight = {'1x', CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            app.GridGCode.RowHeight = {'1x', CNCHotWire_GCodeGenerator.ButtonHeight};
             app.GridGCode.ColumnWidth = {'1x','1x'};
             app.GridGCode.Padding =[5 5 5 5];
             app.GridGCode.ColumnSpacing=5;
             app.GridGCode.BackgroundColor=panelBg;
 
-            app.ListGCode = uilistbox(app.GridGCode, 'Items', {'(Generate to view G-code...)'}, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'BackgroundColor', sideBg, 'FontColor', labelCol, 'ValueChangedFcn', @(src,~)app.onPostLineSelected(src));
+            app.ListGCode = uilistbox(app.GridGCode, 'Items', {'(Generate to view G-code...)'}, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', sideBg, 'FontColor', labelCol, 'ValueChangedFcn', @(src,~)app.onPostLineSelected(src));
             app.ListGCode.Layout.Row = 1;
             app.ListGCode.Layout.Column =[1 2];
             app.ListGCode.FontName = 'Courier New';
 
-            app.BtnGCodePrev = uibutton(app.GridGCode,'push','Text','◀ Prev', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(-1));
+            app.BtnGCodePrev = uibutton(app.GridGCode,'push','Text','◀ Prev', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(-1));
             app.BtnGCodePrev.Layout.Row = 2;
             app.BtnGCodePrev.Layout.Column = 1;
 
-            app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
+            app.BtnGCodeNext = uibutton(app.GridGCode,'push','Text','Next ▶', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.stepPostLine(+1));
             app.BtnGCodeNext.Layout.Row = 2;
             app.BtnGCodeNext.Layout.Column = 2;
 
             %% --- 5. ACTION BUTTONS ---
             gridBtn = uigridlayout(app.PostLeftPanel,[1 1]);
             gridBtn.Layout.Row = 5;
-            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator_V1.ButtonHeight};
+            gridBtn.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
             gridBtn.Padding=[0 0 0 0];
             gridBtn.BackgroundColor=panelBg;
 
             % Initializes as grey/disabled to match the Continue buttons on other tabs
-            app.BtnSaveGCode = uibutton(gridBtn, 'Text','Save G-Code', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal, ...
+            app.BtnSaveGCode = uibutton(gridBtn, 'Text','Save G-Code', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',[0.3 0.3 0.3], 'FontColor',[0.8 0.8 0.8], 'Enable','off', ...
                 'ButtonPushedFcn',@(~,~)app.onSaveGCode());
             app.BtnSaveGCode.Tooltip = 'Press to save g-code as a .tap file ready for mach4';
 
             %% --- 6. GUIDANCE ---
-            pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlGuide = uipanel(app.PostLeftPanel, 'Title', 'Guidance', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlGuide.Layout.Row = 6;
             glGuide = uigridlayout(pnlGuide,[1 1]);
             glGuide.Padding =[0 0 0 0];
@@ -7196,16 +7196,16 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
                 'Power too low / Feed too high = wire drag, cut corners, or break.';
                 'Power too high / Feed too low = kerf too big, melted details, burned foam.'
                 };
-            app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtPostGuide = uitextarea(glGuide, 'Editable','off', 'Value', guidePost, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- 7. STATUS ---
-            pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeHeader, 'BorderType', 'line');
+            pnlStatus = uipanel(app.PostLeftPanel, 'Title', 'Status', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlStatus.Layout.Row = 7;
             glStatus = uigridlayout(pnlStatus,[1 1]);
             glStatus.Padding =[0 0 0 0];
             glStatus.BackgroundColor = panelBg;
 
-            app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.9 0.9 0.9], 'FontSize', CNCHotWire_GCodeGenerator_V1.FontSizeNormal);
+            app.TxtPostStatus = uitextarea(glStatus, 'Editable','off', 'Value', {'Ready.'}, 'BackgroundColor', t.panelBg, 'FontColor',[0.9 0.9 0.9], 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             %% --- RIGHT PANEL: 3D POST PLOT ---
             app.AxPost = uiaxes(app.GLPostProcess);
