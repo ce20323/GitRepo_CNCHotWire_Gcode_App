@@ -348,7 +348,6 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             %% --- MAIN WINDOW SETUP ---
             app.UIFigure = uifigure('Name', 'Hot Wire STEP App v6.2');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
-            app.UIFigure.WindowState = 'maximized';
 
             % Key press listener used primarily for scrolling G-Code on the Post tab
             app.UIFigure.WindowKeyPressFcn = @(src,event)app.onKeyPress(src,event);
@@ -377,6 +376,9 @@ classdef CNCHotWire_GCodeGenerator_V1 < handle
             %% --- Set Initial State and Theme ---
             app.onTaperModeChanged();   % Force initial UI state sync
             app.applyTheme();           % Sweeps the UI to replace hardcoded colors with active theme
+            % Maximize after the UI is fully constructed
+            drawnow;
+            app.UIFigure.WindowState = 'maximized';
         end
 
         function delete(app)
