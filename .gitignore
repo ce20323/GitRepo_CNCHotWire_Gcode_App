@@ -73,3 +73,6 @@ desktop.ini
 # MATLAB crash logs
 matlab_crash_dump.*
 matlab_exc.*
+
+#Packaging
+resources/

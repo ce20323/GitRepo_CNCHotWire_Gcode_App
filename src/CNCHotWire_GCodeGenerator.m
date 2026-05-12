@@ -318,6 +318,11 @@ classdef CNCHotWire_GCodeGenerator < handle
         DefaultDataAspectRatio; DefaultPlotBoxAspectRatio % Stored default aspect ratios for 3D view reset
         DefaultCameraPosition; DefaultCameraTarget        % Stored default camera position/target for 3D view reset
         DefaultCameraUpVector; DefaultCameraViewAngle     % Stored default camera up vector/angle for 3D view reset
+        %% --- DEBUG ---
+        DebugOuterGrid
+        DebugAboutText
+        TabDebug
+
     end
 
     methods
@@ -331,7 +336,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Closes any existing instances of the app to prevent duplicates,
             % then triggers the UI build process.
 
-            old = findall(0, 'Type', 'figure', 'Name', 'Hot Wire STEP App v6.2');
+            old = findall(0, 'Type', 'figure', 'Name', 'CNC Hot Wire G Code Generator');
             if ~isempty(old)
                 delete(old);
             end
@@ -346,7 +351,10 @@ classdef CNCHotWire_GCodeGenerator < handle
             % private methods located at the bottom of this class (e.g., createWelcomeTab).
 
             %% --- MAIN WINDOW SETUP ---
-            app.UIFigure = uifigure('Name', 'Hot Wire STEP App v6.2');
+            % Build hidden at the final intended size. This avoids a deployed-app
+            % layout issue where resizing the UIFigure after child layouts are created
+            % can leave grid layouts stuck at the earlier, smaller figure size.
+            app.UIFigure = uifigure('Name', 'CNC Hot Wire G Code Generator', 'Visible', 'off');
             app.UIFigure.CloseRequestFcn = @(src,event)app.onAppClose(src);
 
             % Key press listener used primarily for scrolling G-Code on the Post tab
@@ -356,13 +364,40 @@ classdef CNCHotWire_GCodeGenerator < handle
             t = app.getTheme();
             app.UIFigure.Color = t.sideBg;
 
+            % Set the final startup size before constructing any layouts.
+            screenSize = get(groot, 'ScreenSize');
+
+            targetW = min(1800, round(screenSize(3) * 0.94));
+            targetH = min(1080, round(screenSize(4) * 0.90));
+
+            targetX = max(20, round((screenSize(3) - targetW) / 2));
+            targetY = max(40, round((screenSize(4) - targetH) / 2));
+
+            app.UIFigure.Position = [targetX targetY targetW targetH];
+
             %% --- Tab Group Container ---
-            app.TabGroup = uitabgroup(app.UIFigure, ...
-                'Units', 'normalized', ...
-                'Position',[0 0 1 1], ...
+            % Use a root grid layout instead of normalized positioning. This is more
+            % reliable in deployed apps because all child layout is handled by MATLAB's
+            % layout manager rather than by figure-size normalized coordinates.
+            rootGrid = uigridlayout(app.UIFigure, [1 1]);
+            rootGrid.RowHeight = {'1x'};
+            rootGrid.ColumnWidth = {'1x'};
+            rootGrid.Padding = [0 0 0 0];
+            rootGrid.RowSpacing = 0;
+            rootGrid.ColumnSpacing = 0;
+            rootGrid.BackgroundColor = t.sideBg;
+
+            app.TabGroup = uitabgroup(rootGrid, ...
                 'SelectionChangedFcn', @(src,evt)app.onTabChanged(src,evt));
 
+            app.TabGroup.Layout.Row = 1;
+            app.TabGroup.Layout.Column = 1;
+
             %% --- Tab Builders ---
+            %app.TabDebug = uitab(app.TabGroup, 'Title', 'Debug');
+
+            %app.createDebugNoTabPage(app.TabDebug, t);
+            
             app.createWelcomeTab();     % TAB 0: WELCOME & SETUP
             app.createGuideTab();       % TAB 1: INTERFACE GUIDE
             app.createModelTab();       % TAB 2: MODEL IMPORT & ORIENTATION
@@ -376,9 +411,21 @@ classdef CNCHotWire_GCodeGenerator < handle
             %% --- Set Initial State and Theme ---
             app.onTaperModeChanged();   % Force initial UI state sync
             app.applyTheme();           % Sweeps the UI to replace hardcoded colors with active theme
-            % Maximize after the UI is fully constructed
+
+            % Show only after the UI is fully constructed and themed.
             drawnow;
-            app.UIFigure.WindowState = 'maximized';
+
+            ppi = get(groot, 'ScreenPixelsPerInch');
+
+            app.UIFigure.Name = sprintf( ...
+                'Hot Wire STEP App v6.2 - %.0fx%.0f ppi %.0f', ...
+                app.UIFigure.Position(3), ...
+                app.UIFigure.Position(4), ...
+                ppi);
+
+            app.UIFigure.Visible = 'on';
+            drawnow;
+
         end
 
         function delete(app)
@@ -5187,6 +5234,20 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         %%                    - THEME MANAGEMENT ---
 
+        function p = getTabPadding(app)
+            % Purpose: Returns the padding for the root grid of each tab.
+            % WHY: MATLAB's compiled standalone engine (CEF) has a known bug where it miscalculates
+            %      the client area of a uitabgroup, causing the bottom and right edges to crop.
+            %      We inject extra padding only when compiled to counteract this shift.
+
+            p = [5, 5, 5, 5]; % Base padding [left, bottom, right, top]
+
+            if isdeployed
+                % Add 35px to bottom and right to counteract the CEF crop
+                p = p + [0, 35, 35, 0];
+            end
+        end
+
         function th = getTheme(app)
             % Purpose: Central source of truth for all App Colors.
             % WHY: Allows the app to seamlessly switch between Light and Dark modes.
@@ -5544,18 +5605,23 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLWelcome = uigridlayout(app.TabWelcome,[1 2]);
             app.GLWelcome.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLWelcome.Padding = [5 5 5 5];
+            app.GLWelcome.Padding = app.getTabPadding();
             app.GLWelcome.ColumnSpacing = 5;
             app.GLWelcome.BackgroundColor = sideBg;
 
             %% --- LEFT PANEL (Sidebar Feel) ---
             leftPnl = uigridlayout(app.GLWelcome,[3 1]);
             leftPnl.Layout.Column = 1;
-            % '1x' pushes the theme toggle and button to the bottom
-            leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
+
+            % TEMP DIAGNOSTIC:
+            % Do not use a top spacer to push the theme toggle/button to the bottom.
+            % This tests whether deployed mode is mishandling the flexible spacer row
+            % and forcing the tab content taller than the visible window.
+            leftPnl.RowHeight = {'fit', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
+
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
-
+            
             % Theme Toggle
             glTheme = uigridlayout(leftPnl, [1 2]);
             glTheme.Layout.Row = 2;
@@ -5577,7 +5643,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             % 5 Rows: Header, About, FreeCAD, Spacer (1x), Footer
             glRight = uigridlayout(rightScroll,[5 1]);
-            glRight.RowHeight = {120, 260, 'fit', '1x', 'fit'}; % 260px prevents About box scrollbar
+            glRight.RowHeight = {120, 220, 'fit', '1x', 'fit'}; % 260px prevents About box scrollbar
             glRight.BackgroundColor = sideBg;
             glRight.Padding =[20 20 20 20];
             glRight.RowSpacing = 15;
@@ -5716,7 +5782,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Mimic the standard app layout
             app.GLGuide = uigridlayout(app.TabGuide, [1 2]);
             app.GLGuide.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLGuide.Padding =[5 5 5 5];
+            app.GLGuide.Padding = app.getTabPadding();
             app.GLGuide.ColumnSpacing = 5;
             app.GLGuide.BackgroundColor = sideBg;
 
@@ -5819,7 +5885,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLModel = uigridlayout(app.TabModel,[1 2]);
             app.GLModel.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLModel.Padding       =[5 5 5 5];
+            app.GLModel.Padding       = app.getTabPadding();
             app.GLModel.ColumnSpacing = 5;
             app.GLModel.BackgroundColor = sideBg;
 
@@ -6040,7 +6106,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLProfiles = uigridlayout(app.TabProfiles,[1 2]);
             app.GLProfiles.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLProfiles.Padding =[5 5 5 5];
+            app.GLProfiles.Padding = app.getTabPadding();
             app.GLProfiles.ColumnSpacing = 5;
             app.GLProfiles.BackgroundColor = sideBg;
 
@@ -6227,7 +6293,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLBillet = uigridlayout(app.TabBillet,[1 2]);
             app.GLBillet.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLBillet.Padding =[5 5 5 5];
+            app.GLBillet.Padding = app.getTabPadding();
             app.GLBillet.ColumnSpacing = 5;
             app.GLBillet.BackgroundColor = sideBg;
 
@@ -6493,7 +6559,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLMachine = uigridlayout(app.TabMachine,[1 2]);
             app.GLMachine.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLMachine.Padding =[5 5 5 5];
+            app.GLMachine.Padding = app.getTabPadding();
             app.GLMachine.ColumnSpacing = 5;
             app.GLMachine.BackgroundColor = sideBg;
 
@@ -6635,7 +6701,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.GLCutting = uigridlayout(app.TabCutting, [2 2]);
             app.GLCutting.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
             app.GLCutting.RowHeight     = {'1x', '1x'};
-            app.GLCutting.Padding       =[5 5 5 5];
+            app.GLCutting.Padding       = app.getTabPadding();
             app.GLCutting.ColumnSpacing = 5;
             app.GLCutting.BackgroundColor = sideBg;
 
@@ -6844,7 +6910,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLSimulation = uigridlayout(app.TabSimulation, [1 2]);
             app.GLSimulation.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLSimulation.Padding = [5 5 5 5];
+            app.GLSimulation.Padding = app.getTabPadding();
             app.GLSimulation.ColumnSpacing = 5;
             app.GLSimulation.BackgroundColor = sideBg;
 
@@ -7065,7 +7131,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.GLPostProcess = uigridlayout(app.TabPostProcess,[1 2]);
             app.GLPostProcess.ColumnWidth   = {CNCHotWire_GCodeGenerator.PanelWidth, '1x'};
-            app.GLPostProcess.Padding       =[5 5 5 5];
+            app.GLPostProcess.Padding       = app.getTabPadding();
             app.GLPostProcess.ColumnSpacing = 5;
             app.GLPostProcess.BackgroundColor = sideBg;
 
@@ -7214,5 +7280,236 @@ classdef CNCHotWire_GCodeGenerator < handle
             xlabel(app.AxPost,'X'); ylabel(app.AxPost,'Y'); zlabel(app.AxPost,'Z');
             grid(app.AxPost,'on'); view(app.AxPost,3); axis(app.AxPost,'equal');
         end
+
+        % TAB DEBUG
+        function createDebugNoTabPage(app, parent, t)
+            % Purpose:
+            % Diagnostic standalone page that bypasses uitabgroup/uitab completely.
+            % It displays measured layout sizes inside the UI so we can compare
+            % source MATLAB vs deployed EXE without relying on console output.
+
+            sideBg = t.sideBg;
+            panelBg = t.panelBg;
+
+            app.DebugOuterGrid = uigridlayout(parent, [1 2]);
+            outer = app.DebugOuterGrid;
+
+            outer.RowHeight = {'1x'};
+            outer.ColumnWidth = {CNCHotWire_GCodeGenerator.PanelWidth, 800};
+            outer.Padding = [0 0 0 0];
+            outer.RowSpacing = 0;
+            outer.ColumnSpacing = 10;
+            outer.BackgroundColor
+
+            %% --- LEFT PANEL ---
+            leftPnl = uigridlayout(outer, [3 1]);
+            leftPnl.Layout.Row = 1;
+            leftPnl.Layout.Column = 1;
+            leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
+            leftPnl.Padding = [5 5 5 5];
+            leftPnl.RowSpacing = 8;
+            leftPnl.BackgroundColor = panelBg;
+
+            titleLbl = uilabel(leftPnl);
+            titleLbl.Text = 'NO TABGROUP DIAGNOSTIC';
+            titleLbl.HorizontalAlignment = 'center';
+            titleLbl.VerticalAlignment = 'top';
+            titleLbl.FontWeight = 'bold';
+            titleLbl.FontColor = [1 1 1];
+            titleLbl.Layout.Row = 1;
+
+            themeRow = uigridlayout(leftPnl, [1 4]);
+            themeRow.Layout.Row = 2;
+            themeRow.ColumnWidth = {'fit', 'fit', 'fit', 'fit'};
+            themeRow.RowHeight = {'fit'};
+            themeRow.Padding = [0 0 0 0];
+            themeRow.ColumnSpacing = 8;
+            themeRow.BackgroundColor = panelBg;
+
+            uilabel(themeRow, ...
+                'Text', 'App Theme:', ...
+                'FontWeight', 'bold', ...
+                'FontColor', [1 1 1]);
+
+            uilabel(themeRow, ...
+                'Text', 'Dark', ...
+                'FontColor', [1 1 1]);
+
+            uilabel(themeRow, ...
+                'Text', '[theme switch placeholder]', ...
+                'FontColor', [1 1 1]);
+
+            uilabel(themeRow, ...
+                'Text', 'Light', ...
+                'FontColor', [1 1 1]);
+
+            btn = uibutton(leftPnl, ...
+                'Text', 'Diagnostic Button →', ...
+                'FontWeight', 'bold');
+            btn.Layout.Row = 3;
+
+            %% --- RIGHT PANEL ---
+            right = uigridlayout(outer, [5 1]);
+            right.Layout.Row = 1;
+            right.Layout.Column = 2;
+            right.RowHeight = {120, 260, 'fit', '1x', 'fit'};
+            right.Padding = [20 20 20 20];
+            right.RowSpacing = 15;
+            right.BackgroundColor = sideBg;
+
+            header = uilabel(right);
+            header.Layout.Row = 1;
+            header.Text = 'CNC Hot Wire G-Code Generator';
+            header.FontSize = 28;
+            header.FontWeight = 'bold';
+            header.FontColor = [1 1 1];
+            header.HorizontalAlignment = 'center';
+
+            aboutPanel = uipanel(right, ...
+                'Title', 'Layout Debug Info', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', [1 1 1]);
+            aboutPanel.Layout.Row = 2;
+
+            aboutGrid = uigridlayout(aboutPanel, [1 1]);
+            aboutGrid.Padding = [5 5 5 5];
+            aboutGrid.BackgroundColor = panelBg;
+
+            app.DebugAboutText = uilabel(aboutGrid);
+            app.DebugAboutText.Text = 'Debug info will appear here after layout completes...';
+            app.DebugAboutText.FontColor = [1 1 1];
+            app.DebugAboutText.VerticalAlignment = 'top';
+            app.DebugAboutText.WordWrap = 'on';
+
+            setupPanel = uipanel(right, ...
+                'Title', 'Required Setup: FreeCAD Engine', ...
+                'BackgroundColor', panelBg, ...
+                'ForegroundColor', [1 1 1]);
+            setupPanel.Layout.Row = 3;
+
+            setupGrid = uigridlayout(setupPanel, [3 1]);
+            setupGrid.RowHeight = {'fit', 'fit', 'fit'};
+            setupGrid.Padding = [10 10 10 10];
+            setupGrid.BackgroundColor = panelBg;
+
+            uilabel(setupGrid, ...
+                'Text', 'Step 1. Download and run the standard Windows Installer.', ...
+                'FontWeight', 'bold', ...
+                'FontColor', [1 1 1]);
+
+            uilabel(setupGrid, ...
+                'Text', 'Step 2. Install FreeCAD to the default directory.', ...
+                'FontWeight', 'bold', ...
+                'FontColor', [1 1 1]);
+
+            uilabel(setupGrid, ...
+                'Text', 'Step 3. Locate FreeCADCmd.exe.', ...
+                'FontWeight', 'bold', ...
+                'FontColor', [1 1 1]);
+
+            footer = uigridlayout(right, [1 3]);
+            footer.Layout.Row = 5;
+            footer.ColumnWidth = {'1x', '1x', '1x'};
+            footer.Padding = [0 0 0 0];
+            footer.ColumnSpacing = 8;
+            footer.BackgroundColor = sideBg;
+
+            for k = 1:3
+                p = uipanel(footer, ...
+                    'Title', sprintf('Footer %d', k), ...
+                    'BackgroundColor', panelBg, ...
+                    'ForegroundColor', [1 1 1]);
+                p.Layout.Row = 1;
+                p.Layout.Column = k;
+
+                g = uigridlayout(p, [1 1]);
+                g.BackgroundColor = panelBg;
+                g.Padding = [5 5 5 5];
+
+                lbl = uilabel(g, ...
+                    'Text', sprintf('Footer block %d should be visible.', k), ...
+                    'FontColor', [1 1 1]);
+                lbl.WordWrap = 'on';
+            end
+            app.DebugAboutText.Text = 'DEBUG TEXT OBJECT IS CONNECTED';
+        end
+
+        function updateDebugLayoutInfo(app, rootGrid)
+            % Purpose:
+            % Update the diagnostic text block after the UI has completed layout.
+            % Uses getpixelposition rather than uigridlayout.Position, because
+            % uigridlayout.Position can report misleading default values.
+
+            try
+                drawnow;
+
+                screenSize = get(groot, 'ScreenSize');
+                ppi = get(groot, 'ScreenPixelsPerInch');
+
+                figPos = app.UIFigure.Position;
+
+                try
+                    figInner = app.UIFigure.InnerPosition;
+                catch
+                    figInner = [NaN NaN NaN NaN];
+                end
+
+                try
+                    rootPixLocal = getpixelposition(rootGrid, false);
+                catch
+                    rootPixLocal = [NaN NaN NaN NaN];
+                end
+
+                try
+                    rootPixAbs = getpixelposition(rootGrid, true);
+                catch
+                    rootPixAbs = [NaN NaN NaN NaN];
+                end
+
+                try
+                    outerPixLocal = getpixelposition(app.DebugOuterGrid, false);
+                catch
+                    outerPixLocal = [NaN NaN NaN NaN];
+                end
+
+                try
+                    outerPixAbs = getpixelposition(app.DebugOuterGrid, true);
+                catch
+                    outerPixAbs = [NaN NaN NaN NaN];
+                end
+
+                app.DebugAboutText.Text = sprintf([ ...
+                    'DEPLOYED: %d\n\n', ...
+                    'ScreenSize: [%.0f %.0f %.0f %.0f]\n', ...
+                    'PPI: %.0f\n\n', ...
+                    'UIFigure.Position:      [%.0f %.0f %.0f %.0f]\n', ...
+                    'UIFigure.InnerPosition: [%.0f %.0f %.0f %.0f]\n\n', ...
+                    'rootGrid pixel local:   [%.0f %.0f %.0f %.0f]\n', ...
+                    'rootGrid pixel abs:     [%.0f %.0f %.0f %.0f]\n\n', ...
+                    'outerGrid pixel local:  [%.0f %.0f %.0f %.0f]\n', ...
+                    'outerGrid pixel abs:    [%.0f %.0f %.0f %.0f]\n\n', ...
+                    'Interpretation:\n', ...
+                    '- Figure/InnerPosition should be close to the visible window size.\n', ...
+                    '- rootGrid local size should be close to the figure client size.\n', ...
+                    '- outerGrid local size should be close to rootGrid size.\n'], ...
+                    isdeployed, ...
+                    screenSize(1), screenSize(2), screenSize(3), screenSize(4), ...
+                    ppi, ...
+                    figPos(1), figPos(2), figPos(3), figPos(4), ...
+                    figInner(1), figInner(2), figInner(3), figInner(4), ...
+                    rootPixLocal(1), rootPixLocal(2), rootPixLocal(3), rootPixLocal(4), ...
+                    rootPixAbs(1), rootPixAbs(2), rootPixAbs(3), rootPixAbs(4), ...
+                    outerPixLocal(1), outerPixLocal(2), outerPixLocal(3), outerPixLocal(4), ...
+                    outerPixAbs(1), outerPixAbs(2), outerPixAbs(3), outerPixAbs(4));
+
+            catch ME
+                try
+                    app.DebugAboutText.Text = sprintf('Debug update failed:\n%s', ME.message);
+                catch
+                    warning('Debug update failed before DebugAboutText existed: %s', ME.message);
+                end
+            end
+        end
+
     end
 end
