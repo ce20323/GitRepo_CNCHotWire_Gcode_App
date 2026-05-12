@@ -318,10 +318,6 @@ classdef CNCHotWire_GCodeGenerator < handle
         DefaultDataAspectRatio; DefaultPlotBoxAspectRatio % Stored default aspect ratios for 3D view reset
         DefaultCameraPosition; DefaultCameraTarget        % Stored default camera position/target for 3D view reset
         DefaultCameraUpVector; DefaultCameraViewAngle     % Stored default camera up vector/angle for 3D view reset
-        %% --- DEBUG ---
-        DebugOuterGrid
-        DebugAboutText
-        TabDebug
 
     end
 
@@ -393,11 +389,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.TabGroup.Layout.Row = 1;
             app.TabGroup.Layout.Column = 1;
 
-            %% --- Tab Builders ---
-            %app.TabDebug = uitab(app.TabGroup, 'Title', 'Debug');
-
-            %app.createDebugNoTabPage(app.TabDebug, t);
-            
+            %% --- Tab Builders ---           
             app.createWelcomeTab();     % TAB 0: WELCOME & SETUP
             app.createGuideTab();       % TAB 1: INTERFACE GUIDE
             app.createModelTab();       % TAB 2: MODEL IMPORT & ORIENTATION
@@ -412,17 +404,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.onTaperModeChanged();   % Force initial UI state sync
             app.applyTheme();           % Sweeps the UI to replace hardcoded colors with active theme
 
-            % Show only after the UI is fully constructed and themed.
-            drawnow;
-
-            ppi = get(groot, 'ScreenPixelsPerInch');
-
-            app.UIFigure.Name = sprintf( ...
-                'Hot Wire STEP App v6.2 - %.0fx%.0f ppi %.0f', ...
-                app.UIFigure.Position(3), ...
-                app.UIFigure.Position(4), ...
-                ppi);
-
+            % Show only after the UI is fully constructed and themed.            
             app.UIFigure.Visible = 'on';
             drawnow;
 
@@ -5617,7 +5599,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Do not use a top spacer to push the theme toggle/button to the bottom.
             % This tests whether deployed mode is mishandling the flexible spacer row
             % and forcing the tab content taller than the visible window.
-            leftPnl.RowHeight = {'fit', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
+            leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
 
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
