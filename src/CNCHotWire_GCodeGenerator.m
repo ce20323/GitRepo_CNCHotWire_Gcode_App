@@ -4558,6 +4558,28 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.TxtPostStatus.FontColor = textCol;
         end
 
+        function onFilenameChanged(app, src)
+            % Purpose: Sanitizes the filename input to prevent OS-level save errors.
+            % WHY: Windows and macOS reserve certain characters. If included, fopen() will fail.
+
+            rawName = string(src.Value);
+
+            % Regex pattern for invalid OS filename characters: < > : " / \ | ? *
+            invalidPattern = '[<>:"/\\|?*]';
+
+            % Replace any invalid characters with an underscore
+            cleanName = regexprep(rawName, invalidPattern, '_');
+
+            % If the name had to be changed, update the UI and notify the user
+            if rawName ~= cleanName
+                src.Value = cleanName;
+                uialert(app.UIFigure, 'Invalid characters (< > : " / \ | ? *) were replaced with underscores.', 'Filename Sanitized', 'Icon', 'info');
+            end
+
+            % Trigger the standard status validation (invalidates old G-code if name changed)
+            app.updatePostStatus();
+        end
+
         %%                    - G-CODE GENERATION -
 
         function onPostProcess(app)
@@ -7191,8 +7213,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             gridExport.RowSpacing=5;
             gridExport.BackgroundColor=panelBg;
 
-            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,evt)app.updatePostStatus());
-
+            app.FieldFilename = uieditfield(gridExport, 'text', 'Value', 'GCode-V1-Output.gcode', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor', inputBg, 'FontColor', inputTxt, 'ValueChangedFcn', @(src,~)app.onFilenameChanged(src));
             app.BtnPostProcess = uibutton(gridExport, 'Text','Post-Process', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'BackgroundColor',t.accentBg, 'FontColor',t.editTxt, 'ButtonPushedFcn',@(~,~)app.onPostProcess());
             app.BtnPostProcess.Tooltip = 'Press to generate g-code';
