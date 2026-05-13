@@ -1299,11 +1299,28 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
-        function onPlaneOffsetChanged(app, ~, ~)
+        function onPlaneOffsetChanged(app, src, ~)
             % Purpose: Callback for when the user manually adjusts the Left/Right plane spinners.
+            % WHY: Updates the 3D planes and prevents the user from crossing them.
+
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return
             end
+
+            % --- Prevent planes from crossing ---
+            if app.NumLeftOffset.Value > app.NumRightOffset.Value
+                if src == app.NumLeftOffset
+                    % User pushed the left plane past the right plane
+                    app.NumLeftOffset.Value = app.NumRightOffset.Value;
+                elseif src == app.NumRightOffset
+                    % User pushed the right plane past the left plane
+                    app.NumRightOffset.Value = app.NumLeftOffset.Value;
+                end
+            end
+
+            % Moving the planes changes the extracted geometry, so kerf must be recalculated
+            app.invalidateKerf();
+
             % Redraw planes (which indirectly calls computeProfiles and reapplies kerf)
             app.updatePlanes();
         end
