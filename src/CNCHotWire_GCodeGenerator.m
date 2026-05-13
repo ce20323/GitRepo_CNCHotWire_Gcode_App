@@ -1034,32 +1034,41 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function autoFitView(app)
             % Purpose: Automatically scales and centers the 3D camera view.
+            % WHY: Ensures the imported model fits perfectly in the window.
+            % HOW: Calculates the bounding box, applies padding, locks the aspect
+            %      ratio to 1:1:1, and lets MATLAB's native engine handle the camera.
+
             if isempty(app.ModelPatch) || ~isvalid(app.ModelPatch), return; end
 
             V      = app.ModelPatch.Vertices;
-            mins   = min(V, [], 1);
-            maxs   = max(V,[], 1);
-            center = mean([mins; maxs], 1);
+
+            %parserbug
+            [ mins ] = min(V, [ ], 1);
+            %parserbug
+            [ maxs ] = max(V, [ ], 1);
+
             span   = max(maxs - mins);
             if span <= 0, span = 1; end
 
             pad = app.AutoFitPaddingFactor * span;
-            xlim(app.AxModel,[mins(1)-pad, maxs(1)+pad]);
-            ylim(app.AxModel,[mins(2)-pad, maxs(2)+pad]);
-            zlim(app.AxModel,[mins(3)-pad, maxs(3)+pad]);
 
-            app.AxModel.DataAspectRatio =[1 1 1];
-            app.AxModel.DataAspectRatioMode = 'manual';
-            app.AxModel.PlotBoxAspectRatioMode = 'auto';
+            % 1. Lock 1:1:1 aspect ratio so the model doesn't stretch
+            daspect(app.AxModel, [1 1 1]);
 
-            app.AxModel.CameraTarget = center;
-            app.AxModel.CameraUpVector = [0 0 1];
+            % 2. Apply padded limits
+            xlim(app.AxModel, [mins(1)-pad, maxs(1)+pad]);
+            ylim(app.AxModel, [mins(2)-pad, maxs(2)+pad]);
+            zlim(app.AxModel, [mins(3)-pad, maxs(3)+pad]);
 
-            camPos = app.AxModel.CameraPosition;
-            dirVec = (camPos - center) / norm(camPos - center);
-            if any(isnan(dirVec)), dirVec =[1 1 1]/sqrt(3); end
-            app.AxModel.CameraPosition = center + dirVec * (span * 2.5);
+            % 3. Reset to standard 3D view and let MATLAB handle the camera math!
+            view(app.AxModel, 3);
 
+            app.AxModel.CameraPositionMode  = 'auto';
+            app.AxModel.CameraTargetMode    = 'auto';
+            app.AxModel.CameraUpVectorMode  = 'auto';
+            app.AxModel.CameraViewAngleMode = 'auto';
+
+            % 4. Refresh lighting
             delete(findall(app.AxModel, 'Type', 'light'));
             camlight(app.AxModel, 'headlight');
             lighting(app.AxModel, 'gouraud');
@@ -1083,28 +1092,11 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         function resetPlotView(app)
-            % Purpose: Restores the 3D axes to the previously captured "Home" view.
-            if isempty(app.DefaultXLim)
-                app.autoFitView();
-                return;
-            end
-            ax = app.AxModel;
+            % Purpose: Restores the 3D axes to perfectly fit the model.
+            % WHY: Restoring hardcoded camera properties locks the camera into 'manual' mode,
+            %      which breaks the 3D rotation tool. Calling autoFitView keeps it in 'auto'.
 
-            xlim(ax, app.DefaultXLim);
-            ylim(ax, app.DefaultYLim);
-            zlim(ax, app.DefaultZLim);
-
-            ax.DataAspectRatio    = app.DefaultDataAspectRatio;
-            ax.PlotBoxAspectRatio = app.DefaultPlotBoxAspectRatio;
-            ax.CameraPosition     = app.DefaultCameraPosition;
-            ax.CameraTarget       = app.DefaultCameraTarget;
-            ax.CameraUpVector     = app.DefaultCameraUpVector;
-            ax.CameraViewAngle    = app.DefaultCameraViewAngle;
-
-            delete(findall(ax, 'Type', 'light'));
-            camlight(ax, 'headlight');
-            lighting(ax, 'gouraud');
-            drawnow limitrate;
+            app.autoFitView();
         end
 
         %%                    - ROTATION -
