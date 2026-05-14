@@ -944,6 +944,90 @@ classdef CNCHotWire_GCodeGenerator < handle
             close(d);
         end
 
+
+        function onLoadExample(app)
+            % Purpose: Opens a file dialog directly inside the bundled 'examples' folder to load a model.
+            % WHY: Prevents the user from having to manually copy files out of the hidden AppData folder.
+
+            appDir = fileparts(mfilename('fullpath'));
+
+            % Resolve path (handles both source and compiled folder structures)
+            if isfolder(fullfile(appDir, 'examples'))
+                exPath = fullfile(appDir, 'examples');
+            elseif isfolder(fullfile(appDir, '..', 'examples'))
+                exPath = fullfile(appDir, '..', 'examples');
+            else
+                uialert(app.UIFigure, 'Examples folder not found in the installation directory.', 'Error');
+                return;
+            end
+
+            % Open file dialog starting exactly in the examples folder
+            %parserbug
+            [ file, path ] = uigetfile({'*.step;*.stp;*.stl', 'CAD Models (*.step, *.stl)'}, 'Load Example Model', exPath);
+
+            if isequal(file, 0), return; end % User cancelled
+
+            fullPath = fullfile(path, file);
+
+            %parserbug
+            [ ~, ~, ext ] = fileparts(fullPath);
+
+            % Route to the correct import logic based on file type
+            if strcmpi(ext, '.step') || strcmpi(ext, '.stp')
+                %% --- STEP IMPORT LOGIC ---
+                if ~isfile(app.FreeCADExe)
+                    uialert(app.UIFigure, 'FreeCADCmd.exe not found! Please configure it on the Welcome Tab to load STEP examples.', 'FreeCAD Missing', 'Icon', 'error');
+                    app.TabGroup.SelectedTab = app.TabWelcome;
+                    return;
+                end
+
+                d = uiprogressdlg(app.UIFigure, 'Title','Loading Example...', 'Message','Converting STEP. Please wait...', 'Indeterminate','on');
+                try
+                    app.CurrentModelName = string(file);
+
+                    %parserbug
+                    [ V, F ] = CNCHotWire_GCodeGenerator_Helpers.importSTEP_FreeCAD(fullPath, app.FreeCADExe);
+
+                    if isempty(V), close(d); return; end
+
+                    app.ModelVerticesOriginal = V;
+                    app.RotAngles = [0 0 0];
+                    for i = 1:3, app.RotEdit(i).Value = 0; end
+                    app.NumLeftOffset.Value = 0; app.NumRightOffset.Value = 0;
+                    app.plotMesh(V, F);
+                catch ME
+                    close(d); rethrow(ME);
+                end
+                app.enterState0();
+                close(d);
+
+            elseif strcmpi(ext, '.stl')
+                %% --- STL IMPORT LOGIC ---
+                d = uiprogressdlg(app.UIFigure, 'Title','Loading Example...', 'Message','Reading STL. Please wait...', 'Indeterminate','on');
+                try
+                    raw = stlread(fullPath);
+                    if isa(raw, "triangulation")
+                        F = raw.ConnectivityList; V = raw.Points;
+                    else
+                        %parserbug
+                        [ F, V ] = stlread(fullPath);
+                    end
+                    V = double(V); F = double(F);
+
+                    app.CurrentModelName = string(file);
+                    app.ModelVerticesOriginal = V;
+                    app.RotAngles = [0 0 0];
+                    for i = 1:3, app.RotEdit(i).Value = 0; end
+                    app.NumLeftOffset.Value = 0; app.NumRightOffset.Value = 0;
+                    app.plotMesh(V, F);
+                catch ME
+                    close(d); rethrow(ME);
+                end
+                app.enterState0();
+                close(d);
+            end
+        end
+
         function onTaperModeChanged(app)
             % Purpose: Handles switching between Straight (Prismatic) and Tapered cuts.
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
@@ -5625,16 +5709,11 @@ classdef CNCHotWire_GCodeGenerator < handle
             %% --- LEFT PANEL (Sidebar Feel) ---
             leftPnl = uigridlayout(app.GLWelcome,[3 1]);
             leftPnl.Layout.Column = 1;
-
-            % TEMP DIAGNOSTIC:
-            % Do not use a top spacer to push the theme toggle/button to the bottom.
-            % This tests whether deployed mode is mishandling the flexible spacer row
-            % and forcing the tab content taller than the visible window.
+            % '1x' pushes the theme toggle and button to the bottom
             leftPnl.RowHeight = {'1x', 'fit', CNCHotWire_GCodeGenerator.ButtonHeight};
-
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
-            
+
             % Theme Toggle
             glTheme = uigridlayout(leftPnl, [1 2]);
             glTheme.Layout.Row = 2;
@@ -5649,7 +5728,6 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Continue Button
             btnWelcomeCont = uibutton(leftPnl, 'Text','Continue to Guide →', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor',[1 1 1], 'ButtonPushedFcn',@(~,~)app.onContinue());
             btnWelcomeCont.Layout.Row = 3;
-
             %% --- RIGHT PANEL (Content) ---
             rightScroll = uipanel(app.GLWelcome, 'Scrollable', 'on', 'BackgroundColor', sideBg, 'BorderType', 'none');
             rightScroll.Layout.Column = 2;
@@ -5924,26 +6002,38 @@ classdef CNCHotWire_GCodeGenerator < handle
             btnMResP = uibutton(gridView, 'Text','Reset Plot View', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.resetPlotView());
 
             %% --- 1. FILE IMPORT ---
-            pnlImport = uipanel(app.GLLeft, 'Title', '1. Import Model', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
+            pnlImport = uipanel(app.GLLeft, 'Title', '1. Import ModelX', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnlImport.Layout.Row = 2;
 
-            gridImport = uigridlayout(pnlImport,[3 1]);
+            gridImport = uigridlayout(pnlImport,[3 2]);
+            gridImport.ColumnWidth = {'1x', '1x'};
             gridImport.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight, CNCHotWire_GCodeGenerator.ButtonHeight, 'fit'};
             gridImport.Padding =[5 5 5 5];
+            gridImport.ColumnSpacing = 5;
             gridImport.BackgroundColor = panelBg;
 
             app.BtnImportSTEP = uibutton(gridImport, 'Text','Import STEP (recommended)', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Load a .STEP file. Uses FreeCAD for accurate mesh generation.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTEP());
             app.BtnImportSTEP.Layout.Row = 1;
+            app.BtnImportSTEP.Layout.Column = [1 2];
 
             app.BtnImportSTL = uibutton(gridImport, 'Text','Import STL', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
                 'Tooltip', 'Load a .STL mesh. Accuracy depends on file export settings.', ...
                 'ButtonPushedFcn',@(~,~)app.onImportSTL());
             app.BtnImportSTL.Layout.Row = 2;
+            app.BtnImportSTL.Layout.Column = 1;
+
+            btnExamples = uibutton(gridImport, 'Text','📂 Examples', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'BackgroundColor', t.accentBg, 'FontColor', t.editTxt, ...
+                'Tooltip', 'Open the bundled examples folder', ...
+                'ButtonPushedFcn',@(~,~)app.onLoadExample());
+            btnExamples.Layout.Row = 2;
+            btnExamples.Layout.Column = 2;
 
             app.FileLabel = uilabel(gridImport, 'Text','Current File: ---', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
             app.FileLabel.Layout.Row = 3;
+            app.FileLabel.Layout.Column = [1 2];
 
             %% --- 2. TAPER MODE ---
             pnlTaper = uipanel(app.GLLeft, 'Title', '2. Cut Type', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
