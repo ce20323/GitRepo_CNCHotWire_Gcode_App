@@ -76,3 +76,7 @@ matlab_exc.*
 
 #Packaging
 resources/
+
+# MATLAB packaging output
+/Toolbox1/
+**/deploymentLog.html
