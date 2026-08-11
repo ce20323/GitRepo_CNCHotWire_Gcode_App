@@ -75,7 +75,7 @@ matlab_crash_dump.*
 matlab_exc.*
 
 #Packaging
-resources/
+#resources/
 
 # MATLAB packaging output
 /Toolbox1/
