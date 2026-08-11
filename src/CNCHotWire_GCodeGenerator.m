@@ -228,7 +228,7 @@ classdef CNCHotWire_GCodeGenerator < handle
         %% --- GEOMETRIC STATE: MODEL & PROFILES ---
         CurrentModelName string = "" % Filename of the currently loaded model
         FreeCADExe       string = "" % Path to the FreeCAD executable
-        GitHubLink       string = "https://github.com/YourUsername/HotWireSTEPApp" % Link to project repository
+        GitHubLink string = "https://github.com/ce20323/GitRepo_CNCHotWire_Gcode_App" % Link to project repository
 
         ModelPatch            % Patch object representing the 3D model mesh
         ModelVerticesOriginal % Original vertices of the model (used for resets)
