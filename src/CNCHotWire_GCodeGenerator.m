@@ -582,8 +582,10 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             %% --- LEVEL 4: MACHINE GATEKEEPER ---
             if needsMachine
-                % Auto-Trigger: Only if never setup (Init=0) OR if user hasn't locked it
-                if ~app.IsMachineInit || ~app.IsMachineUserModified
+                % Recalculate only when the machine position is stale and remains
+                % automatically controlled. A user-modified position is retained and
+                % validated against the updated billet configuration.
+                if ~app.IsMachineInit && ~app.IsMachineUserModified
                     app.onResetMachineBilletPosition();
                 end
                 [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
@@ -2243,13 +2245,12 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.BilletShift(2) = app.ModelEdgeWarningBuffer - localMins(2);
             app.BilletShift(3) = app.BilletSize(3) - app.ModelEdgeWarningBuffer - localMaxs(3);
 
-            diffShift = max(abs(oldShift - app.BilletShift));
+            shiftDelta = app.BilletShift - oldShift;
 
-            if diffShift > 1e-4
-                app.IsCuttingInit = false;
-            end
+            % Keep existing entry and link points aligned with the shifted geometry.
+            app.shiftEntryPoints(shiftDelta(2), shiftDelta(3));
 
-            app.IsBilletPosUserModified = false; % Unlock Position auto-calculation
+            app.IsBilletPosUserModified = false; % Position remains automatically controlled
 
             % Mark downstream tabs as stale
             app.IsMachineInit = false;
@@ -2264,14 +2265,20 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         function onResetPosition(app)
-            % Purpose: Resets the model shift back to [0,0,0].
+            % Purpose: Restores the model to its unshifted CAD-derived position.
             if isempty(app.ModelPatch)
                 return;
             end
 
+            oldShift = app.BilletShift;
             app.BilletShift = [ 0 0 0 ];
+
+            % Keep existing entry and link points aligned with the shifted geometry.
+            shiftDelta = app.BilletShift - oldShift;
+            app.shiftEntryPoints(shiftDelta(2), shiftDelta(3));
+
             app.IsCuttingInit = false;
-            app.IsBilletUserModified = true; % User forced a reset
+            app.IsBilletPosUserModified = true; % Retain the deliberate zero-shift position
 
             app.syncBilletUI();
             app.refreshBilletPlots();
@@ -2562,6 +2569,11 @@ classdef CNCHotWire_GCodeGenerator < handle
                 return;
             end
 
+            % Retain the previous machine position so existing entry and link
+            % points can follow any Y/Z movement of the complete billet.
+            oldMachineY = app.MachineBilletPos(2);
+            oldMachineZ = app.MachineBilletPos(3);
+
             %% --- 1. SETUP & GRID DEFINITION ---
             bedX = app.MachineBedPos(1);
             maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
@@ -2688,6 +2700,12 @@ classdef CNCHotWire_GCodeGenerator < handle
             %% --- 5. FINALIZE & UPDATE UI ---
             app.IsMachineInit = true;
             app.syncMachineUI();
+
+            % Keep existing entry and link points aligned with the billet
+            % after its final, boundary-constrained machine position is known.
+            dY = app.MachineBilletPos(2) - oldMachineY;
+            dZ = app.MachineBilletPos(3) - oldMachineZ;
+            app.shiftEntryPoints(dY, dZ);
 
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
@@ -6390,6 +6408,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             labelCol = t.labelCol;
             inputBg  = t.inputBg;
             inputTxt = t.inputTxt;
+            edgeBuffer = app.ModelEdgeWarningBuffer;
 
             % 2. Main Tab Container
             app.TabBillet = uitab(app.TabGroup, 'Title', 'Billet');
@@ -6436,11 +6455,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             gridAutoTools.BackgroundColor=panelBg;
 
             app.BtnAutoFitBillet = uibutton(gridAutoTools, 'Text', 'Auto-fit Billet', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoFitBillet());
-            app.BtnAutoFitBillet.Tooltip = 'Automatically set billet size to model bounds + 4mm buffer.';
-
+            app.BtnAutoFitBillet.Tooltip = sprintf('Size the billet from the active cutting geometry with %g mm Y/Z edge buffers.', edgeBuffer);
             app.BtnAutoPositionModel = uibutton(gridAutoTools, 'Text', 'Auto-position Model', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn', @(~,~)app.onAutoPositionModel());
-            app.BtnAutoPositionModel.Tooltip = 'Center model in X, align 4mm from Y-Min and Z-Min.';
-
+            app.BtnAutoPositionModel.Tooltip = sprintf('Position the model near the left, front and top billet faces using the configured %g mm Y/Z edge buffer.', edgeBuffer);
             %% --- 2. SIZE CONTROLS ---
             % Purpose: Manual overrides for the physical stock dimensions
             pnlSize = uipanel(app.BilletLeftPanel, 'Title', '2. Billet Size Controls', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
@@ -6577,7 +6594,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                 'REDUCE FOAM WASTE!'
                 'This tab identifies what size billet is needed and positions the model within the billet.'
                 'Find the smallest scrap block in the cupboard that is just large enough to fit the model before trimming on the manual hot wire cutters.'
-                'You only need to leave a 4mm boundary/gap around the model in Y and Z.'
+                sprintf('The configured boundary around the model in Y and Z is %g mm.', edgeBuffer)
                 ''
                 '1. Use the auto-fit billet and position buttons!'
                 ''
