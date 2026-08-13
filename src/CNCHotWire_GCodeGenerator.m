@@ -298,6 +298,8 @@ classdef CNCHotWire_GCodeGenerator < handle
         PP_ProfileStartIndex double              % Post-process index for profile start
         PP_ProfileEndIndex double                % Post-process index for profile end
         PP_LeadOutEndIndex double                % Post-process index for lead-out end
+        IsProgramPathValid (1,1) logical = false
+        ProgramPathIssues string = strings(0,1)
 
         %% --- PERSISTENCE & TRACKING FLAGS ---
         AppState (1,1) double = 0              % Current app state (0=Model Only, 1=Active Cutting)
@@ -461,6 +463,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             needsCutting  = isCutting || isSim || isPost;
 
             forceAuto = false;
+            inspectionApproved = false;
 
             %% --- LEVEL 1: MODEL GATEKEEPER ---
             hasModel = ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch);
@@ -582,42 +585,82 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             %% --- LEVEL 4: MACHINE GATEKEEPER ---
             if needsMachine
-                % Recalculate only when the machine position is stale and remains
-                % automatically controlled. A user-modified position is retained and
-                % validated against the updated billet configuration.
+                % Auto-Trigger: Only if never setup and not manually locked.
                 if ~app.IsMachineInit && ~app.IsMachineUserModified
                     app.onResetMachineBilletPosition();
                 end
-                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
-                isExtRed   = app.MaxPathExtension > app.WireExt_Red;
-                isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
 
-                % Case A: CRITICAL ERROR (Red) - Block movement to Sim/Post, but allow Cutting
-                if ~isValidMach || isExtRed
-                    if isPost
-                        reason = "Billet is outside machine limits.";
-                        if isExtRed, reason = sprintf("Wire will snap! Extension (%.2fmm) exceeds pulley travel.", app.MaxPathExtension); end
-                        uialert(app.UIFigure, reason, 'Machine Safety Error');
-                        app.TabGroup.SelectedTab = app.TabMachine;
-                        return;
+                % Supply an automatic strategy before the Cutting tab is first
+                % visited. Later user-modified points are retained.
+                if ~app.IsCuttingInit
+                    if ~app.IsCuttingUserModified
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
+                    end
+                    app.IsCuttingInit = true;
+                end
+
+                % Build and evaluate the complete movement sequence, including
+                % loading, links, leads, profile movement and final return.
+                app.generateSimulationData(false);
+
+                [ pathSafe, pathCrit, pathWarn, maxExt, boundsL, boundsR ] = ...
+                    app.checkProjectedPathSafety(app.SimTowerPathL, app.SimTowerPathR);
+
+                app.MaxPathExtension = maxExt;
+                app.TowerL_Bounds = boundsL;
+                app.TowerR_Bounds = boundsR;
+
+                [ isValidMach, pCol, tCol, msgLines ] = app.checkMachineState();
+
+                % Case A: Critical errors remain available for diagnostic
+                % inspection, but are enforced again before G-code can be saved.
+                isCriticalMach = ~isValidMach || ~pathSafe;
+
+                if isCriticalMach && (isSim || isPost)
+                    reason = "The machine configuration is invalid.";
+
+                    if ~pathSafe && ~isempty(pathCrit)
+                        reason = char(pathCrit(1));
+                    elseif ~isempty(msgLines)
+                        reason = char(msgLines(end));
                     end
 
-                    % Case B: WARNING (Amber) - Speed-bump popup when moving FORWARD to Sim/Post
-                elseif isExtAmber && (isSim || isPost)
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('Warning: Max wire extension is %.2f mm.\nThis is close to the mechanical pulley limit.\n\nProceed anyway, or return to Machine tab to optimize?', app.MaxPathExtension), ...
-                            'Pulley Travel Warning', ...
-                            'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+                    sel = uiconfirm(app.UIFigure, ...
+                        sprintf(['%s\n\nYou may continue for diagnostic inspection, ' ...
+                        'but invalid G-code cannot be saved.'], reason), ...
+                        'Machine Safety Error', ...
+                        'Options', {'Proceed for Inspection', 'Return to Machine Tab', 'Cancel'}, ...
+                        'DefaultOption', 2, ...
+                        'CancelOption', 3, ...
+                        'Icon', 'error');
 
-                        if strcmp(sel, 'Return to Machine Tab')
-                            app.TabGroup.SelectedTab = app.TabMachine;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        end
+                    if strcmp(sel, 'Return to Machine Tab')
+                        app.TabGroup.SelectedTab = app.TabMachine;
+                        return;
+                    elseif strcmp(sel, 'Cancel')
+                        app.TabGroup.SelectedTab = oldTab;
+                        return;
+                    else
+                        inspectionApproved = true;
+                    end
+
+                    % Case B: Amber extension remains an acknowledgement warning.
+                elseif ~isempty(pathWarn) && (isSim || isPost)
+                    sel = uiconfirm(app.UIFigure, ...
+                        sprintf('%s\n\nProceed anyway?', char(pathWarn(1))), ...
+                        'Wire Extension Warning', ...
+                        'Options', {'Acknowledge & Continue', 'Return to Machine Tab', 'Cancel'}, ...
+                        'DefaultOption', 1, ...
+                        'CancelOption', 3, ...
+                        'Icon', 'warning');
+
+                    if strcmp(sel, 'Return to Machine Tab')
+                        app.TabGroup.SelectedTab = app.TabMachine;
+                        return;
+                    elseif strcmp(sel, 'Cancel')
+                        app.TabGroup.SelectedTab = oldTab;
+                        return;
                     end
                 end
             end
@@ -635,27 +678,30 @@ classdef CNCHotWire_GCodeGenerator < handle
                 end
                 [ isValidCut, pColC, tColC, msgLinesC ] = app.validateCuttingStrategy();
 
-                % Case A: CRITICAL ERROR (Red) - Block movement toward Sim/Post
-                if ~isValidCut && (targetTab == app.TabSimulation || isPost)
-                    if ~forceAuto
-                        sel = uiconfirm(app.UIFigure, ...
-                            sprintf('The current cutting strategy (Lead-In/Entry) is invalid.\n\nWould you like to Auto-Calculate a safe path, or return to adjust it manually?'), ...
-                            'Strategy Error', ...
-                            'Options', {'Auto-Calculate', 'Adjust Manually', 'Cancel'}, ...
-                            'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'error');
+                % Critical strategies may be inspected in Simulation and Post,
+                % but the final Post safety check prevents invalid code saving.
+                if ~isValidCut && (isSim || isPost) && ~inspectionApproved
+                    sel = uiconfirm(app.UIFigure, ...
+                        sprintf(['The current cutting strategy is invalid.\n\n' ...
+                        'It may be inspected in later tabs, but invalid G-code cannot be saved.']), ...
+                        'Strategy Error', ...
+                        'Options', {'Auto-Calculate', 'Adjust Manually', ...
+                        'Proceed for Inspection', 'Cancel'}, ...
+                        'DefaultOption', 1, ...
+                        'CancelOption', 4, ...
+                        'Icon', 'error');
 
-                        if strcmp(sel, 'Adjust Manually')
-                            app.TabGroup.SelectedTab = app.TabCutting;
-                            return;
-                        elseif strcmp(sel, 'Cancel')
-                            app.TabGroup.SelectedTab = oldTab;
-                            return;
-                        else
-                            % User chose 'Auto-Calculate'
-                            app.onAutoStart(false);
-                            app.onAutoEntry(false);
-                            forceAuto = true;
-                        end
+                    if strcmp(sel, 'Adjust Manually')
+                        app.TabGroup.SelectedTab = app.TabCutting;
+                        return;
+                    elseif strcmp(sel, 'Cancel')
+                        app.TabGroup.SelectedTab = oldTab;
+                        return;
+                    elseif strcmp(sel, 'Auto-Calculate')
+                        app.onAutoStart(false);
+                        app.onAutoEntry(false);
+                    else
+                        inspectionApproved = true;
                     end
                 end
             end
@@ -689,7 +735,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.CuttingLeftPanel.BackgroundColor = pColCF;
                 app.TxtCuttingStatus.Value = msgLinesCF;
                 app.TxtCuttingStatus.FontColor = tColCF;
-                if isValidCutF, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+                app.BtnCuttingContinue.Enable = 'on';
                 app.updateCuttingPlots();
                 app.onResetCuttingViewBillet();
 
@@ -2743,6 +2789,18 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             t = app.getTheme(); % Master Palette
 
+            % The Machine tab previews the automatic strategy before the
+            % Cutting tab is first visited, then retains later manual points.
+            if ~app.IsCuttingInit
+                if ~app.IsCuttingUserModified
+                    app.onAutoStart(false);
+                    app.onAutoEntry(false);
+                end
+                app.IsCuttingInit = true;
+            end
+
+            app.generateSimulationData(false);
+
             % Machine geometry constants
             offX = app.MachineBedPos(1);
             mX = app.MachineSpanX;
@@ -2981,40 +3039,28 @@ classdef CNCHotWire_GCodeGenerator < handle
             ylim(ax,[ -padY, mLimY + padY ]);
             zlim(ax,[ -bs(3) - 20, mLimZ + padZ ]);
 
-            %% --- 6. SAFETY CHECKS & UI UPDATE ---
+            %% --- 6. COMPLETE-PATH SAFETY CHECKS ---
+            [ pathSafe, pathCrit, pathWarn, maxExt, boundsL, boundsR ] = ...
+                app.checkProjectedPathSafety( ...
+                app.SimTowerPathL, app.SimTowerPathR);
+
+            app.MaxPathExtension = maxExt;
+            app.TowerL_Bounds = boundsL;
+            app.TowerR_Bounds = boundsR;
+
+            % checkMachineState now sees the complete-path maximum extension.
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
 
-            if isViolated
+            if ~pathSafe
                 isValid = false;
                 pCol = t.statErrBg;
                 tCol = t.statErrTxt;
-                txtLines =["CRITICAL ERROR:"; "Toolpath forces tower outside physical limits!"];
-            end
+                txtLines = [ "CRITICAL ERROR:"; pathCrit(1) ];
 
-            % --- WIRE EXTENSION SAFETY CHECK ---
-            % HOW: Calculates the hypotenuse of the wire stretch between the two towers.
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints) && exist('tL', 'var')
-                dy_ext = tL.y - tR.y;
-                dz_ext = tL.z - tR.z;
-                ext_all = hypot(app.MachineSpanX, hypot(dy_ext, dz_ext)) - app.MachineSpanX;
-                app.MaxPathExtension = max(ext_all);
-
-                if app.MaxPathExtension > app.WireExt_Red
-                    isValid = false; % Hard Block
-                    pCol = t.statErrBg;
-                    tCol = t.statErrTxt;
-                    txtLines =["CRITICAL ERROR: WIRE OVER-EXTENSION", ...
-                        sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
-                        sprintf("Exceeds Hardware Limit (%.0f mm)!", app.WireExt_Red)];
-                elseif app.MaxPathExtension > app.WireExt_Amber
-                    if isValid
-                        pCol = t.statWarnBg;
-                        tCol = t.statWarnTxt;
-                        txtLines =["WARNING: WIRE EXTENSION", ...
-                            sprintf("Max Extension: %.2f mm", app.MaxPathExtension), ...
-                            "Pulley travel is nearly exhausted."];
-                    end
-                end
+            elseif ~isempty(pathWarn) && isValid
+                pCol = t.statWarnBg;
+                tCol = t.statWarnTxt;
+                txtLines = [ "WARNING:"; pathWarn(1) ];
             end
 
             app.MachineLeftPanel.BackgroundColor = pCol;
@@ -3135,6 +3181,117 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function [ isSafe, crit, warn, maxExt, boundsL, boundsR ] = checkProjectedPathSafety(app, towerL, towerR)
+            % Validates every supplied projected tower position.
+            % towerL and towerR must be Nx3 arrays containing [X, Y, Z].
+
+            isSafe = false;
+            crit = strings(0,1);
+            warn = strings(0,1);
+            maxExt = 0;
+
+            boundsL = [ NaN, NaN, NaN, NaN ];
+            boundsR = [ NaN, NaN, NaN, NaN ];
+
+            if isempty(towerL) || isempty(towerR)
+                crit(end+1,1) = "Complete projected path is unavailable.";
+                return;
+            end
+
+            if size(towerL,2) < 3 || size(towerR,2) < 3
+                crit(end+1,1) = "Projected path data does not contain X, Y and Z coordinates.";
+                return;
+            end
+
+            if size(towerL,1) ~= size(towerR,1)
+                crit(end+1,1) = "Left and right projected paths have different point counts.";
+            end
+
+            n = min(size(towerL,1), size(towerR,1));
+            if n < 1
+                crit(end+1,1) = "Projected path contains no movement points.";
+                return;
+            end
+
+            towerL = towerL(1:n,1:3);
+            towerR = towerR(1:n,1:3);
+
+            if any(~isfinite(towerL(:))) || any(~isfinite(towerR(:)))
+                crit(end+1,1) = "Projected path contains a non-finite coordinate.";
+                return;
+            end
+
+            boundsL = [ ...
+                min(towerL(:,2)), max(towerL(:,2)), ...
+                min(towerL(:,3)), max(towerL(:,3)) ];
+
+            boundsR = [ ...
+                min(towerR(:,2)), max(towerR(:,2)), ...
+                min(towerR(:,3)), max(towerR(:,3)) ];
+
+            tol = 1e-6;
+
+            function checkTowerBounds(sideName, bounds)
+                if bounds(1) < -tol || bounds(2) > app.MachineLimitY + tol
+                    crit(end+1,1) = sprintf( ...
+                        "%s tower Y path is outside 0-%.0f mm (%.2f to %.2f mm).", ...
+                        sideName, app.MachineLimitY, bounds(1), bounds(2));
+                end
+
+                if bounds(3) < -tol || bounds(4) > app.MachineLimitZ + tol
+                    crit(end+1,1) = sprintf( ...
+                        "%s tower Z path is outside 0-%.0f mm (%.2f to %.2f mm).", ...
+                        sideName, app.MachineLimitZ, bounds(3), bounds(4));
+                end
+            end
+
+            checkTowerBounds("Left", boundsL);
+            checkTowerBounds("Right", boundsR);
+
+            dY = towerL(:,2) - towerR(:,2);
+            dZ = towerL(:,3) - towerR(:,3);
+
+            extension = ...
+                hypot(app.MachineSpanX, hypot(dY, dZ)) - app.MachineSpanX;
+
+            maxExt = max(extension);
+
+            if maxExt > app.WireExt_Red
+                crit(end+1,1) = sprintf( ...
+                    "Maximum wire extension is %.2f mm; the critical limit is %.0f mm.", ...
+                    maxExt, app.WireExt_Red);
+            elseif maxExt > app.WireExt_Amber
+                warn(end+1,1) = sprintf( ...
+                    "Maximum wire extension is %.2f mm; the warning threshold is %.0f mm.", ...
+                    maxExt, app.WireExt_Amber);
+            end
+
+            % Retain the existing brass-joint clearance model, but apply it
+            % to the maximum extension over the complete movement sequence.
+            if maxExt > 0
+                rightBedEdge = ...
+                    app.MachineBedPos(1) + app.MachineBedSize(1);
+
+                neutralJointX = ...
+                    rightBedEdge + app.BrassJointOffsetRight;
+
+                minimumJointX = neutralJointX - maxExt;
+
+                billetRightX = ...
+                    app.MachineBilletPos(1) + app.BilletSize(1);
+
+                jointClearance = minimumJointX - billetRightX;
+
+                if jointClearance < app.SafetyBuffer_BedEdge
+                    crit(end+1,1) = sprintf( ...
+                        "Brass-joint clearance falls to %.2f mm; the minimum is %.0f mm.", ...
+                        jointClearance, app.SafetyBuffer_BedEdge);
+                end
+            end
+
+            isSafe = isempty(crit);
+        end
+
         %% ===========================================================
         %% --- GROUP 8: TAB 6 - CUTTING STRATEGY ---
         %% ===========================================================
@@ -3148,8 +3305,8 @@ classdef CNCHotWire_GCodeGenerator < handle
             %      the billet bounding box, and the lead-in path against the model profile polygon.
 
             isValid = true;
-            crit = strings(0);
-            warn = strings(0);
+            crit = strings(0,1);
+            warn = strings(0,1);
 
             %% --- 1. SETUP GEOMETRY ---
             bMinY = app.MachineBilletPos(2);
@@ -3168,6 +3325,27 @@ classdef CNCHotWire_GCodeGenerator < handle
             [ syncY_L, syncZ_L, syncY_R, syncZ_R ] = app.getSyncedKerfProfiles();
             [ yL, zL ] = app.applyMods(syncY_L, syncZ_L, offsetY, offsetZ, app.SelectedStartIdxL, false);
             [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, false);
+
+            %% --- REQUIRE MATCHING LEFT/RIGHT STRATEGY POINTS ---
+            pairMismatch = false;
+
+            pointPairs = {
+                'Lead-In', app.EntryPointL,  app.EntryPointR;
+                'Link 1',  app.EntryPoint2L, app.EntryPoint2R;
+                'Link 2',  app.EntryPoint3L, app.EntryPoint3R
+                };
+
+            for pairIdx = 1:size(pointPairs,1)
+                hasLeft  = ~isempty(pointPairs{pairIdx,2});
+                hasRight = ~isempty(pointPairs{pairIdx,3});
+
+                if xor(hasLeft, hasRight)
+                    pairMismatch = true;
+                    crit(end+1,1) = sprintf( ...
+                        "%s exists on only one side.", ...
+                        pointPairs{pairIdx,1});
+                end
+            end
 
             %% --- NESTED HELPER: INTERSECTION MATH ---
             function [ xi, zi ] = intersectSegPoly(p1, p2, polyY, polyZ)
@@ -3206,6 +3384,39 @@ classdef CNCHotWire_GCodeGenerator < handle
                 if isempty(lead)
                     crit(end+1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
                     return;
+                end
+
+                % Every manually or automatically stored cutting-plane point
+                % must lie within the configured Y-Z machine envelope.
+                sidePoints = {
+                    'Lead-In', lead;
+                    'Link 1',  link1;
+                    'Link 2',  link2
+                    };
+
+                for pointIdx = 1:size(sidePoints,1)
+                    pointValue = sidePoints{pointIdx,2};
+
+                    if isempty(pointValue)
+                        continue;
+                    end
+
+                    if numel(pointValue) ~= 2 || ...
+                            any(~isfinite(pointValue))
+
+                        crit(end+1,1) = sprintf( ...
+                            "%s %s point is invalid.", ...
+                            sideName, sidePoints{pointIdx,1});
+
+                    elseif pointValue(1) < 0 || ...
+                            pointValue(1) > app.MachineLimitY || ...
+                            pointValue(2) < 0 || ...
+                            pointValue(2) > app.MachineLimitZ
+
+                        crit(end+1,1) = sprintf( ...
+                            "%s %s point is outside the machine envelope.", ...
+                            sideName, sidePoints{pointIdx,1});
+                    end
                 end
 
                 % A. Check Proximity (<5mm from Bed or Billet)
@@ -3262,9 +3473,29 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
 
             %% --- 2. EXECUTE CHECKS ---
-            checkSide("Left", app.EntryPointL, app.EntryPoint2L, app.EntryPoint3L, yL, zL);
-            if ~isempty(app.EntryPointR)
-                checkSide("Right", app.EntryPointR, app.EntryPoint2R, app.EntryPoint3R, yR, zR);
+            checkSide("Left", ...
+                app.EntryPointL, ...
+                app.EntryPoint2L, ...
+                app.EntryPoint3L, ...
+                yL, zL);
+
+            checkSide("Right", ...
+                app.EntryPointR, ...
+                app.EntryPoint2R, ...
+                app.EntryPoint3R, ...
+                yR, zR);
+
+            % The selected points can all be individually inside the envelope
+            % while their extrapolation to the towers is outside it.
+            if ~pairMismatch && ~isempty(yL) && ~isempty(yR)
+                app.generateSimulationData(false);
+
+                [ ~, pathCrit, pathWarn ] = ...
+                    app.checkProjectedPathSafety( ...
+                        app.SimTowerPathL, app.SimTowerPathR);
+
+                crit = [ crit; pathCrit(:) ];
+                warn = [ warn; pathWarn(:) ];
             end
 
             t = app.getTheme();
@@ -3464,7 +3695,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.CuttingLeftPanel.BackgroundColor = pCol;
             app.TxtCuttingStatus.Value = msgLines;
             app.TxtCuttingStatus.FontColor = tCol;
-            if isValidCut, app.BtnCuttingContinue.Enable = 'on'; else, app.BtnCuttingContinue.Enable = 'off'; end
+            app.BtnCuttingContinue.Enable = 'on';
 
             %% --- 6. FORMAT AXES ---
             title(app.AxCutLeft,'Left Tower', 'Color', t.labelCol);
@@ -3719,6 +3950,27 @@ classdef CNCHotWire_GCodeGenerator < handle
             cp = ax.CurrentPoint(1, 1:2);
             clickY = cp(1);
             clickZ = cp(2);
+
+            % Lead-In and Link points must be selected within the Y-Z
+            % movement envelope. Start points are selected from the profile
+            % itself and are therefore handled separately below.
+            isTravelPointPick = app.BtnPickEntry.Value || app.BtnPickEntry2.Value;
+
+            if isprop(app, 'BtnPickEntry3') && isgraphics(app.BtnPickEntry3)
+                isTravelPointPick = isTravelPointPick || app.BtnPickEntry3.Value;
+            end
+
+            if isTravelPointPick && (clickY < 0 || clickY > app.MachineLimitY || ...
+                    clickZ < 0 || clickZ > app.MachineLimitZ)
+
+                uialert(app.UIFigure, ...
+                    sprintf(['The selected point is outside the machine envelope.\n\n' ...
+                    'Permitted Y: 0 to %.0f mm\nPermitted Z: 0 to %.0f mm'], ...
+                    app.MachineLimitY, app.MachineLimitZ), ...
+                    'Point Outside Machine Envelope', ...
+                    'Icon', 'warning');
+                return;
+            end
 
             % --- CASE 1: SET START POINT ---
             if app.BtnPickStart.Value
@@ -3992,15 +4244,20 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         %%                    - DATA GENERATION -
 
-        function generateSimulationData(app)
+        function generateSimulationData(app, doPlot)
             % Purpose: Generates high-resolution, interpolated 3D paths for the simulation playback.
             % WHY: The raw G-code/toolpath only contains corner points. To animate the wire smoothly,
             %      we must interpolate points at a fixed spatial resolution along the entire path.
             % HOW: Breaks the path into phases (Rapid, Lead-In, Cut, Lead-Out, Return), densifies
             %      each segment, concatenates them, and calculates cumulative arc lengths for timing.
 
-            if isempty(app.AxSim) || ~isgraphics(app.AxSim)
-                disp('   -> ERROR: AxSim is missing!'); return;
+            if nargin < 2
+                doPlot = true;
+            end
+
+            if doPlot && (isempty(app.AxSim) || ~isgraphics(app.AxSim))
+                disp('   -> ERROR: AxSim is missing!');
+                return;
             end
 
             t = app.getTheme();
@@ -4016,7 +4273,16 @@ classdef CNCHotWire_GCodeGenerator < handle
             [ yR, zR ] = app.applyMods(syncY_R, syncZ_R, offsetY, offsetZ, app.SelectedStartIdxR, isCCW);
 
             if isempty(yL) || isempty(yR)
-                uialert(app.UIFigure, 'Could not generate toolpath. Profiles may be empty or invalid.', 'Simulation Error');
+                app.SimPathL = [];
+                app.SimPathR = [];
+                app.SimTowerPathL = [];
+                app.SimTowerPathR = [];
+
+                if doPlot
+                    uialert(app.UIFigure, ...
+                        'Could not generate toolpath. Profiles may be empty or invalid.', ...
+                        'Simulation Error');
+                end
                 return;
             end
 
@@ -4027,7 +4293,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             function pts = mkRapid(lead, link1, link2)
                 pZero=[ 0, 0 ]; pSafe=[ 10, 10 ];
                 pLoad=[ app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
-                pRet=[ pLoad(1)-10, pLoad(2) ];
+                pRet=[ pLoad(1)-4.0, pLoad(2) ];
                 pts=[ pZero; pSafe; pLoad; pRet ];
 
                 if ~isempty(link1), pts=[ pts; link1 ]; end
@@ -4037,7 +4303,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             function pts = mkLeadIn(start, lead)
                 if isempty(lead)
-                    pRet=[ app.MachineBilletPos(2)-10, app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
+                    pRet=[ app.MachineBilletPos(2)-4.0, app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
                     pts=[ pRet; start ];
                 else
                     pts=[ lead; start ];
@@ -4200,40 +4466,61 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.SimTowerPathL = app.SimPathL + tL .* V_vec;
             app.SimTowerPathR = app.SimPathL + tR .* V_vec;
 
-            %% --- 4. CALCULATE PROGRAM BOUNDS ---
-            % We only look at points from the start of Lead-In to the end of Lead-Out
-            progIdx = (app.SimRapidCutoffIndex):app.SimLeadOutEndIndex;
+            %% --- 4. CALCULATE COMPLETE PROGRAM SAFETY ---
+            [ pathSafe, pathCrit, pathWarn, maxExt, boundsL, boundsR ] = ...
+                app.checkProjectedPathSafety( ...
+                app.SimTowerPathL, app.SimTowerPathR);
 
-            workL = app.SimTowerPathL(progIdx, :);
-            workR = app.SimTowerPathR(progIdx, :);
+            app.MaxPathExtension = maxExt;
+            app.TowerL_Bounds = boundsL;
+            app.TowerR_Bounds = boundsR;
 
-            % Tower L (Visual X/Y in G-code)
-            app.TowerL_Bounds =[ min(workL(:,2)), max(workL(:,2)), min(workL(:,3)), max(workL(:,3)) ];
-            % Tower R (Visual Z/A in G-code)
-            app.TowerR_Bounds =[ min(workR(:,2)), max(workR(:,2)), min(workR(:,3)), max(workR(:,3)) ];
+            if doPlot && isgraphics(app.LblSimExtMin)
+                app.LblSimExtMin.Text = sprintf( ...
+                    'Min: X=%.2f  Y=%.2f  Z=%.2f  A=%.2f', ...
+                    boundsL(1), boundsL(3), boundsR(1), boundsR(3));
 
-            % Update UI Labels
-            if isgraphics(app.LblSimExtMin)
-                app.LblSimExtMin.Text = sprintf('Min: X=%.2f  Y=%.2f  Z=%.2f  A=%.2f', ...
-                    app.TowerL_Bounds(1), app.TowerL_Bounds(3), app.TowerR_Bounds(1), app.TowerR_Bounds(3));
+                app.LblSimExtMax.Text = sprintf( ...
+                    'Max: X=%.2f  Y=%.2f  Z=%.2f  A=%.2f', ...
+                    boundsL(2), boundsL(4), boundsR(2), boundsR(4));
 
-                app.LblSimExtMax.Text = sprintf('Max: X=%.2f Y=%.2f Z=%.2f A=%.2f', ...
-                    app.TowerL_Bounds(2), app.TowerL_Bounds(4), app.TowerR_Bounds(2), app.TowerR_Bounds(4));
+                if ~pathSafe
+                    app.LblSimExtWire.Text = sprintf( ...
+                        'INVALID PATH: %s  Max Extension: %.2f mm', ...
+                        char(pathCrit(1)), maxExt);
 
-                app.LblSimExtWire.Text = sprintf('Max Wire Extension:%.2fmm (Limit:%.0fmm)', ...
-                    app.MaxPathExtension, app.WireExt_Red);
+                    app.LblSimExtWire.FontColor = t.statErrTxt;
+
+                elseif ~isempty(pathWarn)
+                    app.LblSimExtWire.Text = sprintf( ...
+                        'WARNING: %s', char(pathWarn(1)));
+
+                    app.LblSimExtWire.FontColor = t.statWarnTxt;
+
+                else
+                    app.LblSimExtWire.Text = sprintf( ...
+                        'Max Wire Extension: %.2f mm (Limit: %.0f mm)', ...
+                        maxExt, app.WireExt_Red);
+
+                    app.LblSimExtWire.FontColor = t.labelCol;
+                end
             end
 
-            nPoints = size(app.SimPathL, 1);
-            app.SimSlider.Limits =[ 1, max(1, nPoints) ];
-            app.SimSlider.Value = 1;
+            if doPlot
+                nPoints = size(app.SimPathL, 1);
 
-            if isprop(app, 'SimIndexSpinner') && ~isempty(app.SimIndexSpinner)
-                app.SimIndexSpinner.Limits =[ 1, max(1, nPoints) ];
-                app.SimIndexSpinner.Value = 1;
-            end
+                app.SimSlider.Limits = [ 1, max(1, nPoints) ];
+                app.SimSlider.Value = 1;
 
-            app.initSimulationPlot();
+                if isprop(app, 'SimIndexSpinner') && ...
+                        ~isempty(app.SimIndexSpinner)
+
+                    app.SimIndexSpinner.Limits = [ 1, max(1, nPoints) ];
+                    app.SimIndexSpinner.Value = 1;
+                end
+
+                app.initSimulationPlot();
+            end        
         end
 
         function idx = simIndexAtDistance(app, dist)
@@ -4592,67 +4879,90 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function updatePostStatus(app, isFreshPost)
             % Purpose: Evaluates the safety and freshness of the G-code parameters.
-            % WHY: If the user changes the feed rate or power *after* generating G-code,
+            % WHY: If the user changes the feed rate or power after generating G-code,
             %      the existing G-code becomes stale and must be regenerated.
 
-            if nargin < 2, isFreshPost = false; end
-            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus), return; end
+            if nargin < 2
+                isFreshPost = false;
+            end
+            if isempty(app.TxtPostStatus) || ~isvalid(app.TxtPostStatus)
+                return;
+            end
 
             t = app.getTheme();
             feed = app.SpinFeedRate.Value;
             power = app.SpinPower.Value;
 
-            % 1. Logic: If parameters changed (not a fresh post), invalidate old code
+            %% --- 1. INVALIDATE STALE G-CODE ---
             if ~isFreshPost && ~isempty(app.PP_GCodeLines)
                 app.PP_GCodeLines = strings(0);
+                app.IsProgramPathValid = false;
+                app.ProgramPathIssues = "Parameters changed after Post-Process.";
+
                 app.ListGCode.Items = {'(Parameters changed. Re-run Post-Process...)'};
-                app.BtnSaveGCode.Enable = 'off';
-                app.BtnSaveGCode.BackgroundColor =[ 0.3 0.3 0.3 ];
-                app.BtnSaveGCode.FontColor =[ 0.8 0.8 0.8 ];
             end
 
-            msg = strings(0);
+            msg = strings(0,1);
             panelBg = t.sideBg;
             textCol = t.labelCol;
 
-            % 2. Determine Status State
+            %% --- 2. DETERMINE THE PRIMARY STATUS ---
             if isempty(app.PP_GCodeLines)
                 panelBg = t.statErrBg;
                 textCol = t.statErrTxt;
-                msg =[ "STALE G-CODE:", "Parameters changed. Re-run Post-Process." ];
+                msg = [ "STALE G-CODE:"; "Run Post-Process to regenerate it." ];
+
+            elseif ~app.IsProgramPathValid
+                panelBg = t.statErrBg;
+                textCol = t.statErrTxt;
+                msg = [ "UNSAFE G-CODE:"; "Generated for inspection only." ];
+
+                if ~isempty(app.ProgramPathIssues)
+                    msg(end+1,1) = app.ProgramPathIssues(1);
+                end
+
             else
                 panelBg = t.statPassBg;
                 textCol = t.statPassTxt;
-                msg(end+1) = sprintf("Success! Generated %d lines.", numel(app.PP_GCodeLines));
+                msg(end+1,1) = sprintf( ...
+                    "Success! Generated %d lines.", numel(app.PP_GCodeLines));
             end
 
-            % 3. Apply Safety Overrides (Priority: Red > Amber)
-            isExtRed   = app.MaxPathExtension > app.WireExt_Red;
-            isExtAmber = app.MaxPathExtension > app.WireExt_Amber;
-
-            if isExtRed
-                panelBg = t.statErrBg;
-                textCol = t.statErrTxt;
-                msg(end+1) = "CRITICAL: Wire Extension exceeds pulley travel!";
-            elseif isExtAmber
-                if ~isequal(panelBg, t.statErrBg)
+            %% --- 3. APPLY ADVISORY WARNINGS ---
+            if ~isempty(app.PP_GCodeLines) && app.IsProgramPathValid
+                if app.MaxPathExtension > app.WireExt_Amber
                     panelBg = t.statWarnBg;
                     textCol = t.statWarnTxt;
+                    msg(end+1,1) = sprintf( ...
+                        "WARNING: Maximum wire extension is %.2f mm.", ...
+                        app.MaxPathExtension);
                 end
-                msg(end+1) = "WARNING: Approaching mechanical pulley limit.";
-            end
 
-            % Check Feed/Power Balance
-            if (power < 25 && feed > 80) || (power > 80 && feed < 30)
-                if ~isequal(panelBg, t.statErrBg)
+                if (power < 25 && feed > 80) || (power > 80 && feed < 30)
                     panelBg = t.statWarnBg;
                     textCol = t.statWarnTxt;
+                    msg(end+1,1) = "WARNING: Unbalanced Power/Feed settings.";
                 end
-                msg(end+1) = "WARNING: Unbalanced Power/Feed settings.";
             end
 
-            if ~isempty(app.PP_GCodeLines)
-                msg(end+1) = "Verify paths and click Save.";
+            %% --- 4. CONTROL G-CODE SAVING ---
+            canSave = ~isempty(app.PP_GCodeLines) && app.IsProgramPathValid;
+
+            if canSave
+                msg(end+1,1) = "Verify paths and click Save.";
+
+                app.BtnSaveGCode.Enable = 'on';
+                app.BtnSaveGCode.BackgroundColor =[ 0.1 0.6 0.1 ];
+                app.BtnSaveGCode.FontColor =[ 1 1 1 ];
+            else
+                if ~isempty(app.PP_GCodeLines)
+                    msg(end+1,1) = ...
+                        "Save is disabled until all critical errors are resolved.";
+                end
+
+                app.BtnSaveGCode.Enable = 'off';
+                app.BtnSaveGCode.BackgroundColor =[ 0.3 0.3 0.3 ];
+                app.BtnSaveGCode.FontColor =[ 0.8 0.8 0.8 ];
             end
 
             app.PostLeftPanel.BackgroundColor = panelBg;
@@ -4683,19 +4993,24 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         %%                    - G-CODE GENERATION -
-
         function onPostProcess(app)
             % Purpose: Generates the final Mach4-compatible G-code.
             % HOW: Iterates through the densified simulation path, converting absolute
             %      machine coordinates into G-code strings. Also calculates Dynamic Feed
             %      rates for tapered cuts to ensure constant wire speed through the foam.
 
+            app.IsProgramPathValid = false;
+            app.ProgramPathIssues = strings(0,1);
+
+            % Always rebuild the complete path from the current machine and
+            % cutting-strategy settings before generating G-code.
+            app.generateSimulationData(false);
+
             if isempty(app.SimPathL) || isempty(app.ProfileSyncL)
-                app.generateSimulationData();
-                if isempty(app.SimPathL)
-                    uialert(app.UIFigure, 'No path data available.', 'Error');
-                    return;
-                end
+                uialert(app.UIFigure, ...
+                    'No complete path data is available.', ...
+                    'Post-Process Error');
+                return;
             end
 
             % Initialize storage arrays
@@ -4834,17 +5149,22 @@ classdef CNCHotWire_GCodeGenerator < handle
             e2L = app.EntryPoint2L; e2R = app.EntryPoint2R;
             e3L = app.EntryPoint3L; e3R = app.EntryPoint3R;
 
-            if ~isempty(e2L)
+            if ~isempty(e2L) && ~isempty(e2R)
                 [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 1', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                    'Link Point 1', tx, ty, tz, ta);
             end
-            if ~isempty(e3L)
+
+            if ~isempty(e3L) && ~isempty(e3R)
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Link Point 2', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                    'Link Point 2', tx, ty, tz, ta);
             end
-            if ~isempty(e1L)
+
+            if ~isempty(e1L) && ~isempty(e1R)
                 [ tx, ty, tz, ta ] = project(e1L(1), e1L(2), e1R(1), e1R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Rapid to Entry Point', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                    'Rapid to Entry Point', tx, ty, tz, ta);
             end
             app.PP_RapidEndIndex = pathIdx;
 
@@ -4854,11 +5174,14 @@ classdef CNCHotWire_GCodeGenerator < handle
             add(sprintf('F%d', feed), 'Set Cut Feedrate');
 
             % Lead-In Cut
-            startL = pSyncL(1,:); startR = pSyncR(1,:);
-            if ~isempty(e1L)
+            startL = pSyncL(1,:);
+            startR = pSyncR(1,:);
+
+            if ~isempty(e1L) && ~isempty(e1R)
                 addDynamicG1(startL, startR, e1L, e1R, 'Lead-In Cut to Profile');
             else
-                prevL =[ bY_Ret, bZ ]; prevR =[ bY_Ret, bZ ];
+                prevL =[ bY_Ret, bZ ];
+                prevR =[ bY_Ret, bZ ];
                 addDynamicG1(startL, startR, prevL, prevR, 'Approach Cut to Profile');
             end
             app.PP_ProfileStartIndex = pathIdx;
@@ -4872,31 +5195,84 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             % --- PHASE 4: EXIT ---
             add('%% --- EXIT SEQUENCE ---', '');
-            if ~isempty(e1L)
-                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), 'Lead-Out Cut to Entry');
+
+            if ~isempty(e1L) && ~isempty(e1R)
+                addDynamicG1(e1L, e1R, pSyncL(end,:), pSyncR(end,:), ...
+                    'Lead-Out Cut to Entry');
             end
             app.PP_LeadOutEndIndex = pathIdx;
             add('M302', 'Hot Wire Power OFF > Wait > Ext OFF');
 
             % Correct Order for Retraction
-            if ~isempty(e3L)
+            if ~isempty(e3L) && ~isempty(e3R)
                 [ tx, ty, tz, ta ] = project(e3L(1), e3L(2), e3R(1), e3R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 2', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                    'Return to Link 2', tx, ty, tz, ta);
             end
-            if ~isempty(e2L)
+
+            if ~isempty(e2L) && ~isempty(e2R)
                 [ tx, ty, tz, ta ] = project(e2L(1), e2L(2), e2R(1), e2R(2));
-                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Return to Link 1', tx, ty, tz, ta);
+                add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                    'Return to Link 1', tx, ty, tz, ta);
             end
 
             bY_RetFinal = app.MachineBilletPos(2) - 10.0;
             bZ_RetFinal = app.MachineBilletPos(3) + app.BilletSize(3) / 2.0;
-            [ tx, ty, tz, ta ] = project(bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
-            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), 'Retract Safety', tx, ty, tz, ta);
+
+            [ tx, ty, tz, ta ] = project( ...
+                bY_RetFinal, bZ_RetFinal, bY_RetFinal, bZ_RetFinal);
+
+            add(sprintf('G0 X%.3f Y%.3f Z%.3f A%.3f', tx, ty, tz, ta), ...
+                'Retract Safety', tx, ty, tz, ta);
 
             % --- FINAL RETURN ---
-            add('G53 G0 X0 Z0', 'Retract Horizontals', 0, bZ_RetFinal, 0, bZ_RetFinal);
+            add('G53 G0 X0 Z0', 'Retract Horizontals', ...
+                0, bZ_RetFinal, 0, bZ_RetFinal);
             add('G53 G0 Y0 A0', 'Retract Verticals', 0, 0, 0, 0);
             add('M30', 'End Program');
+
+            %% --- AUTHORITATIVE FINAL SAFETY CHECK ---
+            isBilletSafe = app.syncBilletUI();
+
+            [ isCuttingSafe, ~, ~, ~ ] = ...
+                app.validateCuttingStrategy();
+
+            [ pathSafe, pathCrit, ~, maxExt, boundsL, boundsR ] = ...
+                app.checkProjectedPathSafety( ...
+                app.PP_TowerPathL, app.PP_TowerPathR);
+
+            % Metadata and checkMachineState must now use the actual G-code
+            % movement sequence, rather than the earlier profile-only path.
+            app.MaxPathExtension = maxExt;
+            app.TowerL_Bounds = boundsL;
+            app.TowerR_Bounds = boundsR;
+
+            [ isMachineSafe, ~, ~, ~ ] = app.checkMachineState();
+
+            issues = pathCrit(:);
+
+            if ~isBilletSafe
+                issues(end+1,1) = ...
+                    "The cutting geometry is not contained by the billet.";
+            end
+
+            if ~isMachineSafe
+                issues(end+1,1) = ...
+                    "The billet or brass-joint configuration is invalid.";
+            end
+
+            if ~isCuttingSafe
+                issues(end+1,1) = ...
+                    "The cutting strategy contains an invalid movement.";
+            end
+
+            app.IsProgramPathValid = ...
+                pathSafe && ...
+                isBilletSafe && ...
+                isMachineSafe && ...
+                isCuttingSafe;
+
+            app.ProgramPathIssues = unique(issues, 'stable');
 
             % --- FINALIZE METADATA ---
             minX_v = app.TowerL_Bounds(1); maxX_v = app.TowerL_Bounds(2);
@@ -4918,10 +5294,6 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.ListGCode.Items = cellstr(lines);
             app.ListGCode.ItemsData = 1:numel(lines);
             app.ListGCode.Value = 1;
-
-            app.BtnSaveGCode.Enable = 'on';
-            app.BtnSaveGCode.BackgroundColor =[ 0.1 0.6 0.1 ];
-            app.BtnSaveGCode.FontColor =[ 1 1 1 ];
 
             if isempty(app.AxSim.Children), app.initSimulationPlot(); end
             app.initPostPlot();
@@ -5142,7 +5514,26 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Purpose: Writes the generated G-code array to a physical .tap or .nc file.
 
             if isempty(app.PP_GCodeLines)
-                uialert(app.UIFigure, 'No G-code generated yet. Please click "Post-Process" first.', 'Save Error');
+                uialert(app.UIFigure, ...
+                    'No G-code generated yet. Please click "Post-Process" first.', ...
+                    'Save Error');
+                return;
+            end
+
+            % This is the final hard boundary. Navigation permits diagnostic
+            % inspection of an invalid path, but an invalid program cannot be saved.
+            if ~app.IsProgramPathValid
+                reason = "The generated movement sequence failed safety validation.";
+
+                if ~isempty(app.ProgramPathIssues)
+                    reason = char(app.ProgramPathIssues(1));
+                end
+
+                uialert(app.UIFigure, ...
+                    sprintf(['%s\n\nThe path may be inspected, ' ...
+                    'but it cannot be saved.'], reason), ...
+                    'Unsafe G-Code', ...
+                    'Icon', 'error');
                 return;
             end
 
