@@ -2836,7 +2836,10 @@ classdef CNCHotWire_GCodeGenerator < handle
             text(ax, mX-offX, mLimY*0.02, mLimZ*0.92, {'RIGHT','TOWER '}, 'Color', t.planeGreenTxt, 'FontWeight', 'bold', 'HorizontalAlignment', 'right', 'FontSize', 9);
 
             %% --- 3. DRAW BILLET & MODEL ---
-            hBillet = gobjects(0); hModel = gobjects(0); hGhostL = gobjects(0); hWireL = gobjects(0);
+            hBillet = gobjects(0); hModel = gobjects(0);
+            hGhostL = gobjects(0); hWireL = gobjects(0);
+            hStrategyRapid = gobjects(0);
+            hStrategyLead = gobjects(0);
             isViolated = false;
 
             if ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
@@ -3012,13 +3015,46 @@ classdef CNCHotWire_GCodeGenerator < handle
                             plot3(ax, xR_world, ySyncR(currIdx) + totalShift(2), zSyncR(currIdx) + totalShift(3), ...
                                 '.', 'Color', dotCMap(k,:), 'MarkerSize', 8);
                         end
+
+                        % Draw the currently selected approach, link, lead and
+                        % return geometry when a complete entry pair exists.
+                        strategyStartL =[ ...
+                            ySyncL(1) + totalShift(2), ...
+                            zSyncL(1) + totalShift(3) ];
+
+                        strategyStartR =[ ...
+                            ySyncR(1) + totalShift(2), ...
+                            zSyncR(1) + totalShift(3) ];
+
+                        strategyEndL =[ ...
+                            ySyncL(end) + totalShift(2), ...
+                            zSyncL(end) + totalShift(3) ];
+
+                        strategyEndR =[ ...
+                            ySyncR(end) + totalShift(2), ...
+                            zSyncR(end) + totalShift(3) ];
+
+                        [ hStrategyRapid, hStrategyLead ] = ...
+                            app.drawMachineStrategyVisuals( ...
+                            ax, xL_world, xR_world, ...
+                            strategyStartL, strategyStartR, ...
+                            strategyEndL, strategyEndR);
                     end
                 end
             end
 
             %% --- 5. FORMATTING & LEGEND ---
-            handles =[ hBed, hLim, hTowerL, hTowerR, hBillet, hModel, hGhostL, hWireL ];
-            labels  = {'Machine Bed', 'Travel Limits', 'Left Tower', 'Right Tower', 'Billet Stock', 'Model Mesh', 'Extracted Profile', 'Wire Path (Kerf)'};
+            handles =[ ...
+                hBed, hLim, hTowerL, hTowerR, ...
+                hBillet, hModel, hGhostL, hWireL, ...
+                hStrategyRapid, hStrategyLead ];
+
+            labels = { ...
+                'Machine Bed', 'Travel Limits', ...
+                'Left Tower', 'Right Tower', ...
+                'Billet Stock', 'Model Mesh', ...
+                'Extracted Profile', 'Wire Path (Kerf)', ...
+                'Rapid / Return', 'Lead In / Out' };
 
             valid = isgraphics(handles);
             if any(valid)
@@ -3069,6 +3105,277 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.BtnMachineContinue.Enable = 'on';
             drawnow limitrate;
+        end
+
+        function [ hRapid, hLead ] = drawMachineStrategyVisuals( ...
+                app, ax, xLPlot, xRPlot, startL, startR, endL, endR)
+            % Purpose: Draws the selected approach, links, leads and return
+            % path on the Machine tab without modifying movement data.
+
+            hRapid = gobjects(0);
+            hLead = gobjects(0);
+
+            e1L = app.EntryPointL;
+            e1R = app.EntryPointR;
+            e2L = app.EntryPoint2L;
+            e2R = app.EntryPoint2R;
+            e3L = app.EntryPoint3L;
+            e3R = app.EntryPoint3R;
+
+            % A four-axis wire state requires a complete left-right pair.
+            if isempty(e1L) || isempty(e1R)
+                return;
+            end
+
+            e1L = reshape(e1L(1:2), 1, 2);
+            e1R = reshape(e1R(1:2), 1, 2);
+            startL = reshape(startL(1:2), 1, 2);
+            startR = reshape(startR(1:2), 1, 2);
+            endL = reshape(endL(1:2), 1, 2);
+            endR = reshape(endR(1:2), 1, 2);
+
+            hasLink1 = ~isempty(e2L) && ~isempty(e2R);
+            hasLink2 = ~isempty(e3L) && ~isempty(e3R);
+
+            if hasLink1
+                e2L = reshape(e2L(1:2), 1, 2);
+                e2R = reshape(e2R(1:2), 1, 2);
+            end
+
+            if hasLink2
+                e3L = reshape(e3L(1:2), 1, 2);
+                e3R = reshape(e3R(1:2), 1, 2);
+            end
+
+            t = app.getTheme();
+            rapidCol =[ 0.9 0.8 0.0 ];
+
+            offX = app.MachineBedPos(1);
+            xLAbs = xLPlot + offX;
+            xRAbs = xRPlot + offX;
+
+            pZero =[ 0, 0 ];
+            pSafe =[ 10, 10 ];
+            pLoad =[ ...
+                app.MachineBilletPos(2), ...
+                app.MachineBilletPos(3) + app.BilletSize(3)/2.0 ];
+
+            pApproach =[ pLoad(1)-4.0,  pLoad(2) ];
+            pRetract  =[ pLoad(1)-10.0, pLoad(2) ];
+            pHomeY    =[ 0, pRetract(2) ];
+
+            %% --- INBOUND RAPID ---
+            rapidInL =[ pZero; pSafe; pLoad; pApproach ];
+            rapidInR = rapidInL;
+
+            if hasLink1
+                rapidInL(end+1,:) = e2L;
+                rapidInR(end+1,:) = e2R;
+            end
+
+            if hasLink2
+                rapidInL(end+1,:) = e3L;
+                rapidInR(end+1,:) = e3R;
+            end
+
+            rapidInL(end+1,:) = e1L;
+            rapidInR(end+1,:) = e1R;
+
+            %% --- LEAD IN AND OUT ---
+            leadInL =[ e1L; startL ];
+            leadInR =[ e1R; startR ];
+
+            leadOutL =[ endL; e1L ];
+            leadOutR =[ endR; e1R ];
+
+            %% --- OUTBOUND RETURN ---
+            rapidOutL = e1L;
+            rapidOutR = e1R;
+
+            if hasLink2
+                rapidOutL(end+1,:) = e3L;
+                rapidOutR(end+1,:) = e3R;
+            end
+
+            if hasLink1
+                rapidOutL(end+1,:) = e2L;
+                rapidOutR(end+1,:) = e2R;
+            end
+
+            rapidOutL =[ rapidOutL; pRetract; pHomeY; pZero ];
+            rapidOutR =[ rapidOutR; pRetract; pHomeY; pZero ];
+
+            %% --- DRAW COMPLETE PATHS ---
+            hRapid = drawPhase(rapidInL, rapidInR, rapidCol, '-');
+            drawPhase(rapidOutL, rapidOutR, rapidCol, '--');
+
+            hLead = drawPhase(leadInL, leadInR, t.wireLead, '-');
+            drawPhase(leadOutL, leadOutR, t.wireLead, '--');
+
+            %% --- REPRESENTATIVE STRATEGY WIRE POSITIONS ---
+            wirePtsL =[ pLoad; pApproach ];
+            wirePtsR = wirePtsL;
+            wireCols =[ 1.0 0.0 1.0; rapidCol ];
+
+            if hasLink1
+                wirePtsL(end+1,:) = e2L;
+                wirePtsR(end+1,:) = e2R;
+                wireCols(end+1,:) = rapidCol;
+            end
+
+            if hasLink2
+                wirePtsL(end+1,:) = e3L;
+                wirePtsR(end+1,:) = e3R;
+                wireCols(end+1,:) = rapidCol;
+            end
+
+            wirePtsL(end+1,:) = e1L;
+            wirePtsR(end+1,:) = e1R;
+            wireCols(end+1,:) = t.wireLead;
+
+            wirePtsL(end+1,:) = pRetract;
+            wirePtsR(end+1,:) = pRetract;
+            wireCols(end+1,:) = rapidCol;
+
+            for iState = 1:size(wirePtsL,1)
+                drawWireState( ...
+                    wirePtsL(iState,:), ...
+                    wirePtsR(iState,:), ...
+                    wireCols(iState,:));
+            end
+
+            function h = drawPhase(ptsL, ptsR, lineCol, lineStyle)
+                h = gobjects(0);
+
+                if isempty(ptsL) || isempty(ptsR) || ...
+                        size(ptsL,1) ~= size(ptsR,1)
+                    return;
+                end
+
+                [ towerL, towerR ] = ...
+                    CNCHotWire_GCodeGenerator_Helpers.projectToTowers( ...
+                    ptsL(:,1), ptsL(:,2), xLAbs, ...
+                    ptsR(:,1), ptsR(:,2), xRAbs, ...
+                    app.MachineSpanX);
+
+                h = plot3(ax, ...
+                    repmat(xLPlot, size(ptsL,1), 1), ...
+                    ptsL(:,1), ptsL(:,2), ...
+                    'Color', lineCol, ...
+                    'LineStyle', lineStyle, ...
+                    'LineWidth', 0.9, ...
+                    'HitTest', 'off');
+
+                plot3(ax, ...
+                    repmat(xRPlot, size(ptsR,1), 1), ...
+                    ptsR(:,1), ptsR(:,2), ...
+                    'Color', lineCol, ...
+                    'LineStyle', lineStyle, ...
+                    'LineWidth', 0.9, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, ...
+                    repmat(-offX, size(ptsL,1), 1), ...
+                    towerL.y, towerL.z, ...
+                    'Color', lineCol, ...
+                    'LineStyle', lineStyle, ...
+                    'LineWidth', 0.75, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, ...
+                    repmat(app.MachineSpanX-offX, size(ptsR,1), 1), ...
+                    towerR.y, towerR.z, ...
+                    'Color', lineCol, ...
+                    'LineStyle', lineStyle, ...
+                    'LineWidth', 0.75, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+            end
+
+            function drawWireState(ptL, ptR, markerCol)
+                [ towerL, towerR ] = ...
+                    CNCHotWire_GCodeGenerator_Helpers.projectToTowers( ...
+                    ptL(1), ptL(2), xLAbs, ...
+                    ptR(1), ptR(2), xRAbs, ...
+                    app.MachineSpanX);
+
+                pTL =[ -offX, towerL.y(1), towerL.z(1) ];
+                pTR =[ app.MachineSpanX-offX, towerR.y(1), towerR.z(1) ];
+
+                if any(~isfinite([ pTL, pTR ]))
+                    return;
+                end
+
+                wireVec = pTR - pTL;
+                wireLen = norm(wireVec);
+
+                if wireLen < 1e-9
+                    return;
+                end
+
+                isOutOfTravel = ...
+                    pTL(2) < 0 || pTL(2) > app.MachineLimitY || ...
+                    pTL(3) < 0 || pTL(3) > app.MachineLimitZ || ...
+                    pTR(2) < 0 || pTR(2) > app.MachineLimitY || ...
+                    pTR(3) < 0 || pTR(3) > app.MachineLimitZ;
+
+                isCriticalExtension = ...
+                    (wireLen-app.MachineSpanX) > app.WireExt_Red;
+
+                hotCol = t.wireBaseCol;
+                pointCol = markerCol;
+
+                if isOutOfTravel || isCriticalExtension
+                    hotCol =[ 1.0 0.8 0.0 ];
+                    pointCol = hotCol;
+                end
+
+                hotLength = ...
+                    app.MachineBedPos(1) + ...
+                    app.MachineBedSize(1) + ...
+                    app.BrassJointOffsetRight;
+
+                pJoint = pTL + wireVec * (hotLength/wireLen);
+
+                plot3(ax, ...
+                    [ pTL(1), pJoint(1) ], ...
+                    [ pTL(2), pJoint(2) ], ...
+                    [ pTL(3), pJoint(3) ], ...
+                    'Color', hotCol, ...
+                    'LineWidth', 0.65, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, ...
+                    [ pJoint(1), pTR(1) ], ...
+                    [ pJoint(2), pTR(2) ], ...
+                    [ pJoint(3), pTR(3) ], ...
+                    'Color',[ 0.5 0.5 0.5 ], ...
+                    'LineWidth', 1.0, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, ...
+                    pJoint(1), pJoint(2), pJoint(3), '.', ...
+                    'Color', t.wireLead, ...
+                    'MarkerSize', 7, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, xLPlot, ptL(1), ptL(2), '.', ...
+                    'Color', pointCol, ...
+                    'MarkerSize', 9, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+
+                plot3(ax, xRPlot, ptR(1), ptR(2), '.', ...
+                    'Color', pointCol, ...
+                    'MarkerSize', 9, ...
+                    'HitTest', 'off', ...
+                    'HandleVisibility', 'off');
+            end
         end
 
         function syncMachineUI(app)
@@ -3773,15 +4080,16 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             pZero    =[ 0, 0 ];
             pSafe    =[ 10, 10 ];
-            pLoad    =[ app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
-            pRetract =[ pLoad(1)-10, pLoad(2) ];
+            pLoad     =[ app.MachineBilletPos(2), app.MachineBilletPos(3)+app.BilletSize(3)/2 ];
+            pApproach =[ pLoad(1)-4.0,  pLoad(2) ];
+            pRetract  =[ pLoad(1)-10.0, pLoad(2) ];
 
             hLoad = plot(ax, pLoad(1), pLoad(2), 'x', 'MarkerSize', 8, 'Color', [ 1 0 1 ], 'LineWidth', 1.5, 'HitTest','off');
 
             t = app.getTheme();
 
             % --- INBOUND PATH ---
-            pts =[ pZero; pSafe; pLoad; pRetract ];
+            pts =[ pZero; pSafe; pLoad; pApproach ];
             if ~isempty(link1)
                 pts =[ pts; link1 ];
             end
