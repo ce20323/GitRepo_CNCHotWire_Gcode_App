@@ -3494,8 +3494,8 @@ classdef CNCHotWire_GCodeGenerator < handle
                     app.checkProjectedPathSafety( ...
                         app.SimTowerPathL, app.SimTowerPathR);
 
-                crit = [ crit; pathCrit(:) ];
-                warn = [ warn; pathWarn(:) ];
+                crit = [ crit(:); pathCrit(:) ];
+                warn = [ warn(:); pathWarn(:) ];
             end
 
             t = app.getTheme();
