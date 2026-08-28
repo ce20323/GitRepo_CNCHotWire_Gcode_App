@@ -2607,160 +2607,380 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         function onResetMachineBilletPosition(app)
-            % Purpose: Automatically places the billet on the machine bed in the optimal location.
-            % WHY: To minimize wire extension, balance left/right tower travel, and align with
-            %      standard physical foam stock heights and bed grid holes.
+            % Purpose: Automatically places the billet on the machine bed.
+            % HOW: Tests the available X grid positions and, when a complete
+            %      Cutting Strategy exists, evaluates its lead and link points
+            %      together with the profile. Existing strategy points remain
+            %      billet-relative and are translated once after positioning.
 
             if isempty(app.ModelPatch)
                 return;
             end
 
-            % Retain the previous machine position so existing entry and link
-            % points can follow any Y/Z movement of the complete billet.
-            oldMachineY = app.MachineBilletPos(2);
-            oldMachineZ = app.MachineBilletPos(3);
+            oldMachinePos = app.MachineBilletPos;
 
-            %% --- 1. SETUP & GRID DEFINITION ---
+            %% --- 1. SETUP X GRID ---
             bedX = app.MachineBedPos(1);
-            maxXLimit = max(0, app.MachineBedSize(1) - app.BilletSize(1));
+            bedY = app.MachineBedPos(2);
 
-            % HOW: We generate a strict 50mm grid relative to the left edge of the bed.
-            % This matches the physical threaded holes on the real CNC machine bed.
-            maxRelX = floor(maxXLimit / 50.0) * 50.0;
+            maxXLimit = max(0, ...
+                app.MachineBedSize(1)-app.BilletSize(1));
 
-            if maxRelX >= 0
-                testRelXs = 0 : 50.0 : maxRelX;
-                testXs = bedX + testRelXs; % Apply absolute machine offset
-            else
-                testXs = bedX; % Fallback if billet is technically too wide for the grid
+            % X remains aligned to the physical 50 mm bed grid.
+            xGrid = 50.0;
+            maxRelX = floor(maxXLimit/xGrid)*xGrid;
+
+            testRelXs = 0:xGrid:maxRelX;
+            if isempty(testRelXs)
+                testRelXs = 0;
             end
 
-            % Default to the physical middle of the available 50mm grid
+            testXs = bedX + testRelXs;
+
+            % Default to the middle available grid position.
             bestX = testXs(max(1, ceil(numel(testXs)/2)));
 
-            %% --- 2. X-AXIS OPTIMIZATION (TOWER PATH BALANCING) ---
-            if ~isempty(app.LeftProfilePoints) && ~isempty(app.RightProfilePoints)
+            %% --- 2. BUILD THE EVALUATION PATH ---
+            if ~isempty(app.LeftProfilePoints) && ...
+                    ~isempty(app.RightProfilePoints)
 
-                % Fetch the synchronized profiles to evaluate path lengths
                 [ yL, zL, yR, zR ] = app.getSyncedKerfProfiles();
 
-                if ~isempty(yL)
-                    % Shift profiles from model-local to billet-local coordinates
-                    yL_base = yL + app.BilletShift(2);
-                    zL_base = zL + app.BilletShift(3);
-                    yR_base = yR + app.BilletShift(2);
-                    zR_base = zR + app.BilletShift(3);
+                if ~isempty(yL) && ~isempty(yR)
+
+                    % Apply the current start-point and direction settings so
+                    % the lead geometry joins the correct profile locations.
+                    isCCW = false;
+
+                    if isprop(app, 'SwitchCutDir') && ...
+                            ~isempty(app.SwitchCutDir) && ...
+                            isgraphics(app.SwitchCutDir)
+
+                        isCCW = strcmp( ...
+                            app.SwitchCutDir.Value, ...
+                            'Bottom (CCW)');
+                    end
+
+                    [ yL, zL ] = app.applyMods( ...
+                        yL, zL, 0, 0, ...
+                        app.SelectedStartIdxL, isCCW);
+
+                    [ yR, zR ] = app.applyMods( ...
+                        yR, zR, 0, 0, ...
+                        app.SelectedStartIdxR, isCCW);
+
+                    % Profile coordinates relative to the billet origin.
+                    profileL =[ ...
+                        yL(:)+app.BilletShift(2), ...
+                        zL(:)+app.BilletShift(3) ];
+
+                    profileR =[ ...
+                        yR(:)+app.BilletShift(2), ...
+                        zR(:)+app.BilletShift(3) ];
+
+                    % Y-Z clearance falls back to the profile before a
+                    % complete Cutting Strategy exists.
+                    clearancePathL = profileL;
+                    clearancePathR = profileR;
+
+                    e1L = app.EntryPointL;
+                    e1R = app.EntryPointR;
+                    e2L = app.EntryPoint2L;
+                    e2R = app.EntryPoint2R;
+                    e3L = app.EntryPoint3L;
+                    e3R = app.EntryPoint3R;
+
+                    entryPairComplete = ...
+                        ~isempty(e1L) && ~isempty(e1R);
+
+                    link1PairComplete = ...
+                        isempty(e2L) == isempty(e2R);
+
+                    link2PairComplete = ...
+                        isempty(e3L) == isempty(e3R);
+
+                    hasCompleteStrategy = ...
+                        entryPairComplete && ...
+                        link1PairComplete && ...
+                        link2PairComplete;
+
+                    if hasCompleteStrategy
+                        oldYZ = oldMachinePos(2:3);
+
+                        % Entry and link points are stored in absolute machine
+                        % Y-Z coordinates. Convert them back to coordinates
+                        % relative to the current billet origin.
+                        e1L = reshape(e1L(1:2), 1, 2)-oldYZ;
+                        e1R = reshape(e1R(1:2), 1, 2)-oldYZ;
+
+                        hasLink1 = ~isempty(e2L);
+                        hasLink2 = ~isempty(e3L);
+
+                        if hasLink1
+                            e2L = reshape(e2L(1:2), 1, 2)-oldYZ;
+                            e2R = reshape(e2R(1:2), 1, 2)-oldYZ;
+                        end
+
+                        if hasLink2
+                            e3L = reshape(e3L(1:2), 1, 2)-oldYZ;
+                            e3R = reshape(e3R(1:2), 1, 2)-oldYZ;
+                        end
+
+                        strategyPathL = zeros(0,2);
+                        strategyPathR = zeros(0,2);
+
+                        % Inbound links.
+                        if hasLink1
+                            strategyPathL(end+1,:) = e2L;
+                            strategyPathR(end+1,:) = e2R;
+                        end
+
+                        if hasLink2
+                            strategyPathL(end+1,:) = e3L;
+                            strategyPathR(end+1,:) = e3R;
+                        end
+
+                        % Lead-in, profile and lead-out.
+                        strategyPathL = [ ...
+                            strategyPathL; ...
+                            e1L; ...
+                            profileL; ...
+                            e1L ];
+
+                        strategyPathR = [ ...
+                            strategyPathR; ...
+                            e1R; ...
+                            profileR; ...
+                            e1R ];
+
+                        % Outbound links in reverse order.
+                        if hasLink2
+                            strategyPathL(end+1,:) = e3L;
+                            strategyPathR(end+1,:) = e3R;
+                        end
+
+                        if hasLink1
+                            strategyPathL(end+1,:) = e2L;
+                            strategyPathR(end+1,:) = e2R;
+                        end
+
+                        % Leads and links determine positioning clearance.
+                        clearancePathL = strategyPathL;
+                        clearancePathR = strategyPathR;
+
+                    end
 
                     pXL = app.LeftProfilePoints(1,1);
                     pXR = app.RightProfilePoints(1,1);
-                    planeDist = abs(pXR - pXL);
+                    planeDist = abs(pXR-pXL);
 
-                    % If the part is tapered (planes are separated), we sweep the grid
-                    % to find the X position that makes the Left and Right tower paths
-                    % as close to equal length as possible.
+                    %% --- 3. RANK X CANDIDATES FROM PROFILE LOOP ONLY ---
                     if planeDist > 1e-3
-                        bestDiff = inf;
-                        centerX = bedX + maxXLimit / 2;
+                        candidateRanks = inf(numel(testXs), 6);
+                        centerX = bedX + maxXLimit/2.0;
 
-                        % Sweep ONLY the strict 50mm grid increments
-                        for x = testXs
-                            xL_m = x + app.BilletShift(1) + pXL;
-                            xR_m = x + app.BilletShift(1) + pXR;
+                        neutralJointX = ...
+                            app.MachineBedPos(1) + ...
+                            app.MachineBedSize(1) + ...
+                            app.BrassJointOffsetRight;
 
-                            % Project the toolpath to the physical towers at this test X position
-                            [ tL, tR ] = CNCHotWire_GCodeGenerator_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                        for iCandidate = 1:numel(testXs)
+                            x = testXs(iCandidate);
 
-                            % Calculate total path length for each tower
-                            lenL = sum(hypot(diff(tL.y), diff(tL.z)));
-                            lenR = sum(hypot(diff(tR.y), diff(tR.z)));
+                            xL_m = ...
+                                x + app.BilletShift(1) + pXL;
 
-                            % Penalty function: If multiple grid points yield similar path balances,
-                            % prefer the one closest to the physical center of the machine bed.
-                            penalty = 1e-6 * abs(x - centerX);
-                            diffLen = abs(lenL - lenR) + penalty;
+                            xR_m = ...
+                                x + app.BilletShift(1) + pXR;
 
-                            if diffLen < bestDiff
-                                bestDiff = diffLen;
-                                bestX = x;
+                            % X placement is determined solely from the
+                            % cutting profile. Entry and link routing must
+                            % not distort the profile-loop balance.
+                            [ candidateTL, candidateTR ] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.projectToTowers( ...
+                                profileL(:,1), ...
+                                profileL(:,2), ...
+                                xL_m, ...
+                                profileR(:,1), ...
+                                profileR(:,2), ...
+                                xR_m, ...
+                                app.MachineSpanX);
+
+                            lenL = sum(hypot( ...
+                                diff(candidateTL.y), ...
+                                diff(candidateTL.z)));
+
+                            lenR = sum(hypot( ...
+                                diff(candidateTR.y), ...
+                                diff(candidateTR.z)));
+
+                            pathBalance = abs(lenL-lenR);
+
+                            dyExt = candidateTL.y-candidateTR.y;
+                            dzExt = candidateTL.z-candidateTR.z;
+
+                            extAll = hypot( ...
+                                app.MachineSpanX, ...
+                                hypot(dyExt, dzExt)) - ...
+                                app.MachineSpanX;
+
+                            maxExt = max(extAll);
+
+                            extensionExcess = max( ...
+                                0, maxExt-app.WireExt_Red);
+
+                            jointDeficit = 0;
+
+                            if maxExt > 1e-9
+                                minJointX = neutralJointX-maxExt;
+                                billetRightX = x+app.BilletSize(1);
+
+                                jointClearance = ...
+                                    minJointX-billetRightX;
+
+                                jointDeficit = max( ...
+                                    0, ...
+                                    app.SafetyBuffer_BedEdge- ...
+                                    jointClearance);
                             end
+
+                            allY =[ ...
+                                candidateTL.y(:); ...
+                                candidateTR.y(:) ];
+
+                            allZ =[ ...
+                                candidateTL.z(:); ...
+                                candidateTR.z(:) ];
+
+                            pathSpanY = max(allY)-min(allY);
+                            pathSpanZ = max(allZ)-min(allZ);
+
+                            envelopeDeficit = ...
+                                max(0, pathSpanY-app.MachineLimitY) + ...
+                                max(0, pathSpanZ-app.MachineLimitZ);
+
+                            criticalSeverity = ...
+                                extensionExcess + ...
+                                jointDeficit + ...
+                                envelopeDeficit;
+
+                            isCritical = criticalSeverity > 0;
+                            isAmber = maxExt > app.WireExt_Amber;
+
+                            centerDistance = abs(x-centerX);
+
+                            % Rank priorities:
+                            % 1. avoid critical configurations;
+                            % 2. avoid amber extension where possible;
+                            % 3. minimise the severity if every position is critical;
+                            % 4. balance left and right tower travel;
+                            % 5. minimise extension;
+                            % 6. prefer the bed centre on a remaining tie.
+                            candidateRanks(iCandidate,:) = [ ...
+                                double(isCritical), ...
+                                double(isAmber), ...
+                                criticalSeverity, ...
+                                pathBalance, ...
+                                maxExt, ...
+                                centerDistance ];
                         end
+
+                        [ ~, candidateOrder ] = sortrows( ...
+                            candidateRanks, ...
+                            1:size(candidateRanks,2));
+
+                        bestX = testXs(candidateOrder(1));
                     end
 
                     app.MachineBilletPos(1) = bestX;
 
-                    %% --- 3. Z-AXIS LOGIC (STOCK HEIGHTS) ---
-                    % Re-evaluate the tower heights at the chosen bestX position
+                    %% --- 4. PROJECT THE COMPLETE CLEARANCE PATH ---
                     xL_m = bestX + app.BilletShift(1) + pXL;
                     xR_m = bestX + app.BilletShift(1) + pXR;
 
-                    [ tL, tR ] = CNCHotWire_GCodeGenerator_Helpers.projectToTowers(yL_base, zL_base, xL_m, yR_base, zR_base, xR_m, app.MachineSpanX);
+                    [ clearanceTL, clearanceTR ] = ...
+                        CNCHotWire_GCodeGenerator_Helpers.projectToTowers( ...
+                        clearancePathL(:,1), ...
+                        clearancePathL(:,2), ...
+                        xL_m, ...
+                        clearancePathR(:,1), ...
+                        clearancePathR(:,2), ...
+                        xR_m, ...
+                        app.MachineSpanX);
 
-                    % Find the lowest point the wire reaches on either tower
-                    minProjZ = min([tL.z; tR.z]);
+                    %% --- 5. Z POSITION ---
+                    minProjZ = min([ ...
+                        clearanceTL.z(:); ...
+                        clearanceTR.z(:) ]);
 
                     if minProjZ >= 0
-                        % Wire never goes below the bed, so billet can sit flat on the bed
                         app.MachineBilletPos(3) = 0;
                     else
-                        % Wire dips below the bed! We must raise the billet on packing blocks.
-                        % HOW: We snap to standard 25mm increments (e.g., 25, 50, 75mm blocks).
-                        reqZ = -minProjZ;
-                        targetZ = ceil(reqZ / 25.0) * 25.0;
+                        requiredZ = -minProjZ;
 
-                        % Force a minimum of 50mm packing if any packing is required at all
-                        if targetZ > 0 && targetZ < 50
+                        % Retain the established 25 mm packing increments.
+                        targetZ = ceil(requiredZ/25.0)*25.0;
+
+                        % Retain the established 50 mm minimum whenever
+                        % packing is required.
+                        if targetZ > 0 && targetZ < 50.0
                             targetZ = 50.0;
                         end
+
                         app.MachineBilletPos(3) = targetZ;
                     end
 
-                    %% --- 4. Y-AXIS LOGIC (SAFE CLEARANCE) ---
-                    % Find the furthest forward the wire reaches
-                    minProjY = min([tL.y; tR.y]);
+                    %% --- 6. Y POSITION ---
+                    minProjY = min([ ...
+                        clearanceTL.y(:); ...
+                        clearanceTR.y(:) ]);
 
-                    % Ensure the wire never gets closer than 50mm to the absolute front of the machine
-                    reqBilletY = max(50.0, 50.0 - minProjY);
+                    requiredBilletY = max( ...
+                        bedY, ...
+                        app.BilletMinYBuffer-minProjY);
 
-                    % Snap the Y position to a 50mm grid for easy physical measurement
-                    targetBilletY = ceil(reqBilletY / 50.0) * 50.0;
+                    yGrid = max(app.BilletRoundingY, eps);
 
-                    bedD = app.MachineBedSize(2);
-                    bY = app.BilletSize(2);
-                    maxY = app.MachineBedPos(2) + bedD - bY;
+                    targetBilletY = ...
+                        ceil(requiredBilletY/yGrid)*yGrid;
 
-                    % Clamp to ensure it doesn't fall off the back of the bed
-                    app.MachineBilletPos(2) = min(targetBilletY, maxY);
+                    maxY = ...
+                        app.MachineBedPos(2) + ...
+                        app.MachineBedSize(2) - ...
+                        app.BilletSize(2);
+
+                    app.MachineBilletPos(2) = max( ...
+                        bedY, ...
+                        min(targetBilletY, maxY));
                 else
-                    % Fallback if profiles are empty
-                    app.MachineBilletPos(1) = bestX;
-                    app.MachineBilletPos(2) = app.MachineBedPos(2);
-                    app.MachineBilletPos(3) = 0;
+                    app.MachineBilletPos =[ bestX, bedY, 0 ];
                 end
             else
-                % Fallback if profiles are empty
-                app.MachineBilletPos(1) = bestX;
-                app.MachineBilletPos(2) = app.MachineBedPos(2);
-                app.MachineBilletPos(3) = 0;
+                app.MachineBilletPos =[ bestX, bedY, 0 ];
             end
 
-            %% --- 5. FINALIZE & UPDATE UI ---
+            %% --- 7. FINALISE AND TRANSLATE STRATEGY ONCE ---
             app.IsMachineInit = true;
             app.syncMachineUI();
 
-            % Keep existing entry and link points aligned with the billet
-            % after its final, boundary-constrained machine position is known.
-            dY = app.MachineBilletPos(2) - oldMachineY;
-            dZ = app.MachineBilletPos(3) - oldMachineZ;
-            app.shiftEntryPoints(dY, dZ);
+            finalDY = ...
+                app.MachineBilletPos(2)-oldMachinePos(2);
 
-            [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
+            finalDZ = ...
+                app.MachineBilletPos(3)-oldMachinePos(3);
+
+            app.shiftEntryPoints(finalDY, finalDZ);
+
+            app.IsMachineUserModified = false;
+
+            [ isValid, pCol, tCol, txtLines ] = ...
+                app.checkMachineState();
 
             app.MachineLeftPanel.BackgroundColor = pCol;
             app.TxtMachineStatus.Value = txtLines;
             app.TxtMachineStatus.FontColor = tCol;
-
             app.BtnMachineContinue.Enable = 'on';
-            app.IsMachineUserModified = false; % Mark as auto-calculated
+
             app.refreshMachinePlot();
         end
 
