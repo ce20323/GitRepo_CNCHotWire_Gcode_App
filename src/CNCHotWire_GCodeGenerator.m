@@ -3689,10 +3689,10 @@ classdef CNCHotWire_GCodeGenerator < handle
             crit = strings(0);
 
             %% --- 1. Hard Physical Limits ---
-            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1) = "Billet overhangs Bed (X)."; end
-            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1) = "Billet overhangs Bed (Y)."; end
-            if bMin(3) < 0 - 0.1, crit(end+1) = "Billet below bed surface (Z < 0)."; end
-            if bMax(3) > limZ(2) + 0.1, crit(end+1) = "Billet exceeds max Z travel."; end
+            if bMin(1) < bedMin(1) - 0.1 || bMax(1) > bedMax(1) + 0.1, crit(end+1,1) = "Billet overhangs Bed (X)."; end
+            if bMin(2) < bedMin(2) - 0.1 || bMax(2) > bedMax(2) + 0.1, crit(end+1,1) = "Billet overhangs Bed (Y)."; end
+            if bMin(3) < 0 - 0.1, crit(end+1,1) = "Billet below bed surface (Z < 0)."; end
+            if bMax(3) > limZ(2) + 0.1, crit(end+1,1) = "Billet exceeds max Z travel."; end
 
             %% --- 2. Wire Extension Collision Check ---
             % The brass joint connects the hot wire to the tension wire.
@@ -3704,14 +3704,14 @@ classdef CNCHotWire_GCodeGenerator < handle
             % The gap between the right face of the billet and the brass joint
             % must not be less than the safety buffer.
             if (minJointX - bMax(1)) < app.SafetyBuffer_BedEdge && app.MaxPathExtension > 0
-                crit(end+1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
+                crit(end+1,1) = sprintf("CRITICAL: Wire extension pulls brass joint to within %.1fmm of billet (Minimum allowed is %.0fmm).", (minJointX - bMax(1)), app.SafetyBuffer_BedEdge);
             end
 
             if ~isempty(crit)
                 isValid = false;
                 panelCol = t.statErrBg;
                 textCol = t.statErrTxt;
-                msgLines = ["CRITICAL ERROR:"; crit'];
+                msgLines = ["CRITICAL ERROR:"; crit];
                 return;
             end
 
@@ -3719,20 +3719,20 @@ classdef CNCHotWire_GCodeGenerator < handle
             buf = app.SafetyBuffer_BedEdge;
 
             %% --- 3. Soft Warnings (Proximity) ---
-            if (bMin(1) - bedMin(1) < buf), warn(end+1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
+            if (bMin(1) - bedMin(1) < buf), warn(end+1,1) = sprintf("Close to Left bed edge (<%.0fmm).", buf); end
             if (bedMax(1) - bMax(1) < buf)
                 warn(end+1) = sprintf("Close to Right bed edge (<%.0fmm).", buf);
                 if strcmp(app.TaperToggle.Value, 'Tapered')
-                    warn(end+1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
+                    warn(end+1,1) = "TAPER WARNING: Ensure brass wire fixture clears the billet.";
                 end
             end
-            if (bedMax(2) - bMax(2) < buf), warn(end+1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
+            if (bedMax(2) - bMax(2) < buf), warn(end+1,1) = sprintf("Close to Back bed edge (<%.0fmm).", buf); end
 
             if ~isempty(warn)
                 isValid = true;
                 panelCol = t.statWarnBg;
                 textCol = t.statWarnTxt;
-                msgLines = ["Warning: Proximity to bed edge."; warn'];
+                msgLines = ["Warning: Proximity to bed edge."; warn];
             else
                 isValid = true;
                 panelCol = t.statPassBg;
@@ -5676,7 +5676,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                     s = code;
                 end
 
-                lines(end+1) = s;
+                lines(end+1,1) = s;
 
                 if nargin >= 6
                     pathIdx = pathIdx + 1;
@@ -5690,7 +5690,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                 end
 
                 % Map this line of G-code to the last known path position
-                map(end+1) = max(1, pathIdx);
+                map(end+1,1) = max(1, pathIdx);
             end
 
             % Nested Helper 4: Dynamic Feed G1 Move
