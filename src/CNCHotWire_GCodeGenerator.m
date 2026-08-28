@@ -454,7 +454,13 @@ classdef CNCHotWire_GCodeGenerator < handle
             isCutting  = isequal(targetTab, app.TabCutting);
             isSim      = isequal(targetTab, app.TabSimulation);
             isPost     = isequal(targetTab, app.TabPostProcess);
-
+            
+            % Do not allow the simulation timer to update graphics while
+            % another tab is rebuilding or replacing plot objects.
+            if isequal(oldTab, app.TabSimulation) && ~isSim
+                app.onSimPause();
+            end
+            
             % Determine what data the target tab requires
             needsProfiles = ~isModel && ~isGuide && ~isWelcome;
             needsKerf     = isBillet || isMachine || isCutting || isSim || isPost;
@@ -5272,15 +5278,26 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             % Nested Helper for Trails
             function upT(tag, data, s, e)
-                h = findobj(app.AxSim,'Tag',tag);
-                if ~isempty(h)
-                    if s > e
-                        h.XData =[ ]; h.YData =[ ]; h.ZData =[ ];
-                    else
-                        dt = data(s:e,:) - [ offX, 0, 0 ];
-                        h.XData = dt(:,1); h.YData = dt(:,2); h.ZData = dt(:,3);
-                    end
+                h = findobj(app.AxSim, 'Tag', tag);
+
+                if isempty(h)
+                    return;
                 end
+
+                if s > e
+                    set(h, ...
+                        'XData', [], ...
+                        'YData', [], ...
+                        'ZData', []);
+                    return;
+                end
+
+                dt = data(s:e,:) - [ offX, 0, 0 ];
+
+                set(h, ...
+                    'XData', dt(:,1), ...
+                    'YData', dt(:,2), ...
+                    'ZData', dt(:,3));
             end
 
             % Update Phase Trails
@@ -5992,20 +6009,43 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Nested Helper for Trails
             function updateT(tag, data, s, e)
                 h = findobj(ax, 'Tag', tag);
-                if ~isempty(h)
-                    s = max(1, min(s, size(data,1))); e = max(1, min(e, size(data,1)));
-                    if e < s, h.XData=[ ]; h.YData=[ ]; h.ZData=[ ]; return; end
-                    dt = data(s:e,:);
-                    h.XData = dt(:,1) - offX; h.YData = dt(:,2); h.ZData = dt(:,3);
+
+                if isempty(h)
+                    return;
                 end
+
+                s = max(1, min(s, size(data,1)));
+                e = max(1, min(e, size(data,1)));
+
+                if e < s
+                    set(h, ...
+                        'XData', [], ...
+                        'YData', [], ...
+                        'ZData', []);
+                    return;
+                end
+
+                dt = data(s:e,:);
+
+                set(h, ...
+                    'XData', dt(:,1) - offX, ...
+                    'YData', dt(:,2), ...
+                    'ZData', dt(:,3));
             end
 
             function clearT(tags)
-                for ii=1:numel(tags)
-                    h=findobj(ax,'Tag',tags{ii}); if ~isempty(h), h.XData=[ ]; h.YData=[ ]; h.ZData=[ ]; end
+                for ii = 1:numel(tags)
+                    h = findobj(ax, 'Tag', tags{ii});
+
+                    if ~isempty(h)
+                        set(h, ...
+                            'XData', [], ...
+                            'YData', [], ...
+                            'ZData', []);
+                    end
                 end
             end
-
+            
             % 1. Rapid (Yellow)
             curEnd = min(idx, idxRapidEnd);
             updateT('PostTowerRapidL', towerL, 1, curEnd);
