@@ -1121,21 +1121,47 @@ classdef CNCHotWire_GCodeGenerator < handle
             isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
 
             if ~isTaper
-                % Straight Mode: Must be Coupled Kerf and NO Dynamic Feed
+                % Straight Mode: Coupled Kerf, Start and Entry modes only,
+                % with Dynamic Feed disabled.
                 if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Value = 'Coupled';
                     app.onKerfModeChanged(app.KerfModeSwitch);
                     app.KerfModeSwitch.Enable = 'off';
                 end
+
+                if isprop(app, 'SwitchSyncStart') && ~isempty(app.SwitchSyncStart) && isgraphics(app.SwitchSyncStart)
+                    app.SwitchSyncStart.Value = 'Coupled';
+                    app.SwitchSyncStart.Enable = 'off';
+                    app.SelectedStartIdxR = app.SelectedStartIdxL;
+                end
+
+                if isprop(app, 'SwitchSyncEntry') && ~isempty(app.SwitchSyncEntry) && isgraphics(app.SwitchSyncEntry)
+                    app.SwitchSyncEntry.Value = 'Coupled';
+                    app.SwitchSyncEntry.Enable = 'off';
+
+                    app.EntryPointR = app.EntryPointL;
+                    app.EntryPoint2R = app.EntryPoint2L;
+                    app.EntryPoint3R = app.EntryPoint3L;
+                end
+
                 if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
                     app.ChkDynamicFeed.Value = false;
                     app.ChkDynamicFeed.Enable = 'off';
                 end
             else
-                % Taper Mode: Allow Independent choice
+                % Tapered Mode: Allow Independent choices.
                 if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Enable = 'on';
                 end
+
+                if isprop(app, 'SwitchSyncStart') && ~isempty(app.SwitchSyncStart) && isgraphics(app.SwitchSyncStart)
+                    app.SwitchSyncStart.Enable = 'on';
+                end
+
+                if isprop(app, 'SwitchSyncEntry') && ~isempty(app.SwitchSyncEntry) && isgraphics(app.SwitchSyncEntry)
+                    app.SwitchSyncEntry.Enable = 'on';
+                end
+
                 if isprop(app, 'ChkDynamicFeed') && ~isempty(app.ChkDynamicFeed) && isgraphics(app.ChkDynamicFeed)
                     app.ChkDynamicFeed.Enable = 'on';
                     app.ChkDynamicFeed.Value = true; % Default to true
