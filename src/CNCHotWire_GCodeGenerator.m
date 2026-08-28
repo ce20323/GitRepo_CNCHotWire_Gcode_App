@@ -3922,7 +3922,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             function checkSide(sideName, lead, link1, link2, profY, profZ)
                 % Catch empty lead points (e.g. from Clear Pts button)
                 if isempty(lead)
-                    crit(end+1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
+                    crit(end+1,1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
                     return;
                 end
 
@@ -3961,32 +3961,71 @@ classdef CNCHotWire_GCodeGenerator < handle
 
                 % A. Check Proximity (<5mm from Bed or Billet)
                 if lead(2) < 5.0
-                    warn(end+1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
+                    warn(end+1,1) = sprintf("%s: Lead In very close to Bed (<5mm).", sideName);
                 end
 
                 distY = max(0, max(bMinY - lead(1), lead(1) - bMaxY));
                 distZ = max(0, max(bMinZ - lead(2), lead(2) - bMaxZ));
                 if (distY < 5.0 && distZ < 5.0) && (distY > 0 || distZ > 0)
-                    warn(end+1) = sprintf("%s: Lead In <5mm from Billet.", sideName);
+                    warn(end+1,1) = sprintf("%s: Lead In <5mm from Billet.", sideName);
                 end
 
-                % B. CRITICAL: Link Line Collision with Billet
-                pRet = [ bMinY - 10, bMaxZ/2 ];
-                pathPts =[ pRet; link1; link2; lead ];
-                pathPts = pathPts(~all(pathPts==0, 2), :);
+                % B. CRITICAL: Rapid-path collision with billet
+                % Match the approach and retract coordinates used by
+                % generateSimulationData and generateGCode.
+                travelZ = bMinZ + app.BilletSize(3)/2.0;
+                pApproach = [ bMinY - 4.0,  travelZ ];
+                pRetract  = [ bMinY - 10.0, travelZ ];
 
-                for k = 1:size(pathPts, 1)-1
-                    p1 = pathPts(k,:);
-                    p2 = pathPts(k+1,:);
+                % Construct the actual inbound route:
+                % approach -> link 1 -> link 2 -> lead-in.
+                inboundPts = pApproach;
+                if ~isempty(link1)
+                    inboundPts(end+1,:) = link1;
+                end
+                if ~isempty(link2)
+                    inboundPts(end+1,:) = link2;
+                end
+                inboundPts(end+1,:) = lead;
 
-                    [ xi, zi ] = intersectSegPoly(p1, p2, billetBoxY, billetBoxZ);
+                % Construct the actual outbound route:
+                % lead-out -> link 2 -> link 1 -> retract.
+                outboundPts = lead;
+                if ~isempty(link2)
+                    outboundPts(end+1,:) = link2;
+                end
+                if ~isempty(link1)
+                    outboundPts(end+1,:) = link1;
+                end
+                outboundPts(end+1,:) = pRetract;
 
-                    if ~isempty(xi)
-                        crit(end+1) = sprintf("%s: Rapid move passes THROUGH the billet!", sideName);
+                rapidPaths = { inboundPts, outboundPts };
+                rapidLabels = { 'Inbound rapid', 'Outbound return' };
+
+                hasRapidCollision = false;
+
+                for rapidIdx = 1:numel(rapidPaths)
+                    pathPts = rapidPaths{rapidIdx};
+
+                    for k = 1:(size(pathPts,1)-1)
+                        [xi, ~] = intersectSegPoly( ...
+                            pathPts(k,:), pathPts(k+1,:), ...
+                            billetBoxY, billetBoxZ);
+
+                        if ~isempty(xi)
+                            crit(end+1,1) = sprintf( ...
+                                "%s: %s passes THROUGH the billet!", ...
+                                sideName, rapidLabels{rapidIdx});
+                            hasRapidCollision = true;
+                            break;
+                        end
+                    end
+
+                    if hasRapidCollision
                         break;
                     end
                 end
-
+                
                 % C. CRITICAL: Lead-In Gouging (Bisecting) Model
                 if ~isempty(profY)
                     startPt = [ profY(1), profZ(1) ];
@@ -4002,12 +4041,12 @@ classdef CNCHotWire_GCodeGenerator < handle
                     end
 
                     if validHit
-                        crit(end+1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
+                        crit(end+1,1) = sprintf("%s: Lead-In cuts through the part geometry!", sideName);
                     end
 
                     midPt = (lead + startPt) / 2;
                     if inpolygon(midPt(1), midPt(2), profY, profZ)
-                        crit(end+1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
+                        crit(end+1,1) = sprintf("%s: Lead-In is inside the part geometry!", sideName);
                     end
                 end
             end
