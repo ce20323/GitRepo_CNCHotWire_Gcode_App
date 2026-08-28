@@ -3971,6 +3971,162 @@ classdef CNCHotWire_GCodeGenerator < handle
                 end
             end
 
+            %% --- NESTED HELPER: COMPLETE-WIRE RAPID COLLISION ---
+            function hit = segmentPassesThroughBox(p0, p1, boxMin, boxMax)
+                % Tests whether the wire segment enters the interior of the
+                % rectangular billet. The box is already slightly reduced
+                % so touching a billet face is not treated as penetration.
+
+                direction = p1 - p0;
+                tEnter = 0.0;
+                tExit = 1.0;
+
+                for axisIdx = 1:3
+                    if abs(direction(axisIdx)) < 1e-12
+                        if p0(axisIdx) <= boxMin(axisIdx) || ...
+                                p0(axisIdx) >= boxMax(axisIdx)
+
+                            hit = false;
+                            return;
+                        end
+                    else
+                        t1 = (boxMin(axisIdx) - p0(axisIdx)) / ...
+                            direction(axisIdx);
+
+                        t2 = (boxMax(axisIdx) - p0(axisIdx)) / ...
+                            direction(axisIdx);
+
+                        tEnter = max(tEnter, min(t1, t2));
+                        tExit = min(tExit, max(t1, t2));
+
+                        if tEnter > tExit
+                            hit = false;
+                            return;
+                        end
+                    end
+                end
+
+                hit = tEnter <= tExit;
+            end
+
+            function [ isClear, message ] = checkRapidWireAgainstBillet()
+                % Checks the complete tower-to-tower wire during:
+                %   1. the post-loading inbound rapid; and
+                %   2. the post-cut return.
+                %
+                % Lead-in, profile and lead-out movements are deliberately
+                % excluded because those are intended cutting movements.
+
+                isClear = false;
+                message = "";
+
+                if isempty(app.SimPathL) || isempty(app.SimPathR) || ...
+                        isempty(app.SimTowerPathL) || ...
+                        isempty(app.SimTowerPathR)
+
+                    message = ...
+                        "Complete wire path is unavailable for billet collision checking.";
+                    return;
+                end
+
+                n = min([ ...
+                    size(app.SimPathL, 1), ...
+                    size(app.SimPathR, 1), ...
+                    size(app.SimTowerPathL, 1), ...
+                    size(app.SimTowerPathR, 1) ]);
+
+                if n < 1 || isempty(app.SimRapidCutoffIndex) || ...
+                        isempty(app.SimLeadOutEndIndex)
+
+                    message = ...
+                        "Complete wire phase data is unavailable for billet collision checking.";
+                    return;
+                end
+
+                rapidEnd = round(app.SimRapidCutoffIndex);
+                returnStart = round(app.SimLeadOutEndIndex) + 1;
+
+                if rapidEnd < 1 || rapidEnd > n || ...
+                        returnStart < 1 || returnStart > n
+
+                    message = ...
+                        "Complete wire phase indices are invalid.";
+                    return;
+                end
+
+                % The billet is not present during the initial move to the
+                % loading position. Begin checking after the programmed
+                % 4 mm post-loading retract has been reached.
+                approachYZ = [ ...
+                    bMinY - 4.0, ...
+                    bMinZ + app.BilletSize(3) / 2.0 ];
+
+                rapidRange = (1:rapidEnd)';
+
+                distL = hypot( ...
+                    app.SimPathL(rapidRange, 2) - approachYZ(1), ...
+                    app.SimPathL(rapidRange, 3) - approachYZ(2));
+
+                distR = hypot( ...
+                    app.SimPathR(rapidRange, 2) - approachYZ(1), ...
+                    app.SimPathR(rapidRange, 3) - approachYZ(2));
+
+                [ approachError, localApproachIdx ] = ...
+                    min(max(distL, distR));
+
+                locationTol = max( ...
+                    1e-6, ...
+                    CNCHotWire_GCodeGenerator.SimSpatialResolution * 1e-3);
+
+                if approachError > locationTol
+                    message = ...
+                        "Could not locate the post-loading retract position for billet collision checking.";
+                    return;
+                end
+
+                approachIdx = rapidRange(localApproachIdx);
+
+                % Reduce the box very slightly so a wire merely touching a
+                % billet face is not reported as passing through its interior.
+                interiorTol = max(app.ModelContainmentTol, 1e-6);
+
+                boxMin = app.MachineBilletPos + interiorTol;
+                boxMax = ...
+                    app.MachineBilletPos + app.BilletSize - interiorTol;
+
+                if any(boxMin >= boxMax)
+                    message = ...
+                        "Billet dimensions are invalid for complete-wire collision checking.";
+                    return;
+                end
+
+                checkIndices = unique([ ...
+                    approachIdx:rapidEnd, ...
+                    returnStart:n ]);
+
+                for checkIdx = checkIndices
+                    wireLeft = app.SimTowerPathL(checkIdx, 1:3);
+                    wireRight = app.SimTowerPathR(checkIdx, 1:3);
+
+                    if segmentPassesThroughBox( ...
+                            wireLeft, wireRight, boxMin, boxMax)
+
+                        if checkIdx <= rapidEnd
+                            phaseName = "inbound rapid";
+                        else
+                            phaseName = "post-cut return";
+                        end
+
+                        message = sprintf( ...
+                            "Complete wire passes through the billet during the %s movement.", ...
+                            char(phaseName));
+                        return;
+                    end
+                end
+
+                isClear = true;
+            end
+
             %% --- NESTED HELPER: SIDE VALIDATION ---
             function checkSide(sideName, lead, link1, link2, profY, profZ)
                 % Catch empty lead points (e.g. from Clear Pts button)
@@ -4122,12 +4278,23 @@ classdef CNCHotWire_GCodeGenerator < handle
             if ~pairMismatch && ~isempty(yL) && ~isempty(yR)
                 app.generateSimulationData(false);
 
-                [ ~, pathCrit, pathWarn ] = ...
+                [ pathSafe, pathCrit, pathWarn ] = ...
                     app.checkProjectedPathSafety( ...
-                        app.SimTowerPathL, app.SimTowerPathR);
+                    app.SimTowerPathL, app.SimTowerPathR);
 
                 crit = [ crit(:); pathCrit(:) ];
                 warn = [ warn(:); pathWarn(:) ];
+
+                % Each end route can be clear in its own Y-Z view while
+                % the physical wire joining them passes through the billet.
+                if pathSafe && isempty(crit)
+                    [ wireClear, wireMessage ] = ...
+                        checkRapidWireAgainstBillet();
+
+                    if ~wireClear
+                        crit(end+1,1) = wireMessage;
+                    end
+                end
             end
 
             t = app.getTheme();
