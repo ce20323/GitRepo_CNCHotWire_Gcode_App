@@ -4832,19 +4832,45 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             yL_s = yL + offY; zL_s = zL + offZ;
 
-            [ eL, l1L, l2L ] = calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
-
-            app.EntryPointL=eL; app.EntryPoint2L=l1L; app.EntryPoint3L=l2L;
+            [ eL, l1L, l2L ] = ...
+                calcEntryLogic(yL_s, zL_s, app.SelectedStartIdxL);
 
             if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
-                app.EntryPointR=eL; app.EntryPoint2R=l1L; app.EntryPoint3R=l2L;
+                app.EntryPointR = eL;
+                app.EntryPoint2R = l1L;
+                app.EntryPoint3R = l2L;
             else
-                yR_s = yR + offY; zR_s = zR + offZ;
+                yR_s = yR + offY;
+                zR_s = zR + offZ;
 
-                [ eR, l1R, l2R ] = calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
+                [ eR, l1R, l2R ] = ...
+                    calcEntryLogic(yR_s, zR_s, app.SelectedStartIdxR);
 
-                app.EntryPointR=eR; app.EntryPoint2R=l1R; app.EntryPoint3R=l2R;
+                % Over-the-top routing is a coordinated wire movement.
+                % If either side requires it, both sides must use the same
+                % approach phases before descending to their own lead points.
+                usesOverTop = ...
+                    ~isempty(l1L) || ~isempty(l2L) || ...
+                    ~isempty(l1R) || ~isempty(l2R);
+
+                if usesOverTop
+                    safeZ = bMaxZ + app.MachineSafeHeight;
+
+                    l1L = [ bMinY - 10.0, safeZ ];
+                    l2L = [ eL(1), max(safeZ, eL(2)) ];
+
+                    l1R = [ bMinY - 10.0, safeZ ];
+                    l2R = [ eR(1), max(safeZ, eR(2)) ];
+                end
+
+                app.EntryPointR = eR;
+                app.EntryPoint2R = l1R;
+                app.EntryPoint3R = l2R;
             end
+
+            app.EntryPointL = eL;
+            app.EntryPoint2L = l1L;
+            app.EntryPoint3L = l2L;
 
             % Tell the Gatekeeper Auto-Entry succeeded!
             app.IsCuttingUserModified = false;
