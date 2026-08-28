@@ -585,6 +585,20 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             %% --- LEVEL 4: MACHINE GATEKEEPER ---
             if needsMachine
+                % A retained manual position may no longer fit after an
+                % upstream billet-size change. Constrain it before generating
+                % or validating any downstream movement paths.
+                if app.IsMachineUserModified
+                    oldMachineY = app.MachineBilletPos(2);
+                    oldMachineZ = app.MachineBilletPos(3);
+
+                    app.syncMachineUI();
+
+                    app.shiftEntryPoints( ...
+                        app.MachineBilletPos(2) - oldMachineY, ...
+                        app.MachineBilletPos(3) - oldMachineZ);
+                end
+                
                 % Establish a provisional automatic machine position whenever
                 % the current automatic placement has been marked stale.
                 % A manually selected machine position is never replaced here.
@@ -2601,14 +2615,14 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.MachineBilletPos(axisIdx) = val;
             end
 
-            % HOW: If the billet moves on the bed, the manual entry/link points
-            %      (which are tied to the billet) must shift by the exact same amount.
+            % Enforce the physical boundaries before translating dependent points.
+            app.syncMachineUI();
+
+            % Move the entry/link points by the movement actually accepted after
+            % constraining the billet position.
             dY = app.MachineBilletPos(2) - oldY;
             dZ = app.MachineBilletPos(3) - oldZ;
             app.shiftEntryPoints(dY, dZ);
-
-            % Enforce physical boundaries on the spinners
-            app.syncMachineUI();
 
             % Re-evaluate safety (e.g., did they push it off the back of the bed?)
             [ isValid, pCol, tCol, txtLines ] = app.checkMachineState();
