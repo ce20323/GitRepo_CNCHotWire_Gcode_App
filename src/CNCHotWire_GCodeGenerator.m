@@ -585,19 +585,39 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             %% --- LEVEL 4: MACHINE GATEKEEPER ---
             if needsMachine
-                % Auto-Trigger: Only if never setup and not manually locked.
+                % Establish a provisional automatic machine position whenever
+                % the current automatic placement has been marked stale.
+                % A manually selected machine position is never replaced here.
                 if ~app.IsMachineInit && ~app.IsMachineUserModified
                     app.onResetMachineBilletPosition();
                 end
 
-                % Supply an automatic strategy before the Cutting tab is first
-                % visited. Later user-modified points are retained.
+                % Create the automatic Cutting Strategy in the gatekeeper,
+                % rather than as a side effect of refreshing a plot.
+                strategyWasAutoCreated = false;
+
                 if ~app.IsCuttingInit
                     if ~app.IsCuttingUserModified
                         app.onAutoStart(false);
                         app.onAutoEntry(false);
+
+                        strategyWasAutoCreated = ...
+                            ~isempty(app.EntryPointL) && ...
+                            ~isempty(app.EntryPointR);
                     end
+
                     app.IsCuttingInit = true;
+                end
+
+                % The provisional machine position was necessarily calculated
+                % without a strategy on the first pass. Once automatic lead and
+                % link points exist, refine the automatic Y-Z position once.
+                % onResetMachineBilletPosition continues to determine X from
+                % the profile loops alone.
+                if strategyWasAutoCreated && ...
+                        ~app.IsMachineUserModified
+
+                    app.onResetMachineBilletPosition();
                 end
 
                 % Build and evaluate the complete movement sequence, including
@@ -3009,16 +3029,9 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             t = app.getTheme(); % Master Palette
 
-            % The Machine tab previews the automatic strategy before the
-            % Cutting tab is first visited, then retains later manual points.
-            if ~app.IsCuttingInit
-                if ~app.IsCuttingUserModified
-                    app.onAutoStart(false);
-                    app.onAutoEntry(false);
-                end
-                app.IsCuttingInit = true;
-            end
-
+            % Workflow state is initialized by onTabChanged. Plot refreshes
+            % may rebuild derived simulation data, but must not create or
+            % replace the operator's Cutting Strategy.
             app.generateSimulationData(false);
 
             % Machine geometry constants
