@@ -4297,8 +4297,8 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.BtnCuttingContinue.Enable = 'on';
 
             %% --- 6. FORMAT AXES ---
-            title(app.AxCutLeft,'Left Tower', 'Color', t.labelCol);
-            title(app.AxCutRight,'Right Tower', 'Color', t.labelCol);
+            title(app.AxCutLeft,'Left Profile', 'Color', t.labelCol);
+            title(app.AxCutRight,'Right Profile', 'Color', t.labelCol);
             colormap(app.AxCutLeft,'turbo'); colormap(app.AxCutRight,'turbo');
 
             xlabel(app.AxCutLeft, 'Y (mm)', 'Color', t.labelCol, 'FontWeight', 'bold');
