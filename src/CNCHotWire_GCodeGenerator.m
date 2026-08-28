@@ -764,14 +764,21 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.refreshBilletPlots();
 
             elseif targetTab == app.TabMachine
-                app.syncMachineUI();[ isValidMachF, pColF, tColF, msgLinesF ] = app.checkMachineState();
+                app.syncMachineUI();
+
+                [ isValidMachF, pColF, tColF, msgLinesF ] = ...
+                    app.checkMachineState();
+
                 app.MachineLeftPanel.BackgroundColor = pColF;
                 app.TxtMachineStatus.Value = msgLinesF;
                 app.TxtMachineStatus.FontColor = tColF;
                 app.BtnMachineContinue.Enable = 'on';
                 app.refreshMachinePlot();
 
-            elseif targetTab == app.TabCutting[ isValidCutF, pColCF, tColCF, msgLinesCF ] = app.validateCuttingStrategy();
+            elseif targetTab == app.TabCutting
+                [ isValidCutF, pColCF, tColCF, msgLinesCF ] = ...
+                    app.validateCuttingStrategy();
+
                 app.CuttingLeftPanel.BackgroundColor = pColCF;
                 app.TxtCuttingStatus.Value = msgLinesCF;
                 app.TxtCuttingStatus.FontColor = tColCF;
