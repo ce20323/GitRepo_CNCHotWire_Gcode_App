@@ -3922,6 +3922,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             %% --- REQUIRE MATCHING LEFT/RIGHT STRATEGY POINTS ---
             pairMismatch = false;
+            malformedStrategyPoint = false;
 
             pointPairs = {
                 'Lead-In', app.EntryPointL,  app.EntryPointR;
@@ -4132,17 +4133,19 @@ classdef CNCHotWire_GCodeGenerator < handle
             function checkSide(sideName, lead, link1, link2, profY, profZ)
                 % Catch empty lead points (e.g. from Clear Pts button)
                 if isempty(lead)
-                    crit(end+1,1) = sprintf("%s: Missing Lead-In point. Use Auto-Entry or pick manually.", sideName);
+                    crit(end+1,1) = sprintf("%s: Missing Lead-In point. Use Auto Lead or pick manually.", sideName);
                     return;
                 end
 
-                % Every manually or automatically stored cutting-plane point
-                % must lie within the configured Y-Z machine envelope.
+                % Every manually or automatically stored cutting-plane point must
+                % be a finite 1-by-2 Y-Z row vector within the machine envelope.
                 sidePoints = {
                     'Lead-In', lead;
                     'Link 1',  link1;
                     'Link 2',  link2
                     };
+
+                sideHasMalformedPoint = false;
 
                 for pointIdx = 1:size(sidePoints,1)
                     pointValue = sidePoints{pointIdx,2};
@@ -4151,12 +4154,16 @@ classdef CNCHotWire_GCodeGenerator < handle
                         continue;
                     end
 
-                    if numel(pointValue) ~= 2 || ...
-                            any(~isfinite(pointValue))
+                    if ~isnumeric(pointValue) || ...
+                            ~isequal(size(pointValue), [1 2]) || ...
+                            any(~isfinite(pointValue(:)))
 
                         crit(end+1,1) = sprintf( ...
                             "%s %s point is invalid.", ...
                             sideName, sidePoints{pointIdx,1});
+
+                        sideHasMalformedPoint = true;
+                        malformedStrategyPoint = true;
 
                     elseif pointValue(1) < 0 || ...
                             pointValue(1) > app.MachineLimitY || ...
@@ -4167,6 +4174,12 @@ classdef CNCHotWire_GCodeGenerator < handle
                             "%s %s point is outside the machine envelope.", ...
                             sideName, sidePoints{pointIdx,1});
                     end
+                end
+
+                % Do not index or construct paths from malformed data. The critical
+                % message above will be returned through the normal status mechanism.
+                if sideHasMalformedPoint
+                    return;
                 end
 
                 % A. Check Proximity (<5mm from Bed or Billet)
@@ -4276,7 +4289,9 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             % The selected points can all be individually inside the envelope
             % while their extrapolation to the towers is outside it.
-            if ~pairMismatch && ~isempty(yL) && ~isempty(yR)
+            if ~pairMismatch && ...
+                    ~malformedStrategyPoint && ...
+                    ~isempty(yL) && ~isempty(yR)
                 app.generateSimulationData(false);
 
                 [ pathSafe, pathCrit, pathWarn ] = ...
@@ -4889,6 +4904,10 @@ classdef CNCHotWire_GCodeGenerator < handle
                 doPlot = true;
             end
 
+            % Preserve any existing manual-strategy lock. Auto Start changes only
+            % the start indices; manually selected Lead In or link points may remain.
+            preserveUserLock = app.IsCuttingUserModified;
+
             chkP = cell(1,4);
             [ chkP{1}, chkP{2}, chkP{3}, chkP{4} ] = app.getSyncedKerfProfiles();
             yL_b = chkP{1}; yR_b = chkP{3};
@@ -4908,8 +4927,9 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.SelectedStartIdxR = idxR;
             end
 
-            % Tell the Gatekeeper Auto-Start succeeded!
-            app.IsCuttingUserModified = false;
+            % The start indices are current, but any existing manual-strategy
+            % lock must remain unchanged.
+            app.IsCuttingUserModified = preserveUserLock;
             app.IsCuttingInit = true;
             if doPlot
                 app.updateCuttingPlots();
@@ -5047,7 +5067,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint2L = l1L;
             app.EntryPoint3L = l2L;
 
-            % Tell the Gatekeeper Auto-Entry succeeded!
+            % Tell the Gatekeeper the combined automatic entry calculation succeeded.
             app.IsCuttingUserModified = false;
             app.IsCuttingInit = true;
 
@@ -5063,6 +5083,10 @@ classdef CNCHotWire_GCodeGenerator < handle
             if nargin < 2
                 doPlot = true;
             end
+
+            % onAutoEntry resets this flag because it normally creates the complete
+            % automatic strategy. Auto Lead is selective, so preserve the existing lock.
+            preserveUserLock = app.IsCuttingUserModified;
 
             needsRightStart = strcmp(app.SwitchSyncEntry.Value, 'Independent');
 
@@ -5091,7 +5115,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint3L = oldLink2L;
             app.EntryPoint3R = oldLink2R;
 
-            app.IsCuttingUserModified = false;
+            app.IsCuttingUserModified = preserveUserLock;
             app.IsCuttingInit = true;
 
             if doPlot
@@ -5107,17 +5131,42 @@ classdef CNCHotWire_GCodeGenerator < handle
                 doPlot = true;
             end
 
+            % Auto Links changes only the optional link route. Preserve any
+            % manual-strategy lock protecting the start or Lead In points.
+            preserveUserLock = app.IsCuttingUserModified;
+
             isCoupled = strcmp(app.SwitchSyncEntry.Value, 'Coupled');
 
-            if isempty(app.EntryPointL) || ...
-                    (~isCoupled && isempty(app.EntryPointR))
-
+            % A coordinated movement always requires valid Lead In points on
+            % both sides, including when the entry-point mode is Coupled.
+            if isempty(app.EntryPointL) || isempty(app.EntryPointR)
                 if doPlot
                     uialert(app.UIFigure, ...
-                        'Select or automatically calculate the Lead In points first.', ...
+                        'Select or automatically calculate both Lead In points first.', ...
                         'Lead In Required');
                 end
                 return;
+            end
+
+            leadPoints = {app.EntryPointL, app.EntryPointR};
+            leadNames = {'Left', 'Right'};
+
+            for leadIdx = 1:2
+                leadValue = leadPoints{leadIdx};
+
+                if ~isnumeric(leadValue) || ...
+                        ~isequal(size(leadValue), [1 2]) || ...
+                        any(~isfinite(leadValue(:)))
+
+                    if doPlot
+                        uialert(app.UIFigure, ...
+                            sprintf(['The %s Lead In point is invalid.\n\n' ...
+                            'Recalculate it with Auto Lead or select it again.'], ...
+                            leadNames{leadIdx}), ...
+                            'Invalid Lead In');
+                    end
+                    return;
+                end
             end
 
             bMinY = app.MachineBilletPos(2);
@@ -5174,7 +5223,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint3L = link2L;
             app.EntryPoint3R = link2R;
 
-            app.IsCuttingUserModified = false;
+            app.IsCuttingUserModified = preserveUserLock;
             app.IsCuttingInit = true;
 
             if doPlot
@@ -8358,14 +8407,15 @@ classdef CNCHotWire_GCodeGenerator < handle
                 '1. Set the direction of cut using the toggle. It is usually best to do top first, otherwise the part can shift during the cut, dropping in to the channel left by the bottom of the cut.';
                 '';
                 '2. Chose the start point. Usually toward the front of the machine.';
-                'The wire visits this point twice, which can leave a "witness mark". Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
+                'The wire visits this point twice. Repeated heat exposure can locally over-burn the foam and leave a "witness mark". Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
                 'You should have rotated using the model tab so this point is toward the front of the machine (Ymin).';
                 'If, for tapered parts there are issues with L/R profile sync, you can decouple and manually select different start points for each profile.';
                 '';
-                '3. Chose entry points. Try the Auto entry button first.';
+                '3. Choose the Lead In points. Try Auto Lead first.';
+                'Use Auto Links to calculate or remove the optional link route from the current Lead In points.';
                 'The orange Lead In line is a cutting move and must begin outside the billet.';
                 'Set it to minimise the change in direction between the orange line and the start/end of the cut.';
-                'If you are entering from the top of the block, or have a lot of sweep, the Link point can route the wire over the top of the block, saving waste material.'
+                'If you are entering from the top of the block, or have a lot of sweep, the Link points can route the wire over the top of the block, saving waste material.'
                 };
             app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
