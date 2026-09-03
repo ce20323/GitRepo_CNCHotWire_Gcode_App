@@ -246,6 +246,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         ProfileTolerance    (1,1) double  = 0.2 % Current tolerance for profile resampling
         ProfileSyncStrategy (1,1) string  = "Proportional Perimeter"
+        FeatureSyncInfo                   = struct('Valid', false, 'Message', "")
         ProfileAxesLocked   (1,1) logical = false % Flag to prevent auto-zooming on Profile tab
 
         LeftProfileLine3D;  RightProfileLine3D % 3D line objects for extracted profiles
@@ -1133,6 +1134,17 @@ classdef CNCHotWire_GCodeGenerator < handle
             if ~isTaper
                 % Straight Mode: Coupled Kerf, Start and Entry modes only,
                 % with Dynamic Feed disabled.
+                % Straight cuts use identical profiles and therefore do not require
+                % alternative left-right feature matching.
+                if isprop(app, 'ProfileSyncStrategyDropDown') && ...
+                        ~isempty(app.ProfileSyncStrategyDropDown) && ...
+                        isgraphics(app.ProfileSyncStrategyDropDown)
+
+                    app.ProfileSyncStrategy = "Proportional Perimeter";
+                    app.ProfileSyncStrategyDropDown.Value = 'Proportional Perimeter';
+                    app.ProfileSyncStrategyDropDown.Enable = 'off';
+                end
+
                 if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Value = 'Coupled';
                     app.onKerfModeChanged(app.KerfModeSwitch);
@@ -1160,6 +1172,13 @@ classdef CNCHotWire_GCodeGenerator < handle
                 end
             else
                 % Tapered Mode: Allow Independent choices.
+                if isprop(app, 'ProfileSyncStrategyDropDown') && ...
+                        ~isempty(app.ProfileSyncStrategyDropDown) && ...
+                        isgraphics(app.ProfileSyncStrategyDropDown)
+
+                    app.ProfileSyncStrategyDropDown.Enable = 'on';
+                end
+
                 if isprop(app, 'KerfModeSwitch') && ~isempty(app.KerfModeSwitch) && isgraphics(app.KerfModeSwitch)
                     app.KerfModeSwitch.Enable = 'on';
                 end
@@ -1713,15 +1732,53 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.updateProfiles2D(yLoopL, zLoopL, yLoopR, zLoopR, xLeft, xRight);
 
             if ~isempty(yLoopL)
-                app.TxtProfileStatus.Value = {
-                    sprintf('Profiles extracted.');
-                    sprintf('Left: %d pts', numel(yLoopL));
-                    sprintf('Right: %d pts', numel(yLoopR));
-                    'Ready to apply Kerf.'
-                    };
+                if app.ProfileSyncStrategy == "Feature Anchors" && ...
+                        isstruct(app.FeatureSyncInfo) && ...
+                        isfield(app.FeatureSyncInfo, 'Valid') && ...
+                        app.FeatureSyncInfo.Valid
+
+                    app.TxtProfileStatus.Value = {
+                        'Profiles: Feature Anchors.';
+                        sprintf('%d anchors across %d sections.', ...
+                        app.FeatureSyncInfo.AnchorCount, ...
+                        app.FeatureSyncInfo.SectionCount);
+                        'Set both kerf values to 0.00 mm.'
+                        };
+                else
+                    app.TxtProfileStatus.Value = {
+                        'Profiles extracted.';
+                        sprintf('Left: %d pts', numel(yLoopL));
+                        sprintf('Right: %d pts', numel(yLoopR));
+                        'Ready to apply Kerf.'
+                        };
+                end
+
                 app.TxtProfileStatus.FontColor = t.labelCol;
             else
-                app.TxtProfileStatus.Value = {'Extraction failed.', 'Check model position.'};
+                if app.ProfileSyncStrategy == "Feature Anchors"
+                    failureMessage = "No compatible feature-anchor pattern was found.";
+
+                    if isstruct(app.FeatureSyncInfo) && ...
+                            isfield(app.FeatureSyncInfo, 'Message')
+                        candidateMessage = string(app.FeatureSyncInfo.Message);
+
+                        if isscalar(candidateMessage) && strlength(candidateMessage) > 0
+                            failureMessage = candidateMessage;
+                        end
+                    end
+
+                    app.TxtProfileStatus.Value = {
+                        'Feature-anchor synchronisation failed.';
+                        char(failureMessage);
+                        'Select Proportional Perimeter to recover.'
+                        };
+                else
+                    app.TxtProfileStatus.Value = {
+                        'Extraction failed.';
+                        'Check model position.'
+                        };
+                end
+
                 app.TxtProfileStatus.FontColor = t.statErrTxt;
             end
 
@@ -1970,73 +2027,124 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
-        function onProfileSyncStrategyChanged(app, src)
-            % Purpose: Selects the method used to establish corresponding
-            % left-right profile points.
-
+        function onProfileSyncStrategyChanged(app, src, varargin)
             newStrategy = string(src.Value);
 
-            if strcmp(newStrategy, app.ProfileSyncStrategy)
+            if newStrategy == app.ProfileSyncStrategy
                 return;
             end
 
             app.ProfileSyncStrategy = newStrategy;
 
-            % The profile correspondence affects tower projection, automatic
-            % machine placement, cutting strategy and all generated movement data.
+            % Everything downstream depends on the point correspondence.
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
+            app.IsProgramPathValid = false;
+            app.ProfileSyncL = [];
+            app.ProfileSyncR = [];
 
-            if app.AppState == 1 && ...
-                    ~isempty(app.ModelPatch) && ...
-                    isgraphics(app.ModelPatch)
+            % A strategy change invalidates previously accepted kerf paths.
+            app.invalidateKerf();
 
+            if app.AppState ~= 0 && ...
+                    ~isempty(app.ModelPatch) && isgraphics(app.ModelPatch)
+                wasLocked = app.ProfileAxesLocked;
                 app.ProfileAxesLocked = true;
                 app.updatePlanes();
-                app.ProfileAxesLocked = false;
+                app.ProfileAxesLocked = wasLocked;
             end
         end
 
-        function [ yLS, zLS, yRS, zRS ] = applyProfileSyncStrategy( ...
-                app, yL, zL, yR, zR, stage)
-            % Purpose: Provides one authoritative dispatch point for profile
-            % synchronisation.
-            %
-            % Initial:
-            %   Performs tolerance-controlled paired resampling.
-            %
-            % Final:
-            %   Restores one-to-one topology after kerf or other independent
-            %   profile processing.
+        function [yLS, zLS, yRS, zRS] = applyProfileSyncStrategy(app, yL, zL, yR, zR, stage)
+            % Central dispatcher for initial profile resampling and final path sync.
 
             strategy = string(app.ProfileSyncStrategy);
             stage = string(stage);
+
+            yLS = [];
+            zLS = [];
+            yRS = [];
+            zRS = [];
+
+            if isempty(yL) || isempty(zL) || isempty(yR) || isempty(zR)
+                return;
+            end
 
             switch strategy
                 case "Proportional Perimeter"
                     switch stage
                         case "Initial"
-                            [ yLS, zLS, yRS, zRS ] = ...
+                            [yLS, zLS, yRS, zRS] = ...
                                 CNCHotWire_GCodeGenerator_Helpers.resampleProfilesSynced( ...
                                 yL, zL, yR, zR, app.ProfileTolerance);
 
+                            app.FeatureSyncInfo = struct( ...
+                                'Valid', false, ...
+                                'Message', "Proportional Perimeter selected.");
+
                         case "Final"
-                            [ yLS, zLS, yRS, zRS ] = ...
+                            % Preserve the application's existing final-sync behaviour.
+                            [yL, zL] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
+                            [yR, zR] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
+
+                            [yLS, zLS, yRS, zRS] = ...
                                 CNCHotWire_GCodeGenerator_Helpers.syncPointCounts( ...
                                 yL, zL, yR, zR);
 
                         otherwise
-                            error( ...
-                                'CNCHotWire:UnknownProfileSyncStage', ...
-                                'Unknown profile synchronisation stage: %s', ...
-                                char(stage));
+                            error('CNCHotWire:UnknownProfileSyncStage', ...
+                                'Unknown profile synchronisation stage "%s".', char(stage));
+                    end
+
+                case "Feature Anchors"
+                    switch stage
+                        case "Initial"
+                            [yLS, zLS, yRS, zRS, info] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.resampleProfilesFeatureAnchored( ...
+                                yL, zL, yR, zR, app.ProfileTolerance);
+
+                            app.FeatureSyncInfo = info;
+
+                            if ~info.Valid
+                                yLS = [];
+                                zLS = [];
+                                yRS = [];
+                                zRS = [];
+                            end
+
+                        case "Final"
+                            % The initial feature-aware output is already synchronised.
+                            % Do not run whole-loop proportional resampling again because
+                            % that would destroy the established anchor correspondence.
+                            %
+                            % Non-zero kerf is deliberately blocked for this prototype.
+                            if app.KerfEnabled && ...
+                                    (abs(app.KerfLeftValue) > 1e-12 || ...
+                                    abs(app.KerfRightValue) > 1e-12)
+                                return;
+                            end
+
+                            if numel(yL) ~= numel(zL) || ...
+                                    numel(yR) ~= numel(zR) || ...
+                                    numel(yL) ~= numel(yR)
+                                return;
+                            end
+
+                            yLS = yL(:);
+                            zLS = zL(:);
+                            yRS = yR(:);
+                            zRS = zR(:);
+
+                        otherwise
+                            error('CNCHotWire:UnknownProfileSyncStage', ...
+                                'Unknown profile synchronisation stage "%s".', char(stage));
                     end
 
                 otherwise
-                    error( ...
-                        'CNCHotWire:UnknownProfileSyncStrategy', ...
-                        'Unknown profile synchronisation strategy: %s', ...
-                        char(strategy));
+                    error('CNCHotWire:UnknownProfileSyncStrategy', ...
+                        'Unknown profile synchronisation strategy "%s".', char(strategy));
             end
         end
 
@@ -2137,6 +2245,28 @@ classdef CNCHotWire_GCodeGenerator < handle
                 return;
             end
 
+            % Prototype safety guard: the feature anchors currently belong to the
+            % extracted profiles. Non-zero offsets can move or round those corners,
+            % so kerf-aware anchor remapping is handled in a later checkpoint.
+            if app.ProfileSyncStrategy == "Feature Anchors" && ...
+                    (abs(app.KerfLeftValue) > 1e-12 || ...
+                    abs(app.KerfRightValue) > 1e-12)
+
+                app.invalidateKerf();
+                t = app.getTheme();
+
+                if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
+                    app.TxtProfileStatus.Value = {
+                        'Feature Anchors currently requires zero kerf.';
+                        'Set both kerf values to 0.00 mm,';
+                        'or select Proportional Perimeter.'
+                        };
+                    app.TxtProfileStatus.FontColor = t.statErrTxt;
+                end
+
+                return;
+            end
+
             app.KerfEnabled = true;
 
             app.BtnProfilesContinue.Enable = 'on';
@@ -2206,13 +2336,12 @@ classdef CNCHotWire_GCodeGenerator < handle
                 end
             end
 
-            % ALWAYS re-align start points before syncing!
-            % This prevents twist when Kerf is 0, ensuring both profiles
-            % are anchored to the exact front face before parameter blending.
-            [ yL, zL ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
-            [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
-            [ yL, zL, yR, zR ] = ...
-                app.applyProfileSyncStrategy( ...
+            % Final alignment is strategy-dependent.
+            %
+            % Proportional Perimeter performs its minimum-Y alignment inside
+            % applyProfileSyncStrategy. Feature Anchors must retain the cyclic
+            % alignment established by the initial anchor-aware resampling.
+            [yL, zL, yR, zR] = app.applyProfileSyncStrategy( ...
                 yL, zL, yR, zR, "Final");
         end
 
@@ -7802,12 +7931,12 @@ classdef CNCHotWire_GCodeGenerator < handle
             lblSyncStrategy.Layout.Column = 1;
 
             app.ProfileSyncStrategyDropDown = uidropdown(gridSampling, ...
-                'Items',{'Proportional Perimeter'}, ...
+                'Items',{'Proportional Perimeter',  'Feature Anchors'}, ...
                 'Value',char(app.ProfileSyncStrategy), ...
+                'Enable', 'off', ...
                 'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
-                'Tooltip',[ ...
-                'Pairs points at the same proportional distance around ' ...
-                'the left and right profile perimeters.'], ...
+                'Tooltip', ['Proportional Perimeter uses whole-loop mapping. ' ...
+                'Feature Anchors matches compatible sharp-corner sequences.'], ...
                 'ValueChangedFcn',@(src,~)app.onProfileSyncStrategyChanged(src));
             app.ProfileSyncStrategyDropDown.Layout.Row = 2;
             app.ProfileSyncStrategyDropDown.Layout.Column = 2;
