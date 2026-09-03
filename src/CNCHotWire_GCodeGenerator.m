@@ -120,6 +120,7 @@ classdef CNCHotWire_GCodeGenerator < handle
         AxLeftProfile          % 2D axes for left profile visualization
         AxRightProfile         % 2D axes for right profile visualization
         ProfileTolSpinner      % Spinner for profile resampling tolerance
+        ProfileSyncStrategyDropDown % Selects the left-right profile synchronisation method
         ProfilePointCountLabel % Label displaying the number of points in extracted profiles
         BtnResetProfileTol     % Button to reset tolerance to default
         BtnResetProfilesView   % Button to reset 2D profile plot views
@@ -243,8 +244,9 @@ classdef CNCHotWire_GCodeGenerator < handle
         LeftPlanePatch; RightPlanePatch % Patch objects for the 3D cutting planes
         LeftPlaneText;  RightPlaneText  % Text labels for the 3D cutting planes
 
-        ProfileTolerance  (1,1) double = 0.2 % Current tolerance for profile resampling
-        ProfileAxesLocked (1,1) logical = false % Flag to prevent auto-zooming on Profile tab
+        ProfileTolerance    (1,1) double  = 0.2 % Current tolerance for profile resampling
+        ProfileSyncStrategy (1,1) string  = "Proportional Perimeter"
+        ProfileAxesLocked   (1,1) logical = false % Flag to prevent auto-zooming on Profile tab
 
         LeftProfileLine3D;  RightProfileLine3D % 3D line objects for extracted profiles
         LeftProfilePoints;  RightProfilePoints % Nx3 array of extracted profile points[X, Y, Z]
@@ -1679,8 +1681,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Resample the raw loops based on the user's tolerance setting
             if ~isempty(yLoopL) && ~isempty(yLoopR)
                 resmp = cell(1,4);
-                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = CNCHotWire_GCodeGenerator_Helpers.resampleProfilesSynced(...
-                    yLoopL, zLoopL, yLoopR, zLoopR, app.ProfileTolerance);
+                [ resmp{1}, resmp{2}, resmp{3}, resmp{4} ] = ...
+                    app.applyProfileSyncStrategy( ...
+                    yLoopL, zLoopL, yLoopR, zLoopR, "Initial");
                 yLoopL = resmp{1}; zLoopL = resmp{2}; yLoopR = resmp{3}; zLoopR = resmp{4};
             end
 
@@ -1789,7 +1792,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             %% --- 3. SYNC POINT COUNTS UNIVERSALLY ---
             % Always sync the final shapes so the UI exactly matches the Simulation.
             if ~isempty(final_yL) && ~isempty(final_yR)
-                [ final_yL, final_zL, final_yR, final_zR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(final_yL, final_zL, final_yR, final_zR);
+                [ final_yL, final_zL, final_yR, final_zR ] = ...
+                    app.applyProfileSyncStrategy( ...
+                    final_yL, final_zL, final_yR, final_zR, "Final");
             end
 
             nLk = numel(final_yL);
@@ -1965,6 +1970,76 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function onProfileSyncStrategyChanged(app, src)
+            % Purpose: Selects the method used to establish corresponding
+            % left-right profile points.
+
+            newStrategy = string(src.Value);
+
+            if strcmp(newStrategy, app.ProfileSyncStrategy)
+                return;
+            end
+
+            app.ProfileSyncStrategy = newStrategy;
+
+            % The profile correspondence affects tower projection, automatic
+            % machine placement, cutting strategy and all generated movement data.
+            app.IsMachineInit = false;
+            app.IsCuttingInit = false;
+
+            if app.AppState == 1 && ...
+                    ~isempty(app.ModelPatch) && ...
+                    isgraphics(app.ModelPatch)
+
+                app.ProfileAxesLocked = true;
+                app.updatePlanes();
+                app.ProfileAxesLocked = false;
+            end
+        end
+
+        function [ yLS, zLS, yRS, zRS ] = applyProfileSyncStrategy( ...
+                app, yL, zL, yR, zR, stage)
+            % Purpose: Provides one authoritative dispatch point for profile
+            % synchronisation.
+            %
+            % Initial:
+            %   Performs tolerance-controlled paired resampling.
+            %
+            % Final:
+            %   Restores one-to-one topology after kerf or other independent
+            %   profile processing.
+
+            strategy = string(app.ProfileSyncStrategy);
+            stage = string(stage);
+
+            switch strategy
+                case "Proportional Perimeter"
+                    switch stage
+                        case "Initial"
+                            [ yLS, zLS, yRS, zRS ] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.resampleProfilesSynced( ...
+                                yL, zL, yR, zR, app.ProfileTolerance);
+
+                        case "Final"
+                            [ yLS, zLS, yRS, zRS ] = ...
+                                CNCHotWire_GCodeGenerator_Helpers.syncPointCounts( ...
+                                yL, zL, yR, zR);
+
+                        otherwise
+                            error( ...
+                                'CNCHotWire:UnknownProfileSyncStage', ...
+                                'Unknown profile synchronisation stage: %s', ...
+                                char(stage));
+                    end
+
+                otherwise
+                    error( ...
+                        'CNCHotWire:UnknownProfileSyncStrategy', ...
+                        'Unknown profile synchronisation strategy: %s', ...
+                        char(strategy));
+            end
+        end
+
         function invalidateKerf(app)
             % Purpose: Central reset for Kerf logic.
             % WHY: Called whenever the model is rotated, planes are moved, or
@@ -2136,8 +2211,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             % are anchored to the exact front face before parameter blending.
             [ yL, zL ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
             [ yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
-
-            [ yL, zL, yR, zR ] = CNCHotWire_GCodeGenerator_Helpers.syncPointCounts(yL, zL, yR, zR);
+            [ yL, zL, yR, zR ] = ...
+                app.applyProfileSyncStrategy( ...
+                yL, zL, yR, zR, "Final");
         end
 
         function[ yOut, zOut ] = applyMods(~, yIn, zIn, offY, offZ, startIdx, isCCW)
@@ -7683,24 +7759,75 @@ classdef CNCHotWire_GCodeGenerator < handle
             pnlSampling = uipanel(app.profilesLeft, 'Title','1. Profile Sampling', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlSampling.Layout.Row = 2;
 
-            gridSampling = uigridlayout(pnlSampling,[3 2]);
-            gridSampling.ColumnWidth = {'1x', 90};
-            gridSampling.RowHeight = {CNCHotWire_GCodeGenerator.RowHeightNormal, CNCHotWire_GCodeGenerator.ButtonHeight, 'fit'};
-            gridSampling.Padding =[5 5 5 5];
+            gridSampling = uigridlayout(pnlSampling,[4 2]);
+            gridSampling.ColumnWidth = {'1x', 145};
+            gridSampling.RowHeight = { ...
+                CNCHotWire_GCodeGenerator.RowHeightNormal, ...
+                CNCHotWire_GCodeGenerator.RowHeightNormal, ...
+                CNCHotWire_GCodeGenerator.ButtonHeight, ...
+                'fit'};
+            gridSampling.Padding = [5 5 5 5];
             gridSampling.BackgroundColor = panelBg;
 
-            lblTolerance = uilabel(gridSampling, 'Text','Profile Tolerance [mm]:', 'HorizontalAlignment','right', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'FontColor',labelCol);
-            lblTolerance.Layout.Row = 1; lblTolerance.Layout.Column = 1;
+            lblTolerance = uilabel(gridSampling, ...
+                'Text','Tolerance [mm]:', ...
+                'HorizontalAlignment','right', ...
+                'FontWeight','bold', ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'FontColor',labelCol);
+            lblTolerance.Layout.Row = 1;
+            lblTolerance.Layout.Column = 1;
 
-            app.ProfileTolSpinner = uispinner(gridSampling, 'Limits',[CNCHotWire_GCodeGenerator.MinProfileTolerance, CNCHotWire_GCodeGenerator.MaxProfileTolerance], 'Value',CNCHotWire_GCodeGenerator.DefaultProfileTolerance, 'Step',0.01, 'ValueDisplayFormat','%.2f', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'Tooltip', 'Adjust until the red/green extracted profiles conform to the mesh slice', 'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
-            app.ProfileTolSpinner.Layout.Row = 1; app.ProfileTolSpinner.Layout.Column = 2;
+            app.ProfileTolSpinner = uispinner(gridSampling, ...
+                'Limits',[ ...
+                CNCHotWire_GCodeGenerator.MinProfileTolerance, ...
+                CNCHotWire_GCodeGenerator.MaxProfileTolerance], ...
+                'Value',CNCHotWire_GCodeGenerator.DefaultProfileTolerance, ...
+                'Step',0.01, ...
+                'ValueDisplayFormat','%.2f', ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'Tooltip','Adjust until the extracted profiles conform to the mesh slice', ...
+                'ValueChangedFcn',@(src,~)app.onProfileToleranceChanged(src));
+            app.ProfileTolSpinner.Layout.Row = 1;
+            app.ProfileTolSpinner.Layout.Column = 2;
             app.ProfileTolerance = CNCHotWire_GCodeGenerator.DefaultProfileTolerance;
 
-            app.BtnResetProfileTol = uibutton(gridSampling, 'Text','Reset Tolerance', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
-            app.BtnResetProfileTol.Layout.Row = 2; app.BtnResetProfileTol.Layout.Column =[1 2];
+            lblSyncStrategy = uilabel(gridSampling, ...
+                'Text','Sync Strategy:', ...
+                'HorizontalAlignment','right', ...
+                'FontWeight','bold', ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'FontColor',labelCol);
+            lblSyncStrategy.Layout.Row = 2;
+            lblSyncStrategy.Layout.Column = 1;
 
-            app.ProfilePointCountLabel = uilabel(gridSampling, 'Text','Extracted Profile Point Count (L/R): -- / --', 'HorizontalAlignment','center', 'FontColor',labelCol, 'FontAngle','italic', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
-            app.ProfilePointCountLabel.Layout.Row = 3; app.ProfilePointCountLabel.Layout.Column =[1 2];
+            app.ProfileSyncStrategyDropDown = uidropdown(gridSampling, ...
+                'Items',{'Proportional Perimeter'}, ...
+                'Value',char(app.ProfileSyncStrategy), ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'Tooltip',[ ...
+                'Pairs points at the same proportional distance around ' ...
+                'the left and right profile perimeters.'], ...
+                'ValueChangedFcn',@(src,~)app.onProfileSyncStrategyChanged(src));
+            app.ProfileSyncStrategyDropDown.Layout.Row = 2;
+            app.ProfileSyncStrategyDropDown.Layout.Column = 2;
+
+            app.BtnResetProfileTol = uibutton(gridSampling, ...
+                'Text','Reset Tolerance', ...
+                'FontWeight','bold', ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'ButtonPushedFcn',@(~,~)app.onResetProfileTolerance());
+            app.BtnResetProfileTol.Layout.Row = 3;
+            app.BtnResetProfileTol.Layout.Column = [1 2];
+
+            app.ProfilePointCountLabel = uilabel(gridSampling, ...
+                'Text','Extracted Profile Point Count (L/R): -- / --', ...
+                'HorizontalAlignment','center', ...
+                'FontColor',labelCol, ...
+                'FontAngle','italic', ...
+                'FontSize',CNCHotWire_GCodeGenerator.FontSizeNormal);
+            app.ProfilePointCountLabel.Layout.Row = 4;
+            app.ProfilePointCountLabel.Layout.Column = [1 2];
 
             %% --- 2. KERF COMPENSATION ---
             pnlKerf = uipanel(app.profilesLeft, 'Title','2. Kerf Compensation', 'BackgroundColor',panelBg, 'ForegroundColor',labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
