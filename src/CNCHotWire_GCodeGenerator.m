@@ -180,7 +180,8 @@ classdef CNCHotWire_GCodeGenerator < handle
         BtnPickEntry2      % Toggle button to pick first link point on plot
         BtnPickEntry3      % Toggle button to pick second link point on plot
         btnAutoStart       % Button to auto-calculate start points
-        btnAutoEntry       % Button to auto-calculate entry points
+        btnAutoLead        % Button to auto-calculate lead-in points
+        btnAutoLinks       % Button to auto-calculate optional linking points
         TxtCuttingGuide    % Text area for Cutting Strategy tab user guidance
         TxtCuttingStatus   % Text area for Cutting Strategy tab status feedback
         BtnCuttingContinue % Button to proceed to the Simulation tab
@@ -5055,6 +5056,132 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function onAutoLead(app, doPlot)
+            % Purpose: Recalculates only the Lead In points.
+            % Existing Link 1 and Link 2 points are preserved.
+
+            if nargin < 2
+                doPlot = true;
+            end
+
+            needsRightStart = strcmp(app.SwitchSyncEntry.Value, 'Independent');
+
+            if isempty(app.SelectedStartIdxL) || ...
+                    (needsRightStart && isempty(app.SelectedStartIdxR))
+
+                if doPlot
+                    uialert(app.UIFigure, ...
+                        'Select or automatically calculate the start points first.', ...
+                        'Start Point Required');
+                end
+                return;
+            end
+
+            % Preserve the current link points while the established combined
+            % calculation is used to generate the new Lead In points.
+            oldLink1L = app.EntryPoint2L;
+            oldLink1R = app.EntryPoint2R;
+            oldLink2L = app.EntryPoint3L;
+            oldLink2R = app.EntryPoint3R;
+
+            app.onAutoEntry(false);
+
+            app.EntryPoint2L = oldLink1L;
+            app.EntryPoint2R = oldLink1R;
+            app.EntryPoint3L = oldLink2L;
+            app.EntryPoint3R = oldLink2R;
+
+            app.IsCuttingUserModified = false;
+            app.IsCuttingInit = true;
+
+            if doPlot
+                app.updateCuttingPlots();
+            end
+        end
+
+        function onAutoLinks(app, doPlot)
+            % Purpose: Recalculates only the optional Link 1 and Link 2 points.
+            % The current Lead In points are retained.
+
+            if nargin < 2
+                doPlot = true;
+            end
+
+            isCoupled = strcmp(app.SwitchSyncEntry.Value, 'Coupled');
+
+            if isempty(app.EntryPointL) || ...
+                    (~isCoupled && isempty(app.EntryPointR))
+
+                if doPlot
+                    uialert(app.UIFigure, ...
+                        'Select or automatically calculate the Lead In points first.', ...
+                        'Lead In Required');
+                end
+                return;
+            end
+
+            bMinY = app.MachineBilletPos(2);
+            bMaxY = app.MachineBilletPos(2) + app.BilletSize(2);
+            bMaxZ = app.MachineBilletPos(3) + app.BilletSize(3);
+
+            function [link1, link2] = calculateLinks(lead)
+                link1 = [ ];
+                link2 = [ ];
+
+                % A lead point above or behind the billet requires an
+                % over-the-top rapid approach.
+                needsRouting = ...
+                    (lead(2) >= bMaxZ) || ...
+                    (lead(1) >= bMaxY);
+
+                if needsRouting
+                    safeZ = bMaxZ + app.MachineSafeHeight;
+
+                    link1 = [bMinY - 10.0, safeZ];
+                    link2 = [lead(1), max(safeZ, lead(2))];
+                end
+            end
+
+            [link1L, link2L] = calculateLinks(app.EntryPointL);
+
+            if isCoupled
+                link1R = link1L;
+                link2R = link2L;
+            else
+                [link1R, link2R] = calculateLinks(app.EntryPointR);
+
+                % Over-the-top routing is a coordinated wire movement.
+                % If either side requires it, both sides use matching phases.
+                usesOverTop = ...
+                    ~isempty(link1L) || ~isempty(link2L) || ...
+                    ~isempty(link1R) || ~isempty(link2R);
+
+                if usesOverTop
+                    safeZ = bMaxZ + app.MachineSafeHeight;
+
+                    link1L = [bMinY - 10.0, safeZ];
+                    link2L = [app.EntryPointL(1), ...
+                        max(safeZ, app.EntryPointL(2))];
+
+                    link1R = [bMinY - 10.0, safeZ];
+                    link2R = [app.EntryPointR(1), ...
+                        max(safeZ, app.EntryPointR(2))];
+                end
+            end
+
+            app.EntryPoint2L = link1L;
+            app.EntryPoint2R = link1R;
+            app.EntryPoint3L = link2L;
+            app.EntryPoint3R = link2R;
+
+            app.IsCuttingUserModified = false;
+            app.IsCuttingInit = true;
+
+            if doPlot
+                app.updateCuttingPlots();
+            end
+        end
+
         function onClearEntries(app)
             % Purpose: Clears all manual entry and link points.
             app.EntryPointL = [ ]; app.EntryPointR = [ ];
@@ -8105,18 +8232,36 @@ classdef CNCHotWire_GCodeGenerator < handle
             pnlAuto = uipanel(app.CuttingLeftPanel, 'Title','1. Auto Tools', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlAuto.Layout.Row = 2;
 
-            gridAuto = uigridlayout(pnlAuto, [1 2]);
-            gridAuto.Padding=[5 5 5 5];
-            gridAuto.ColumnSpacing=5;
+            gridAuto = uigridlayout(pnlAuto, [1 3]);
+            gridAuto.Padding = [5 5 5 5];
+            gridAuto.ColumnSpacing = 5;
+            gridAuto.ColumnWidth = {'1x', '1x', '1x'};
             gridAuto.RowHeight = {CNCHotWire_GCodeGenerator.ButtonHeight};
-            gridAuto.BackgroundColor=panelBg;
+            gridAuto.BackgroundColor = panelBg;
 
-            app.btnAutoStart = uibutton(gridAuto, 'Text','Auto Start', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoStart());
-            app.btnAutoStart.Tooltip = 'Automatically selects the start point closest to the front of the machine (Minimum Y).';
+            app.btnAutoStart = uibutton(gridAuto, ...
+                'Text', 'Auto Start', ...
+                'FontWeight', 'bold', ...
+                'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'ButtonPushedFcn', @(~,~)app.onAutoStart());
+            app.btnAutoStart.Tooltip = ...
+                'Automatically selects the start point closest to the front of the machine (Minimum Y).';
 
-            app.btnAutoEntry = uibutton(gridAuto, 'Text','Auto Entry', 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'ButtonPushedFcn',@(~,~)app.onAutoEntry());
-            app.btnAutoEntry.Tooltip = 'Automatically calculates a perpendicular entry path from outside the billet boundary.';
+            app.btnAutoLead = uibutton(gridAuto, ...
+                'Text', 'Auto Lead', ...
+                'FontWeight', 'bold', ...
+                'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'ButtonPushedFcn', @(~,~)app.onAutoLead());
+            app.btnAutoLead.Tooltip = ...
+                'Calculates the Lead In points while preserving the existing link points.';
 
+            app.btnAutoLinks = uibutton(gridAuto, ...
+                'Text', 'Auto Links', ...
+                'FontWeight', 'bold', ...
+                'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, ...
+                'ButtonPushedFcn', @(~,~)app.onAutoLinks());
+            app.btnAutoLinks.Tooltip = ...
+                'Calculates or removes the optional link points using the current Lead In positions.';
             %% --- 2. MODES ---
             pnlMode = uipanel(app.CuttingLeftPanel, 'Title','2. Modes', 'BackgroundColor', panelBg, 'ForegroundColor', labelCol, 'FontWeight','bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType','line');
             pnlMode.Layout.Row = 3;
