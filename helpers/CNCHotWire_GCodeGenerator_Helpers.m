@@ -579,6 +579,497 @@ classdef CNCHotWire_GCodeGenerator_Helpers
             end
         end
 
+        function [ yLS, zLS, yRS, zRS, info ] = ...
+                resampleProfilesFeatureAnchored(yL, zL, yR, zR, tol)
+            % Purpose: Synchronises corresponding profiles using matched feature
+            % anchors, while retaining proportional-perimeter synchronisation
+            % between adjacent anchors.
+            %
+            % This initial implementation requires one rectangular-notch feature
+            % containing four matched corners.
+
+            yLS = [];
+            zLS = [];
+            yRS = [];
+            zRS = [];
+
+            info = struct( ...
+                'Valid', false, ...
+                'Message', "", ...
+                'AnchorCount', 0, ...
+                'AnchorIndices', zeros(0, 1), ...
+                'AnchorPointsL', zeros(0, 2), ...
+                'AnchorPointsR', zeros(0, 2), ...
+                'SectionCount', 0, ...
+                'OutputPointCount', 0);
+
+            if nargin < 5 || ~isscalar(tol) || ~isfinite(tol) || tol <= 0
+                info.Message = "A positive finite profile tolerance is required.";
+                return;
+            end
+
+            if numel(yL) ~= numel(zL) || numel(yR) ~= numel(zR)
+                info.Message = "Each profile must contain matching Y and Z arrays.";
+                return;
+            end
+
+            [ yL, zL ] = cleanClosedLoop(yL, zL);
+            [ yR, zR ] = cleanClosedLoop(yR, zR);
+
+            if numel(yL) < 4 || numel(yR) < 4
+                info.Message = "Insufficient profile points for anchored resampling.";
+                return;
+            end
+
+            % Use the same automatic start alignment as the existing method.
+            [ yL, zL ] = ...
+                CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yL, zL);
+
+            [ yR, zR ] = ...
+                CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
+
+            areaL = signedArea(yL, zL);
+            areaR = signedArea(yR, zR);
+
+            if abs(areaL) < 1e-12 || abs(areaR) < 1e-12
+                info.Message = "A profile has insufficient enclosed area.";
+                return;
+            end
+
+            % Match traversal directions before locating and pairing anchors.
+            if sign(areaL) ~= sign(areaR)
+                yR = flipud(yR);
+                zR = flipud(zR);
+
+                [ yR, zR ] = ...
+                    CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
+            end
+
+            [ anchorL, anchorR, detectedInfo ] = ...
+                CNCHotWire_GCodeGenerator_Helpers.findFeatureAnchorPairs( ...
+                yL, zL, yR, zR);
+
+            info = detectedInfo;
+            info.AnchorIndices = zeros(0, 1);
+            info.AnchorPointsL = zeros(0, 2);
+            info.AnchorPointsR = zeros(0, 2);
+            info.SectionCount = 0;
+            info.OutputPointCount = 0;
+
+            if ~detectedInfo.Valid
+                return;
+            end
+
+            % Do not report success until all resampling checks have passed.
+            info.Valid = false;
+
+            [ anchorIdxL, anchorsLocatedL ] = ...
+                locateAnchors(yL, zL, anchorL);
+
+            [ anchorIdxR, anchorsLocatedR ] = ...
+                locateAnchors(yR, zR, anchorR);
+
+            if ~anchorsLocatedL || ~anchorsLocatedR
+                info.Message = ...
+                    "A detected feature anchor could not be located on its profile.";
+                return;
+            end
+
+            % Put the paired anchors into path order relative to the common
+            % automatic start point.
+            [ anchorIdxL, pathOrder ] = sort(anchorIdxL);
+
+            anchorIdxR = anchorIdxR(pathOrder);
+            anchorL = anchorL(pathOrder, :);
+            anchorR = anchorR(pathOrder, :);
+
+            % The same paired order must also be monotonic on the right profile.
+            % Otherwise the two profiles do not have a safe common sequence.
+            if any(diff(anchorIdxL) <= 0) || any(diff(anchorIdxR) <= 0)
+                info.Message = ...
+                    "The feature anchors do not have the same traversal order.";
+                return;
+            end
+
+            breakpointsL = [ 1; anchorIdxL; numel(yL) ];
+            breakpointsR = [ 1; anchorIdxR; numel(yR) ];
+
+            if any(diff(breakpointsL) <= 0) || ...
+                    any(diff(breakpointsR) <= 0)
+
+                info.Message = ...
+                    "A feature anchor coincides with or crosses the automatic start point.";
+                return;
+            end
+
+            allPoints = zeros(0, 4);
+            sectionCount = numel(breakpointsL) - 1;
+
+            for sectionIdx = 1:sectionCount
+                firstL = breakpointsL(sectionIdx);
+                lastL = breakpointsL(sectionIdx + 1);
+
+                firstR = breakpointsR(sectionIdx);
+                lastR = breakpointsR(sectionIdx + 1);
+
+                sectionL = [ ...
+                    yL(firstL:lastL), ...
+                    zL(firstL:lastL) ];
+
+                sectionR = [ ...
+                    yR(firstR:lastR), ...
+                    zR(firstR:lastR) ];
+
+                [ sectionPoints, sectionValid ] = ...
+                    synchroniseOpenSection(sectionL, sectionR, tol);
+
+                if ~sectionValid
+                    info.Message = string(sprintf( ...
+                        'Feature-anchor section %d could not be resampled.', ...
+                        sectionIdx));
+                    return;
+                end
+
+                % Adjacent sections share one anchor. Retain it only once so the
+                % wire does not visit the same point twice.
+                if sectionIdx > 1
+                    sectionPoints(1, :) = [];
+                end
+
+                allPoints = [ allPoints; sectionPoints ]; %#ok<AGROW>
+            end
+
+            if size(allPoints, 1) < 2 || any(~isfinite(allPoints), 'all')
+                info.Message = ...
+                    "Feature-anchor resampling produced invalid profile data.";
+                return;
+            end
+
+            % Remove only movement blocks in which neither side moves. Movement
+            % on one side while the other remains stationary is valid.
+            movementL = hypot( ...
+                diff(allPoints(:, 1)), ...
+                diff(allPoints(:, 2)));
+
+            movementR = hypot( ...
+                diff(allPoints(:, 3)), ...
+                diff(allPoints(:, 4)));
+
+            keep = [ true; movementL > 1e-9 | movementR > 1e-9 ];
+            allPoints = allPoints(keep, :);
+
+            % Retain one explicit closing point.
+            allPoints(end, :) = allPoints(1, :);
+
+            outputAnchorIdx = zeros(size(anchorL, 1), 1);
+
+            coordinateScale = max([ ...
+                max(yL) - min(yL), ...
+                max(zL) - min(zL), ...
+                max(yR) - min(yR), ...
+                max(zR) - min(zR), ...
+                1.0 ]);
+
+            anchorTolerance = 1e-6 * coordinateScale;
+
+            for anchorNumber = 1:size(anchorL, 1)
+                distanceL = hypot( ...
+                    allPoints(:, 1) - anchorL(anchorNumber, 1), ...
+                    allPoints(:, 2) - anchorL(anchorNumber, 2));
+
+                distanceR = hypot( ...
+                    allPoints(:, 3) - anchorR(anchorNumber, 1), ...
+                    allPoints(:, 4) - anchorR(anchorNumber, 2));
+
+                matchedRow = find( ...
+                    distanceL <= anchorTolerance & ...
+                    distanceR <= anchorTolerance, ...
+                    1, 'first');
+
+                if isempty(matchedRow)
+                    info.Message = string(sprintf( ...
+                        'Matched feature anchor %d was not retained.', ...
+                        anchorNumber));
+                    return;
+                end
+
+                outputAnchorIdx(anchorNumber) = matchedRow;
+            end
+
+            if any(diff(outputAnchorIdx) <= 0)
+                info.Message = ...
+                    "The resampled feature anchors are not in traversal order.";
+                return;
+            end
+
+            yLS = allPoints(:, 1);
+            zLS = allPoints(:, 2);
+            yRS = allPoints(:, 3);
+            zRS = allPoints(:, 4);
+
+            info.Valid = true;
+            info.Message = string(sprintf( ...
+                'Matched %d feature anchors across %d proportional sections.', ...
+                size(anchorL, 1), sectionCount));
+
+            info.AnchorCount = size(anchorL, 1);
+            info.AnchorIndices = outputAnchorIdx;
+            info.AnchorPointsL = anchorL;
+            info.AnchorPointsR = anchorR;
+            info.SectionCount = sectionCount;
+            info.OutputPointCount = size(allPoints, 1);
+
+            function [ yo, zo ] = cleanClosedLoop(yi, zi)
+                yi = yi(:);
+                zi = zi(:);
+
+                valid = isfinite(yi) & isfinite(zi);
+                yi = yi(valid);
+                zi = zi(valid);
+
+                if isempty(yi)
+                    yo = yi;
+                    zo = zi;
+                    return;
+                end
+
+                distanceFromPrevious = [ inf; hypot(diff(yi), diff(zi)) ];
+                keepPoint = distanceFromPrevious > 1e-8;
+
+                yo = yi(keepPoint);
+                zo = zi(keepPoint);
+
+                if numel(yo) > 1 && ...
+                        hypot(yo(1) - yo(end), zo(1) - zo(end)) > 1e-8
+                    yo(end+1) = yo(1);
+                    zo(end+1) = zo(1);
+                end
+            end
+
+            function areaValue = signedArea(y, z)
+                yOpen = y(:);
+                zOpen = z(:);
+
+                if numel(yOpen) > 1 && ...
+                        hypot( ...
+                        yOpen(1) - yOpen(end), ...
+                        zOpen(1) - zOpen(end)) <= 1e-8
+
+                    yOpen(end) = [];
+                    zOpen(end) = [];
+                end
+
+                nextIdx = [ 2:numel(yOpen), 1 ];
+
+                areaValue = sum( ...
+                    yOpen .* zOpen(nextIdx) - ...
+                    yOpen(nextIdx) .* zOpen);
+            end
+
+            function [ indices, success ] = locateAnchors(y, z, anchors)
+                indices = zeros(size(anchors, 1), 1);
+                success = false;
+
+                searchCount = numel(y);
+
+                if searchCount > 1 && ...
+                        hypot(y(1) - y(end), z(1) - z(end)) <= 1e-8
+                    searchCount = searchCount - 1;
+                end
+
+                scale = max([ ...
+                    max(y) - min(y), ...
+                    max(z) - min(z), ...
+                    1.0 ]);
+
+                matchTolerance = 1e-6 * scale;
+
+                for anchorNumber = 1:size(anchors, 1)
+                    distances = hypot( ...
+                        y(1:searchCount) - anchors(anchorNumber, 1), ...
+                        z(1:searchCount) - anchors(anchorNumber, 2));
+
+                    [ minimumDistance, nearestIdx ] = min(distances);
+
+                    if minimumDistance > matchTolerance
+                        return;
+                    end
+
+                    indices(anchorNumber) = nearestIdx;
+                end
+
+                if numel(unique(indices)) ~= numel(indices)
+                    return;
+                end
+
+                success = true;
+            end
+
+            function [ pointsOut, success ] = ...
+                    synchroniseOpenSection(pointsL, pointsR, tolerance)
+
+                pointsOut = zeros(0, 4);
+                success = false;
+
+                if size(pointsL, 1) < 2 || size(pointsR, 1) < 2
+                    return;
+                end
+
+                distanceL = [ ...
+                    0; ...
+                    cumsum(hypot( ...
+                    diff(pointsL(:, 1)), ...
+                    diff(pointsL(:, 2)))) ];
+
+                distanceR = [ ...
+                    0; ...
+                    cumsum(hypot( ...
+                    diff(pointsR(:, 1)), ...
+                    diff(pointsR(:, 2)))) ];
+
+                lengthL = distanceL(end);
+                lengthR = distanceR(end);
+
+                if lengthL <= 1e-10 || lengthR <= 1e-10
+                    return;
+                end
+
+                parameterL = distanceL / lengthL;
+                parameterR = distanceR / lengthR;
+
+                parameterL(1) = 0;
+                parameterL(end) = 1;
+                parameterR(1) = 0;
+                parameterR(end) = 1;
+
+                baselineResolution = 0.1;
+
+                finePointCount = max( ...
+                    200, ...
+                    ceil(max(lengthL, lengthR) / baselineResolution) + 1);
+
+                finePointCount = min( ...
+                    finePointCount, ...
+                    CNCHotWire_GCodeGenerator_Helpers.ProfileResampleMaxPoints);
+
+                fineParameter = linspace(0, 1, finePointCount).';
+
+                % Preserve every original section vertex in the evaluation grid.
+                evaluationParameter = unique([ ...
+                    fineParameter; ...
+                    parameterL; ...
+                    parameterR ]);
+
+                [ parameterLU, indexLU ] = unique(parameterL, 'stable');
+                [ parameterRU, indexRU ] = unique(parameterR, 'stable');
+
+                yLFine = interp1( ...
+                    parameterLU, pointsL(indexLU, 1), ...
+                    evaluationParameter, 'linear');
+
+                zLFine = interp1( ...
+                    parameterLU, pointsL(indexLU, 2), ...
+                    evaluationParameter, 'linear');
+
+                yRFine = interp1( ...
+                    parameterRU, pointsR(indexRU, 1), ...
+                    evaluationParameter, 'linear');
+
+                zRFine = interp1( ...
+                    parameterRU, pointsR(indexRU, 2), ...
+                    evaluationParameter, 'linear');
+
+                densePoints = [ yLFine, zLFine, yRFine, zRFine ];
+
+                pointsOut = simplifyPairedPolyline( ...
+                    densePoints, tolerance);
+
+                success = size(pointsOut, 1) >= 2 && ...
+                    all(isfinite(pointsOut), 'all');
+            end
+
+            function pointsOut = simplifyPairedPolyline(pointsIn, tolerance)
+                pointCount = size(pointsIn, 1);
+
+                if pointCount <= 2
+                    pointsOut = pointsIn;
+                    return;
+                end
+
+                keepMask = false(pointCount, 1);
+                keepMask(1) = true;
+                keepMask(end) = true;
+
+                stack = [ 1, pointCount ];
+
+                while ~isempty(stack)
+                    endIdx = stack(end);
+                    startIdx = stack(end-1);
+                    stack(end-1:end) = [];
+
+                    if endIdx - startIdx < 2
+                        continue;
+                    end
+
+                    interiorIdx = (startIdx + 1):(endIdx - 1);
+
+                    startL = pointsIn(startIdx, 1:2);
+                    endL = pointsIn(endIdx, 1:2);
+                    interiorL = pointsIn(interiorIdx, 1:2);
+
+                    startR = pointsIn(startIdx, 3:4);
+                    endR = pointsIn(endIdx, 3:4);
+                    interiorR = pointsIn(interiorIdx, 3:4);
+
+                    errorSqL = pointToSegmentErrorSquared( ...
+                        interiorL, startL, endL);
+
+                    errorSqR = pointToSegmentErrorSquared( ...
+                        interiorR, startR, endR);
+
+                    combinedErrorSq = max(errorSqL, errorSqR);
+                    [ maximumErrorSq, localIdx ] = max(combinedErrorSq);
+
+                    if maximumErrorSq > tolerance^2
+                        splitIdx = interiorIdx(localIdx);
+                        keepMask(splitIdx) = true;
+
+                        stack = [ stack, splitIdx, endIdx ]; %#ok<AGROW>
+                        stack = [ stack, startIdx, splitIdx ]; %#ok<AGROW>
+                    end
+                end
+
+                pointsOut = pointsIn(keepMask, :);
+            end
+
+            function errorSquared = pointToSegmentErrorSquared( ...
+                    points, segmentStart, segmentEnd)
+
+                segmentVector = segmentEnd - segmentStart;
+                segmentLengthSquared = sum(segmentVector.^2);
+
+                relativePoints = bsxfun(@minus, points, segmentStart);
+
+                if segmentLengthSquared < 1e-12
+                    errorSquared = sum(relativePoints.^2, 2);
+                    return;
+                end
+
+                projection = ...
+                    (relativePoints * segmentVector.') / ...
+                    segmentLengthSquared;
+
+                projection = max(0, min(1, projection));
+
+                closestPoints = bsxfun( ...
+                    @plus, ...
+                    segmentStart, ...
+                    bsxfun(@times, projection, segmentVector));
+
+                errorSquared = sum((points - closestPoints).^2, 2);
+            end
+        end
+
         function[ yLS, zLS, yRS, zRS ] = resampleProfilesSynced(yL, zL, yR, zR, tol)
             % Purpose: Resamples Left and Right profiles simultaneously to ensure 1:1 point topology.
             % WHY: 4-axis CNC requires exactly the same number of points on the left and right profiles
