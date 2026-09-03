@@ -299,6 +299,286 @@ classdef CNCHotWire_GCodeGenerator_Helpers
             zR = interp1(sU, zExt(idxU), linspace(0, totalLen, N).', 'linear');
         end
 
+        function [ anchorL, anchorR, info ] = findFeatureAnchorPairs( ...
+                yL, zL, yR, zR, minCornerAngleDeg)
+            % Purpose: Detects one corresponding sharp-sided open-notch feature
+            % on the left and right profiles.
+            %
+            % The initial implementation recognises the ordered corner pattern:
+            %
+            %     convex -> concave -> concave -> convex
+            %
+            % This represents the two mouth corners and two internal corners of
+            % a rectangular recess. Other unrelated convex profile corners are
+            % permitted and are not treated as anchors.
+
+            if nargin < 5
+                minCornerAngleDeg = 25.0;
+            end
+
+            anchorL = zeros(0, 2);
+            anchorR = zeros(0, 2);
+
+            info = struct( ...
+                'Valid', false, ...
+                'Message', "", ...
+                'AnchorCount', 0, ...
+                'CandidateCountL', 0, ...
+                'CandidateCountR', 0, ...
+                'PatternCountL', 0, ...
+                'PatternCountR', 0);
+
+            [ yLWork, zLWork ] = cleanOpenLoop(yL, zL);
+            [ yRWork, zRWork ] = cleanOpenLoop(yR, zR);
+
+            if numel(yLWork) < 4 || numel(yRWork) < 4
+                info.Message = "Insufficient profile points for feature detection.";
+                return;
+            end
+
+            areaL = signedLoopArea(yLWork, zLWork);
+            areaR = signedLoopArea(yRWork, zRWork);
+
+            if abs(areaL) < 1e-12 || abs(areaR) < 1e-12
+                info.Message = "A profile has insufficient enclosed area.";
+                return;
+            end
+
+            % Put both profiles into the same traversal direction before matching
+            % their ordered corner sequences.
+            if sign(areaL) ~= sign(areaR)
+                yRWork = flipud(yRWork);
+                zRWork = flipud(zRWork);
+            end
+
+            [ idxL, candidateCountL, patternCountL ] = ...
+                findSingleNotch(yLWork, zLWork, minCornerAngleDeg);
+
+            [ idxR, candidateCountR, patternCountR ] = ...
+                findSingleNotch(yRWork, zRWork, minCornerAngleDeg);
+
+            info.CandidateCountL = candidateCountL;
+            info.CandidateCountR = candidateCountR;
+            info.PatternCountL = patternCountL;
+            info.PatternCountR = patternCountR;
+
+            if patternCountL ~= 1 || patternCountR ~= 1
+                info.Message = string(sprintf( ...
+                    ['Feature Anchors requires exactly one unambiguous notch ' ...
+                    'pattern on each profile. Found L/R: %d / %d.'], ...
+                    patternCountL, patternCountR));
+                return;
+            end
+
+            anchorL = [ yLWork(idxL), zLWork(idxL) ];
+            anchorR = [ yRWork(idxR), zRWork(idxR) ];
+
+            if size(anchorL, 1) ~= 4 || size(anchorR, 1) ~= 4
+                anchorL = zeros(0, 2);
+                anchorR = zeros(0, 2);
+                info.Message = "The detected feature did not contain four anchors.";
+                return;
+            end
+
+            info.Valid = true;
+            info.AnchorCount = 4;
+            info.Message = "Matched four ordered notch-corner anchor pairs.";
+
+            function [ yo, zo ] = cleanOpenLoop(yi, zi)
+                yi = yi(:);
+                zi = zi(:);
+
+                valid = isfinite(yi) & isfinite(zi);
+                yi = yi(valid);
+                zi = zi(valid);
+
+                if numel(yi) < 2
+                    yo = yi;
+                    zo = zi;
+                    return;
+                end
+
+                % Remove consecutive duplicate points.
+                distanceFromPrevious = [ inf; hypot(diff(yi), diff(zi)) ];
+                keep = distanceFromPrevious > 1e-8;
+
+                yo = yi(keep);
+                zo = zi(keep);
+
+                % Work internally with an open representation of the closed loop.
+                if numel(yo) > 1 && ...
+                        hypot(yo(1) - yo(end), zo(1) - zo(end)) <= 1e-8
+                    yo(end) = [];
+                    zo(end) = [];
+                end
+            end
+
+            function areaValue = signedLoopArea(y, z)
+                nextIdx = [ 2:numel(y), 1 ];
+                areaValue = sum( ...
+                    y .* z(nextIdx) - ...
+                    y(nextIdx) .* z);
+            end
+
+            function [ anchorIdx, candidateCount, patternCount ] = ...
+                    findSingleNotch(y, z, angleThresholdDeg)
+
+                anchorIdx = zeros(0, 1);
+                candidateCount = 0;
+                patternCount = 0;
+
+                n = numel(y);
+                if n < 4
+                    return;
+                end
+
+                previousIdx = [ n, 1:(n-1) ];
+                nextIdx = [ 2:n, 1 ];
+
+                incomingY = y - y(previousIdx);
+                incomingZ = z - z(previousIdx);
+                outgoingY = y(nextIdx) - y;
+                outgoingZ = z(nextIdx) - z;
+
+                incomingLength = hypot(incomingY, incomingZ);
+                outgoingLength = hypot(outgoingY, outgoingZ);
+
+                usable = incomingLength > 1e-10 & ...
+                    outgoingLength > 1e-10;
+
+                crossValue = incomingY .* outgoingZ - ...
+                    incomingZ .* outgoingY;
+
+                dotValue = incomingY .* outgoingY + ...
+                    incomingZ .* outgoingZ;
+
+                turnAngle = nan(n, 1);
+                turnAngle(usable) = atan2( ...
+                    crossValue(usable), dotValue(usable));
+
+                % Normalise the sign so convex corners are positive and concave
+                % corners are negative regardless of traversal direction.
+                loopArea = signedLoopArea(y, z);
+                turnAngle = turnAngle * sign(loopArea);
+
+                thresholdRadians = angleThresholdDeg * pi / 180.0;
+
+                cornerIdx = find( ...
+                    isfinite(turnAngle) & ...
+                    abs(turnAngle) >= thresholdRadians);
+
+                if isempty(cornerIdx)
+                    return;
+                end
+
+                perimeter = sum(hypot( ...
+                    diff([ y; y(1) ]), ...
+                    diff([ z; z(1) ])));
+
+                % Collapse multiple nearby detections belonging to the same
+                % physical corner.
+                mergeDistance = max(1e-8, 0.002 * perimeter);
+
+                [ cornerIdx, cornerTurn ] = mergeCornerClusters( ...
+                    cornerIdx, turnAngle, y, z, mergeDistance);
+
+                candidateCount = numel(cornerIdx);
+
+                if candidateCount < 4
+                    return;
+                end
+
+                matches = zeros(0, 4);
+
+                for k = 1:candidateCount
+                    secondCorner = mod(k, candidateCount) + 1;
+                    previousCorner = mod(k - 2, candidateCount) + 1;
+                    followingCorner = mod(k + 1, candidateCount) + 1;
+
+                    % Recognise the ordered notch signature:
+                    % mouth -> internal -> internal -> mouth.
+                    if cornerTurn(previousCorner) > 0 && ...
+                            cornerTurn(k) < 0 && ...
+                            cornerTurn(secondCorner) < 0 && ...
+                            cornerTurn(followingCorner) > 0
+
+                        matches(end+1, :) = [ ... %#ok<AGROW>
+                            cornerIdx(previousCorner), ...
+                            cornerIdx(k), ...
+                            cornerIdx(secondCorner), ...
+                            cornerIdx(followingCorner) ];
+                    end
+                end
+
+                patternCount = size(matches, 1);
+
+                if patternCount == 1
+                    anchorIdx = matches(1, :).';
+                end
+            end
+
+            function [ idxOut, turnOut ] = mergeCornerClusters( ...
+                    idxIn, turnAll, y, z, mergeDistance)
+
+                idxIn = idxIn(:);
+
+                if numel(idxIn) <= 1
+                    idxOut = idxIn;
+                    turnOut = turnAll(idxOut);
+                    return;
+                end
+
+                groups = cell(1, 1);
+                groups{1} = idxIn(1);
+
+                for j = 2:numel(idxIn)
+                    currentIdx = idxIn(j);
+                    previousCandidateIdx = groups{end}(end);
+
+                    sameTurnSense = ...
+                        turnAll(currentIdx) * turnAll(previousCandidateIdx) > 0;
+
+                    closeTogether = hypot( ...
+                        y(currentIdx) - y(previousCandidateIdx), ...
+                        z(currentIdx) - z(previousCandidateIdx)) <= mergeDistance;
+
+                    if sameTurnSense && closeTogether
+                        groups{end}(end+1) = currentIdx;
+                    else
+                        groups{end+1} = currentIdx; %#ok<AGROW>
+                    end
+                end
+
+                % Merge a cluster that crosses the stored loop start/end.
+                if numel(groups) > 1
+                    firstIdx = groups{1}(1);
+                    lastIdx = groups{end}(end);
+
+                    sameTurnSense = turnAll(firstIdx) * turnAll(lastIdx) > 0;
+
+                    closeTogether = hypot( ...
+                        y(firstIdx) - y(lastIdx), ...
+                        z(firstIdx) - z(lastIdx)) <= mergeDistance;
+
+                    if sameTurnSense && closeTogether
+                        groups{1} = [ groups{end}, groups{1} ];
+                        groups(end) = [];
+                    end
+                end
+
+                idxOut = zeros(numel(groups), 1);
+
+                for j = 1:numel(groups)
+                    members = groups{j};
+                    [ ~, strongest ] = max(abs(turnAll(members)));
+                    idxOut(j) = members(strongest);
+                end
+
+                idxOut = sort(idxOut);
+                turnOut = turnAll(idxOut);
+            end
+        end
+
         function[ yLS, zLS, yRS, zRS ] = resampleProfilesSynced(yL, zL, yR, zR, tol)
             % Purpose: Resamples Left and Right profiles simultaneously to ensure 1:1 point topology.
             % WHY: 4-axis CNC requires exactly the same number of points on the left and right profiles
