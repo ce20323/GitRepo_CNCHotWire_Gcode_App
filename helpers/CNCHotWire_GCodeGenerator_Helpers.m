@@ -464,7 +464,7 @@ classdef CNCHotWire_GCodeGenerator_Helpers
 
             if patternCountL ~= 1 || patternCountR ~= 1
                 info.Message = string(sprintf( ...
-                    ['Feature Anchors requires exactly one unambiguous notch ' ...
+                    ['Notch Anchors requires exactly one unambiguous notch '...
                     'pattern on each profile. Found L/R: %d / %d.'], ...
                     patternCountL, patternCountR));
                 return;
@@ -685,13 +685,21 @@ classdef CNCHotWire_GCodeGenerator_Helpers
         end
 
         function [ yLS, zLS, yRS, zRS, info ] = ...
-                resampleProfilesFeatureAnchored(yL, zL, yR, zR, tol)
-            % Purpose: Synchronises corresponding profiles using matched feature
-            % anchors, while retaining proportional-perimeter synchronisation
-            % between adjacent anchors.
+                resampleProfilesFeatureAnchored( ...
+                yL, zL, yR, zR, tol, detectionMode)
+            % Purpose: Synchronises profiles between corresponding anchors
+            % selected by either Notch Anchors or Matched Corners.
             %
-            % This initial implementation requires one rectangular-notch feature
-            % containing four matched corners.
+            % WHY: Both modes require the same cyclic section resampling.
+            % Only the rule used to identify corresponding anchors differs.
+            %
+            % HOW: Pass the selected mode to the detector, then preserve its
+            % paired anchors while resampling each intervening section.
+            % Existing five-argument callers retain notch behaviour.
+
+            if nargin < 6
+                detectionMode = "Notch Anchors";
+            end
 
             yLS = [];
             zLS = [];
@@ -750,9 +758,12 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                     CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY(yR, zR);
             end
 
+            % Use the existing 25-degree corner threshold for both modes.
+            % The detector determines correspondence; the resampler must
+            % not replace it with independent minimum-Y pairing.
             [ anchorL, anchorR, detectedInfo ] = ...
                 CNCHotWire_GCodeGenerator_Helpers.findFeatureAnchorPairs( ...
-                yL, zL, yR, zR);
+                yL, zL, yR, zR, 25.0, detectionMode);
 
             info = detectedInfo;
             info.AnchorIndices = zeros(0, 1);
