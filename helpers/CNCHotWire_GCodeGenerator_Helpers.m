@@ -300,21 +300,27 @@ classdef CNCHotWire_GCodeGenerator_Helpers
         end
 
         function [ anchorL, anchorR, info ] = findFeatureAnchorPairs( ...
-                yL, zL, yR, zR, minCornerAngleDeg)
-            % Purpose: Detects one corresponding sharp-sided open-notch feature
-            % on the left and right profiles.
+                yL, zL, yR, zR, minCornerAngleDeg, detectionMode)
+            % Purpose: Finds corresponding anchors using either one notch
+            % pattern or all detected sharp corners.
             %
-            % The initial implementation recognises the ordered corner pattern:
+            % WHY: Notch matching permits unrelated outer corners, whereas
+            % Matched Corners requires the complete corner sequences to agree.
+            % Both approaches must preserve cyclic traversal correspondence.
             %
-            %     convex -> concave -> concave -> convex
-            %
-            % This represents the two mouth corners and two internal corners of
-            % a rectangular recess. Other unrelated convex profile corners are
-            % permitted and are not treated as anchors.
+            % HOW: Share corner detection and clustering, then apply the
+            % selected matching rule. Existing callers retain notch behaviour
+            % unless they explicitly request Matched Corners.
 
             if nargin < 5
                 minCornerAngleDeg = 25.0;
             end
+
+            if nargin < 6
+                detectionMode = "Notch Anchors";
+            end
+
+            detectionMode = string(detectionMode);
 
             anchorL = zeros(0, 2);
             anchorR = zeros(0, 2);
@@ -351,16 +357,110 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                 zRWork = flipud(zRWork);
             end
 
-            [ idxL, candidateCountL, patternCountL ] = ...
+            % Retain the complete candidate sequences as well as the notch
+            % result so both modes use identical corner-detection rules.
+            [ idxL, candidateCountL, patternCountL, cornersL, turnsL ] = ...
                 findSingleNotch(yLWork, zLWork, minCornerAngleDeg);
 
-            [ idxR, candidateCountR, patternCountR ] = ...
+            [ idxR, candidateCountR, patternCountR, cornersR, turnsR ] = ...
                 findSingleNotch(yRWork, zRWork, minCornerAngleDeg);
 
             info.CandidateCountL = candidateCountL;
             info.CandidateCountR = candidateCountR;
             info.PatternCountL = patternCountL;
             info.PatternCountR = patternCountR;
+
+            if detectionMode == "Matched Corners"
+                % Purpose: Pair every detected corner without relying on the
+                % independently selected starting vertex of either profile.
+                %
+                % WHY: Equal counts alone do not establish correspondence.
+                % Repeated corner signatures may permit several equally
+                % plausible cyclic pairings.
+                %
+                % HOW: Compare signed turning angles for every cyclic shift
+                % of the right sequence. Reject incompatible sequences and
+                % require a clear margin over the next compatible result.
+
+                maxPairDifferenceDeg = 20.0;
+                minScoreSeparationDeg = 5.0;
+
+                if candidateCountL < 3 || ...
+                        candidateCountL ~= candidateCountR
+
+                    info.Message = string(sprintf( ...
+                        ['Matched Corners requires equal corner counts ' ...
+                        'with at least three per profile. Found L/R: %d / %d.'], ...
+                        candidateCountL, candidateCountR));
+                    return;
+                end
+
+                cornerCount = candidateCountL;
+                turnsLDeg = turnsL(:) * 180.0 / pi;
+                turnsRDeg = turnsR(:) * 180.0 / pi;
+                matchScores = inf(cornerCount, 1);
+
+                for shiftNumber = 0:cornerCount-1
+                    candidateTurnsR = circshift(turnsRDeg, -shiftNumber);
+
+                    % Convex corners must pair with convex corners, and
+                    % concave corners with concave corners. Small overall
+                    % scores must not hide one incompatible anchor.
+                    if any(sign(turnsLDeg) ~= sign(candidateTurnsR))
+                        continue;
+                    end
+
+                    angleDifference = turnsLDeg - candidateTurnsR;
+
+                    if any(abs(angleDifference) > maxPairDifferenceDeg)
+                        continue;
+                    end
+
+                    matchScores(shiftNumber + 1) = ...
+                        sqrt(mean(angleDifference.^2));
+                end
+
+                [ sortedScores, rankedMatches ] = sort(matchScores);
+
+                if ~isfinite(sortedScores(1))
+                    info.Message = ...
+                        "The detected corner sequences are not compatible.";
+                    return;
+                end
+
+                % Reject repeated or nearly repeated signatures rather than
+                % using array order or minimum-Y position as a tie-breaker.
+                if isfinite(sortedScores(2)) && ...
+                        sortedScores(2) - sortedScores(1) < ...
+                        minScoreSeparationDeg
+
+                    info.Message = ...
+                        "The detected corners have an ambiguous cyclic match.";
+                    return;
+                end
+
+                bestShift = rankedMatches(1) - 1;
+                pairedCornersR = circshift(cornersR(:), -bestShift);
+
+                anchorL = [ yLWork(cornersL), zLWork(cornersL) ];
+                anchorR = [ ...
+                    yRWork(pairedCornersR), zRWork(pairedCornersR) ];
+
+                info.Valid = true;
+                info.AnchorCount = cornerCount;
+                info.MatchRmsDeg = sortedScores(1);
+                info.NextMatchRmsDeg = sortedScores(2);
+                info.Message = string(sprintf( ...
+                    'Matched %d ordered corner pairs.', cornerCount));
+                return;
+            end
+
+            % Keep the existing notch recognition as the default route.
+            % Reject unknown modes rather than silently choosing a strategy.
+            if detectionMode ~= "Notch Anchors"
+                info.Message = "Unknown anchor detection mode.";
+                return;
+            end
 
             if patternCountL ~= 1 || patternCountR ~= 1
                 info.Message = string(sprintf( ...
@@ -420,12 +520,17 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                     y(nextIdx) .* z);
             end
 
-            function [ anchorIdx, candidateCount, patternCount ] = ...
+            function [ anchorIdx, candidateCount, patternCount, ...
+                    cornerIdx, cornerTurn ] = ...
                     findSingleNotch(y, z, angleThresholdDeg)
 
                 anchorIdx = zeros(0, 1);
                 candidateCount = 0;
                 patternCount = 0;
+                % Initialise the additional outputs for early-return cases,
+                % including profiles with no qualifying sharp corners.
+                cornerIdx = zeros(0, 1);
+                cornerTurn = zeros(0, 1);
 
                 n = numel(y);
                 if n < 4
