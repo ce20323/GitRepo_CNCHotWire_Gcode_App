@@ -1199,6 +1199,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             
             app.syncProfileKerfControls();
             
+            % Keep start-point controls consistent with the new strategy or cut type.
+            app.syncProfileStartControls();
+
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
@@ -2072,6 +2075,43 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function syncProfileStartControls(app)
+            % Purpose: Enforces the start-point coupling required by the active strategy.
+            % WHY: Anchor synchronisation establishes corresponding left/right rows.
+            %      Independently rotating either profile would destroy that pairing.
+            % HOW: Forces a shared start index for anchor strategies and Straight cuts.
+            %      Proportional Tapered cuts retain the existing Independent option.
+            %
+            % This method updates controls and indices only. It does not rebuild paths
+            % or mark the Cutting Strategy stage as initialised; the caller owns those
+            % actions as part of its existing recalculation workflow.
+
+            if isempty(app.SwitchSyncStart) || ~isgraphics(app.SwitchSyncStart)
+                return;
+            end
+
+            mustCouple = app.isAnchorSyncStrategy() || ...
+                strcmp(app.TaperToggle.Value, 'Straight');
+
+            if mustCouple
+                % Preserve the left start choice and move the right to its paired row.
+                % The common row need not be an anchor: any synchronised row is valid.
+                app.SwitchSyncStart.Value = 'Coupled';
+                app.SwitchSyncStart.Enable = 'off';
+                app.SelectedStartIdxR = app.SelectedStartIdxL;
+
+                app.SwitchSyncStart.Tooltip = ...
+                    ['Start points are coupled to preserve left-right correspondence. ' ...
+                    'Selecting a start point moves both profiles to the paired row.'];
+            else
+                % Re-enable the choice without silently restoring Independent mode.
+                app.SwitchSyncStart.Enable = 'on';
+                app.SwitchSyncStart.Tooltip = ...
+                    ['Coupled selects corresponding rows on both profiles. ' ...
+                    'Independent changes each profile start separately.'];
+            end
+        end
+
         function onProfileSyncStrategyChanged(app, src, varargin)
             newStrategy = string(src.Value);
 
@@ -2081,7 +2121,9 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             app.ProfileSyncStrategy = newStrategy;
             app.syncProfileKerfControls();
-
+            % Keep start-point controls consistent with the new strategy or cut type.
+            app.syncProfileStartControls();
+            
             % Everything downstream depends on the point correspondence.
             app.IsMachineInit = false;
             app.IsCuttingInit = false;
@@ -5095,6 +5137,10 @@ classdef CNCHotWire_GCodeGenerator < handle
 
                 [ ~, minIdx ] = min(distances);
 
+                % Reassert coupling before assigning indices so anchor correspondence cannot
+                % be broken by a stale control value or a programmatic callback.
+                app.syncProfileStartControls();
+
                 if strcmp(app.SwitchSyncStart.Value, 'Coupled')
                     app.SelectedStartIdxL = minIdx;
                     app.SelectedStartIdxR = minIdx;
@@ -5153,7 +5199,18 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         function onSyncToggleChanged(app, src)
-            % Purpose: Handles the Start Point coupling toggle.
+            % Purpose: Handles changes to the Start Point coupling mode.
+            % WHY: Independent start indices are permitted for proportional tapered
+            %      profiles, but would invalidate established anchor correspondence.
+            % HOW: Reasserts strategy restrictions before applying the normal coupled
+            %      behaviour, then invalidates the previously generated program path.
+
+            app.syncProfileStartControls();
+
+            % A coupling-mode change must not leave a previously generated program
+            % marked current, even if its replacement has not yet been calculated.
+            app.IsProgramPathValid = false;
+
             if strcmp(src.Value, 'Coupled')
                 app.SelectedStartIdxR = app.SelectedStartIdxL;
                 app.IsCuttingInit = true;
@@ -5193,6 +5250,10 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             [ ~, idxL ] = min(yL_b);
             [ ~, idxR ] = min(yR_b);
+
+            % Reassert coupling before assigning indices so anchor correspondence cannot
+            % be broken by a stale control value or a programmatic callback.
+            app.syncProfileStartControls();
 
             if strcmp(app.SwitchSyncStart.Value, 'Coupled')
                 app.SelectedStartIdxL = idxL;
