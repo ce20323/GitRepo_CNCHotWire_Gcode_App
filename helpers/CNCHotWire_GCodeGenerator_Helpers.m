@@ -675,32 +675,78 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                 return;
             end
 
-            % Put the paired anchors into path order relative to the common
-            % automatic start point.
-            [ anchorIdxL, pathOrder ] = sort(anchorIdxL);
+            % Purpose: Establish a common cyclic origin at a matched anchor.
+            %
+            % WHY: Independently chosen minimum-Y origins can place matching
+            % anchors on opposite sides of the array boundary. For example,
+            % right indices [4; 1; 2; 3] describe a valid cyclic sequence,
+            % although they are not numerically increasing.
+            %
+            % HOW: Order the pairs around the left loop, then rotate each
+            % profile to the first matched pair. Remap the anchor indices
+            % relative to those origins and check their traversal order.
+            % This establishes correspondence only; the operator can later
+            % select a different cut start by rotating both outputs together.
 
+            [ anchorIdxL, pathOrder ] = sort(anchorIdxL);
             anchorIdxR = anchorIdxR(pathOrder);
             anchorL = anchorL(pathOrder, :);
             anchorR = anchorR(pathOrder, :);
 
-            % The same paired order must also be monotonic on the right profile.
-            % Otherwise the two profiles do not have a safe common sequence.
-            if any(diff(anchorIdxL) <= 0) || any(diff(anchorIdxR) <= 0)
+            % The cleaned profiles contain an explicit closing duplicate.
+            % Exclude that duplicate from cyclic indexing and rotation.
+            openCountL = numel(yL) - 1;
+            openCountR = numel(yR) - 1;
+
+            firstAnchorL = anchorIdxL(1);
+            firstAnchorR = anchorIdxR(1);
+
+            relativeIdxL = ...
+                mod(anchorIdxL - firstAnchorL, openCountL) + 1;
+            relativeIdxR = ...
+                mod(anchorIdxR - firstAnchorR, openCountR) + 1;
+
+            % A single boundary wrap is valid. Repeated anchors or a truly
+            % incompatible paired order remain invalid after rebasing.
+            % Never sort the right indices independently: that would change
+            % which physical features are paired.
+            if any(diff(relativeIdxL) <= 0) || ...
+                    any(diff(relativeIdxR) <= 0)
+
                 info.Message = ...
                     "The feature anchors do not have the same traversal order.";
                 return;
             end
 
-            breakpointsL = [ 1; anchorIdxL; numel(yL) ];
-            breakpointsR = [ 1; anchorIdxR; numel(yR) ];
+            rotationL = [ firstAnchorL:openCountL, 1:firstAnchorL-1 ];
+            rotationR = [ firstAnchorR:openCountR, 1:firstAnchorR-1 ];
 
-            if any(diff(breakpointsL) <= 0) || ...
-                    any(diff(breakpointsR) <= 0)
+            yL = yL(rotationL);
+            zL = zL(rotationL);
+            yR = yR(rotationR);
+            zR = zR(rotationR);
 
-                info.Message = ...
-                    "A feature anchor coincides with or crosses the automatic start point.";
-                return;
-            end
+            % Preserve column-vector outputs and restore exactly one closing
+            % point after rotating the unique vertices.
+            yL = yL(:);
+            zL = zL(:);
+            yR = yR(:);
+            zR = zR(:);
+
+            yL(end+1, 1) = yL(1);
+            zL(end+1, 1) = zL(1);
+            yR(end+1, 1) = yR(1);
+            zR(end+1, 1) = zR(1);
+
+            anchorIdxL = relativeIdxL;
+            anchorIdxR = relativeIdxR;
+
+            % Each section runs from one matched anchor to the next.
+            % The final section returns to the first anchor through closure.
+            % Anchor 1 already occupies row 1, so do not prepend another
+            % breakpoint at row 1 and create a zero-length section.
+            breakpointsL = [ anchorIdxL; numel(yL) ];
+            breakpointsR = [ anchorIdxR; numel(yR) ];
 
             allPoints = zeros(0, 4);
             sectionCount = numel(breakpointsL) - 1;
