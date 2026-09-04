@@ -7799,10 +7799,10 @@ classdef CNCHotWire_GCodeGenerator < handle
                 'Most steps offer auto or manual configuration.';
                 '';
                 'Workflow:';
-                '- Export your model form your chosen CAD package, preferably as a STEP file (or STL)';
+                '- Export your model from your chosen CAD package, preferably as a STEP file (or STL)';
                 '- Import and orient your 3D CAD  model (STEP/STL).';
                 '- Slice models, extract and sync 2D profiles.';
-                '- Apply kerf compensation to allow for the width of the cut, preserving dimensional accuracy.';
+                '- Allow for kerf in the app or in CAD; do not compensate twice.';
                 '- Size and position your model and billet.';
                 '- Create collision-free lead-in and exit paths.';
                 '- Visually simulate the 4-axis kinematics to verify the cut.';
@@ -7938,13 +7938,13 @@ classdef CNCHotWire_GCodeGenerator < handle
             pnl2 = uipanel(leftPnl, 'Title', 'Guidance', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnl2.Layout.Row = 5;
             gl2 = uigridlayout(pnl2,[1 1]); gl2.Padding =[0 0 0 0]; gl2.BackgroundColor = sideBg;
-            uitextarea(gl2, 'Value', 'Guidance blocks provide step-by-step instructions for the current tab.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
+            uitextarea(gl2, 'Value', 'Guidance blocks explain the current tab. Scroll within guidance and status boxes to read longer messages.', 'Editable', 'off', 'BackgroundColor', sideBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % 3. Status
             pnl3 = uipanel(leftPnl, 'Title', 'Status', 'BackgroundColor', sideBg, 'ForegroundColor', labelCol, 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeHeader, 'BorderType', 'line');
             pnl3.Layout.Row = 6;
             gl3 = uigridlayout(pnl3, [1 1]); gl3.Padding =[0 0 0 0]; gl3.BackgroundColor = sideBg;
-            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Safe).', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
+            uitextarea(gl3, 'Value', 'Traffic-light box: Red (Error), Amber (Warning), Green (Checks passed). Always inspect the paths.', 'Editable', 'off', 'BackgroundColor', t.statPassBg, 'FontColor', t.statPassTxt, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
             % Continue Button
             btnCont = uibutton(leftPnl, 'Text', 'Continue to Model →', 'FontWeight', 'bold', 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'BackgroundColor',[0.1 0.6 0.1], 'FontColor', [1 1 1], 'ButtonPushedFcn', @(~,~)app.onContinue());
@@ -8162,19 +8162,19 @@ classdef CNCHotWire_GCodeGenerator < handle
             glGuide.BackgroundColor = panelBg;
 
             guideText = {
-                '1. Import your model by clicking Import STEP or STL';
+                '1. Import your model using Import STEP or STL.';
                 '';
-                '2. Select straight for prismatic, or tapered for independant profiles.';
+                '2. Select Straight for a prismatic cut, or Tapered for independent left/right profiles.';
                 '';
-                '3. Rotate Model: Align cut profile to Y-Z plane.';
+                '3. Rotate the model so the required cutting sections lie in the Y-Z planes.';
                 '';
-                '4. (Optional) Move the left/right planes if you want to cut a section of your model';
+                '4. Move the left/right planes if you want to cut only a section of the model.';
                 '';
-                '5. Click generate profiles, check the profiles look correct, then click continue';
+                '5. Click Generate Profiles, check the sections, then Continue.';
                 '';
-                'TIP: The wire hits start/end of the profile twice, which can leave a "witness mark".';
-                'Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
-                'Rotate the model so this point is toward the front of the machine (Ymin)';
+                'TIP: Choose the actual cut start later on Cutting Strategy. Repeated heating there can leave a "witness mark". Place it on a less critical part of the boundary, usually toward the front (minimum Y).';
+                '';
+                'Rotation can help establish a minimum-Y sync anchor, but does not guarantee correct left/right pairing.'
                 };
             app.TxtModelGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
@@ -8406,6 +8406,11 @@ classdef CNCHotWire_GCodeGenerator < handle
                 '- An offset must be applied to the profile to compensate.'
                 ''
                 'Note: the offset distance applied is half the kerf value (Kerf/2).'
+                'synchronisation:';
+                '- Proportional Perimeter pairs equal fractions of the full perimeter.';
+                '- Matched Corners pairs detected corners.';
+                '- Notch Anchors pairs a recognised notch pattern.';
+                'Anchor modes synchronise the sections between paired anchors.';
                 };
 
             app.TxtProfileGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideText, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
@@ -8821,15 +8826,20 @@ classdef CNCHotWire_GCodeGenerator < handle
             glGuide.BackgroundColor = panelBg;
 
             guideMach = {
-                '1. Position the stock material securely on the physical machine bed.';
+                '1. Position the billet in the app. Try Auto-position Billet first.';
                 '';
-                'X: Distance from the LEFT edge of the physical bed to the left face of the billet.';
-                ''
-                'Y: Distance from the front HOME position to the front face of the billet. (Must be >50mm as the sacrificial bed starts at 50mm).';
-                ''
-                'Z: Height from the bed surface to the bottom of the billet. (Raise by 50, 75, or 100mm to match standard stock packing if needed).';
+                'X: Distance from the LEFT bed edge to the left face of the billet.';
                 '';
-                'TAPERED PARTS: Try to position the billet so the left and right tower profile paths are as equal in length as possible.'
+                'Y: Distance from machine HOME to the front face of the billet. At least 50mm; this is where the bed starts.';
+                '';
+                'Z: Height from the bed surface to the billet bottom. Provide suitable packing if raised.';
+                '';
+                '2. Check projected tower travel, wire extension and brass-joint clearance.';
+                'For tapered parts, similar left/right tower path lengths are a useful positioning guide, not a guarantee that all checks pass.';
+                '';
+                '3. Reproduce the final position on the physical machine and secure the billet and any packing.';
+                '';
+                'Inspect the complete movement sequence in Cutting Strategy and Simulation before use.'
                 };
             app.TxtMachineGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideMach, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
@@ -9038,20 +9048,18 @@ classdef CNCHotWire_GCodeGenerator < handle
             glGuide.BackgroundColor = panelBg;
 
             guideCut = {
-                'This tab allows visualisation and modification of the wire path, direction, entry/exit, cut direction.';
+                '1. Choose cut direction. Top first usually reduces the chance of the part dropping into an already-cut lower channel.';
                 '';
-                '1. Set the direction of cut using the toggle. It is usually best to do top first, otherwise the part can shift during the cut, dropping in to the channel left by the bottom of the cut.';
+                '2. Choose the start point, usually toward the front. Repeated heating can leave a "witness mark"; use a less critical part of the boundary.';
+                'Independent left/right starts are available for tapered Proportional Perimeter cuts only. Anchor modes keep starts coupled.';
                 '';
-                '2. Chose the start point. Usually toward the front of the machine.';
-                'The wire visits this point twice. Repeated heat exposure can locally over-burn the foam and leave a "witness mark". Hide this on a trailing edge, inside the part, or somewhere not important for smoothness.';
-                'You should have rotated using the model tab so this point is toward the front of the machine (Ymin).';
-                'If, for tapered parts there are issues with L/R profile sync, you can decouple and manually select different start points for each profile.';
+                '3. Try Auto Lead, then Auto Links for any optional route.';
+                'The orange Lead In is a cutting move and must begin outside the billet. Aim for a smooth transition into the profile.';
+                'Links can route the wire above the billet for top entry or swept parts.';
                 '';
-                '3. Choose the Lead In points. Try Auto Lead first.';
-                'Use Auto Links to calculate or remove the optional link route from the current Lead In points.';
-                'The orange Lead In line is a cutting move and must begin outside the billet.';
-                'Set it to minimise the change in direction between the orange line and the start/end of the cut.';
-                'If you are entering from the top of the block, or have a lot of sweep, the Link points can route the wire over the top of the block, saving waste material.'
+                'Automatic lead/link points update after start changes. Manually positioned groups are retained; their Auto button returns them to automatic control.';
+                '';
+                '4. Inspect both paths and the complete wire movement in Simulation. Rapid and return moves must clear the billet.'
                 };
             app.TxtCuttingGuide = uitextarea(glGuide, 'Editable','off', 'Value', guideCut, 'BackgroundColor', panelBg, 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal);
 
@@ -9264,11 +9272,14 @@ classdef CNCHotWire_GCodeGenerator < handle
             gaugeExt.FontSize = 8; % Keep small to fit ticks
             gaugeExt.BackgroundColor = panelBg;
 
-            gaugeExt.Tooltip = {sprintf('Tapered cuts require the wire to change length using a mass pulley system'), ...
-                sprintf('This dial shows the live extention required during the simulation'), ...
-                sprintf('Green: Safe operation.'), ...
-                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber), ...
-                sprintf('Red (>%.0fmm): Critical mechanical limit, wire will break!', app.WireExt_Red)};
+            gaugeExt.Tooltip = {
+                'The pulley system accommodates changes in tower-to-tower wire length.';
+                'This gauge shows the extension at the current simulation position.';
+                'Green: Within extension allowance.';
+                sprintf('Amber (>%.0fmm): Approaching pulley limit.', app.WireExt_Amber);
+                sprintf('Red (>%.0fmm): Critical extension limit exceeded.', app.WireExt_Red);
+                'Inspect the complete path; gauge colour alone does not verify the cut.'
+                };
 
             app.SimGaugeExt = gaugeExt;
 
