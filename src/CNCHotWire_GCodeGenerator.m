@@ -318,7 +318,9 @@ classdef CNCHotWire_GCodeGenerator < handle
         IsMachineUserModified (1,1) logical = false % Flag if user manually locked machine position
 
         IsCuttingInit         (1,1) logical = false % Flag if cutting strategy has been initialized
-        IsCuttingUserModified (1,1) logical = false % Flag if user manually locked cutting strategy
+        IsCuttingUserModified (1,1) logical = false % Flag if user manually locked cutting strategy        
+        IsLeadUserModified (1,1) logical = false    % Separate ownership of dependent strategy points.
+        IsLinksUserModified (1,1) logical = false
 
         DefaultXLim; DefaultYLim; DefaultZLim             % Stored default X/Y/Z limits for 3D view reset
         DefaultDataAspectRatio; DefaultPlotBoxAspectRatio % Stored default aspect ratios for 3D view reset
@@ -5157,6 +5159,10 @@ classdef CNCHotWire_GCodeGenerator < handle
                     end
                 end
 
+                % The newly selected start is now stored on the required
+                % side(s). Refresh its automatic dependants in order.
+                app.refreshAutomaticEntryPoints();
+
                 % --- CASE 2: LEAD IN ---
             elseif app.BtnPickEntry.Value
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
@@ -5170,8 +5176,18 @@ classdef CNCHotWire_GCodeGenerator < handle
                     end
                 end
 
+                % Protect the selected lead group, but allow automatic
+                % links to follow the new lead coordinates.
+                app.IsLeadUserModified = true;
+
+                if ~app.IsLinksUserModified
+                    app.onAutoLinks(false);
+                end
+
                 % --- CASE 3: LINK 1 ---
             elseif app.BtnPickEntry2.Value
+                % A manual link selection protects the complete link route.
+                app.IsLinksUserModified = true;
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPoint2L = cp;
                     app.EntryPoint2R = cp;
@@ -5185,6 +5201,9 @@ classdef CNCHotWire_GCodeGenerator < handle
 
                 % --- CASE 4: LINK 2 ---
             elseif isprop(app, 'BtnPickEntry3') && app.BtnPickEntry3.Value
+                % Link 1 and Link 2 share ownership so automatic routing
+                % cannot overwrite another part of a manually chosen route.
+                app.IsLinksUserModified = true;
                 if strcmp(app.SwitchSyncEntry.Value, 'Coupled')
                     app.EntryPoint3L = cp;
                     app.EntryPoint3R = cp;
@@ -5196,6 +5215,10 @@ classdef CNCHotWire_GCodeGenerator < handle
                     end
                 end
             end
+
+            % Any accepted strategy edit makes the previously generated
+            % movement sequence obsolete.
+            app.IsProgramPathValid = false;
 
             % Tell the Gatekeeper the user has manually set up the tab!
             app.IsCuttingUserModified = true;
@@ -5218,6 +5241,8 @@ classdef CNCHotWire_GCodeGenerator < handle
 
             if strcmp(src.Value, 'Coupled')
                 app.SelectedStartIdxR = app.SelectedStartIdxL;
+                % Coupling changes the right start just like a point pick.
+                app.refreshAutomaticEntryPoints();
                 app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
@@ -5229,12 +5254,39 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.EntryPointR = app.EntryPointL;
                 app.EntryPoint2R = app.EntryPoint2L;
                 app.EntryPoint3R = app.EntryPoint3L;
+                % Rebuild automatic routing after coupling the leads.
+                % Preserve the existing ownership of both point groups.
+                app.IsProgramPathValid = false;
+
+                if ~app.IsLinksUserModified
+                    app.onAutoLinks(false);
+                end
                 app.IsCuttingInit = true;
                 app.updateCuttingPlots();
             end
         end
 
         %%                    - AUTO TOOLS & ACTIONS -
+        function refreshAutomaticEntryPoints(app)
+            % Purpose: Updates automatic points after a start-point change.
+            %
+            % WHY: Lead positions depend on the start, and link positions
+            % depend on the lead. Manual selections must remain untouched.
+            %
+            % HOW: Refresh the lead first if it is automatic. Auto Lead also
+            % refreshes automatic links. If the lead is manual, refresh only
+            % automatic links using the retained lead coordinates.
+            % The caller owns the final plot refresh.
+
+            app.IsProgramPathValid = false;
+
+            if ~app.IsLeadUserModified
+                app.onAutoLead(false);
+            elseif ~app.IsLinksUserModified
+                app.onAutoLinks(false);
+            end
+        end
+
         function onAutoStart(app, doPlot)
             % Purpose: Automatically selects the start point closest to the front of the machine.
             if nargin < 2
@@ -5267,6 +5319,10 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.SelectedStartIdxL = idxL;
                 app.SelectedStartIdxR = idxR;
             end
+
+            % Auto Start follows the same dependency rules as manual picking:
+            % update automatic leads and links without replacing manual ones.
+            app.refreshAutomaticEntryPoints();
 
             % The start indices are current, but any existing manual-strategy
             % lock must remain unchanged.
@@ -5408,6 +5464,12 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint2L = l1L;
             app.EntryPoint3L = l2L;
 
+            % This combined calculation has replaced both point groups.
+            % Mark both automatic only after their coordinates are assigned.
+            app.IsLeadUserModified = false;
+            app.IsLinksUserModified = false;
+            app.IsProgramPathValid = false;
+
             % Tell the Gatekeeper the combined automatic entry calculation succeeded.
             app.IsCuttingUserModified = false;
             app.IsCuttingInit = true;
@@ -5418,8 +5480,14 @@ classdef CNCHotWire_GCodeGenerator < handle
         end
 
         function onAutoLead(app, doPlot)
-            % Purpose: Recalculates only the Lead In points.
-            % Existing Link 1 and Link 2 points are preserved.
+            % Purpose: Recalculates the Lead In points and any automatic links.
+            %
+            % WHY: Links depend on the lead, but manually selected links must
+            % survive both explicit and dependency-driven lead recalculation.
+            %
+            % HOW: Preserve the link coordinates and ownership while calling
+            % the combined entry calculator. Restore the links, then rebuild
+            % them only when their group remains automatically controlled.
 
             if nargin < 2
                 doPlot = true;
@@ -5428,6 +5496,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             % onAutoEntry resets this flag because it normally creates the complete
             % automatic strategy. Auto Lead is selective, so preserve the existing lock.
             preserveUserLock = app.IsCuttingUserModified;
+            preserveLinksLock = app.IsLinksUserModified;
 
             needsRightStart = strcmp(app.SwitchSyncEntry.Value, 'Independent');
 
@@ -5455,6 +5524,18 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint2R = oldLink1R;
             app.EntryPoint3L = oldLink2L;
             app.EntryPoint3R = oldLink2R;
+
+            % onAutoEntry marks both groups automatic. Restore the ownership
+            % of the links whose coordinates we have just retained.
+            app.IsLinksUserModified = preserveLinksLock;
+            app.IsLeadUserModified = false;
+            app.IsProgramPathValid = false;
+
+            % Calculate automatic links from the newly assigned lead points.
+            % Manual link routes remain exactly as selected.
+            if ~app.IsLinksUserModified
+                app.onAutoLinks(false);
+            end
 
             app.IsCuttingUserModified = preserveUserLock;
             app.IsCuttingInit = true;
@@ -5564,6 +5645,11 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPoint3L = link2L;
             app.EntryPoint3R = link2R;
 
+            % Explicit Auto Links returns the entire link route to automatic
+            % control. Later lead changes may therefore recalculate it.
+            app.IsLinksUserModified = false;
+            app.IsProgramPathValid = false;
+
             app.IsCuttingUserModified = preserveUserLock;
             app.IsCuttingInit = true;
 
@@ -5577,6 +5663,13 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.EntryPointL = [ ]; app.EntryPointR = [ ];
             app.EntryPoint2L = [ ]; app.EntryPoint2R = [ ];
             app.EntryPoint3L = [ ]; app.EntryPoint3R = [ ];
+            % Clearing is a deliberate empty configuration, not a request
+            % to regenerate points on the next start selection. Protect it
+            % until the operator selects points or uses the Auto controls.
+            app.IsLeadUserModified = true;
+            app.IsLinksUserModified = true;
+            app.IsCuttingUserModified = true;
+            app.IsProgramPathValid = false;
             app.IsCuttingInit = true;
             app.updateCuttingPlots();
         end
