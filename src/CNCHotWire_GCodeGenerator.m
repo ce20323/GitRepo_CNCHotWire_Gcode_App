@@ -1790,6 +1790,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.TxtProfileStatus.FontColor = t.statErrTxt;
             end
 
+            app.showProfileSyncFallbackStatus();
             drawnow limitrate nocallbacks;
         end
 
@@ -2146,6 +2147,137 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function showProfileSyncFallbackStatus(app)
+            % Purpose: Keep positional anchor fallback visible in the Profiles status.
+            % WHY: Applying kerf must not replace an unresolved pairing warning
+            %      with an ordinary success message.
+            % HOW: Read the current synchronisation result and show an amber
+            %      reminder without changing geometry or navigation permissions.
+
+            info = app.FeatureSyncInfo;
+
+            if ~app.isAnchorSyncStrategy() || ...
+                    isempty(app.LeftProfilePoints) || ...
+                    isempty(app.RightProfilePoints) || ...
+                    ~isstruct(info) || ~isscalar(info) || ...
+                    ~isfield(info, 'Valid') || ~info.Valid || ...
+                    ~isfield(info, 'UsedPositionalFallback') || ...
+                    ~info.UsedPositionalFallback
+                return;
+            end
+
+            % Do not overwrite the existing non-zero-kerf error.
+            if abs(app.KerfLeftValue) > 1e-12 || ...
+                    abs(app.KerfRightValue) > 1e-12
+                return;
+            end
+
+            t = app.getTheme();
+
+            if app.KerfEnabled
+                nextStep = 'Zero kerf applied. Review before continuing.';
+            else
+                nextStep = 'Then apply zero kerf to continue.';
+            end
+
+            app.TxtProfileStatus.Value = {
+                'WARNING: Minimum-Y fallback used.';
+                'Check numbered anchor pairs:';
+                'app.showProfileSyncDebug()';
+                nextStep
+                };
+            app.TxtProfileStatus.FontColor = t.statWarnTxt;
+        end
+
+        function showProfileSyncDebug(app)
+            % Purpose: Displays the current paired anchors outside the app.
+            %
+            % WHY: Numbered pairs make correspondence easier to inspect than
+            % separate unlabelled profile plots.
+            %
+            % HOW: Plot the stored synchronised profiles and matching anchor
+            % numbers using shared limits. Show the original automatic origins
+            % when recorded by Matched Corners. Do not modify any app state.
+            % This figure is a snapshot; rerun after changing the geometry.
+
+            info = app.FeatureSyncInfo;
+
+            if ~app.isAnchorSyncStrategy() || ...
+                    ~isfield(info, 'Valid') || ~info.Valid || ...
+                    isempty(app.LeftProfilePoints) || ...
+                    isempty(app.RightProfilePoints)
+
+                disp('No valid anchor-synchronised profiles to inspect.');
+                return;
+            end
+
+            profiles = { ...
+                app.LeftProfilePoints(:, 2:3), ...
+                app.RightProfilePoints(:, 2:3) };
+
+            anchors = { info.AnchorPointsL, info.AnchorPointsR };
+            sideNames = {'Left', 'Right'};
+            sideColours = {[0.8 0.1 0.1], [0.1 0.6 0.2]};
+            originFields = {'AutomaticOriginL', 'AutomaticOriginR'};
+
+            methodName = char(app.ProfileSyncStrategy);
+            if isfield(info, 'PairingMethod')
+                methodName = char(info.PairingMethod);
+            end
+
+            % Both views use the combined bounds, allowing direct comparison.
+            combined = [profiles{1}; profiles{2}];
+            lowerBound = min(combined, [], 1);
+            upperBound = max(combined, [], 1);
+            margin = 0.05 * max(max(upperBound - lowerBound), 1);
+
+            fig = figure('Name', 'Profile anchor correspondence', ...
+                'NumberTitle', 'off', 'Color', 'w');
+            layout = tiledlayout(fig, 1, 2);
+
+            for sideIdx = 1:2
+                ax = nexttile(layout);
+                profile = profiles{sideIdx};
+                points = anchors{sideIdx};
+
+                plot(ax, profile(:,1), profile(:,2), '-', ...
+                    'Color', sideColours{sideIdx});
+                hold(ax, 'on');
+
+                plot(ax, points(:,1), points(:,2), 'ko', ...
+                    'MarkerFaceColor', 'y');
+
+                for anchorIdx = 1:size(points, 1)
+                    text(ax, points(anchorIdx,1), points(anchorIdx,2), ...
+                        sprintf('  %d', anchorIdx), ...
+                        'FontWeight', 'bold', 'VerticalAlignment', 'bottom');
+                end
+
+                % Anchor 1 is the current paired-array origin. The automatic
+                % minimum-Y origin may lie elsewhere on the same profile.
+                plot(ax, points(1,1), points(1,2), 'rs', ...
+                    'MarkerSize', 12, 'LineWidth', 1.5);
+
+                if isfield(info, originFields{sideIdx})
+                    origin = info.(originFields{sideIdx});
+                    plot(ax, origin(1), origin(2), 'bx', ...
+                        'MarkerSize', 12, 'LineWidth', 2);
+                end
+
+                axis(ax, 'equal');
+                xlim(ax, [lowerBound(1)-margin, upperBound(1)+margin]);
+                ylim(ax, [lowerBound(2)-margin, upperBound(2)+margin]);
+                grid(ax, 'on');
+                xlabel(ax, 'Y (mm)');
+                ylabel(ax, 'Z (mm)');
+                title(ax, sideNames{sideIdx});
+            end
+
+            title(layout, { ...
+                sprintf('%s: %d paired anchors', methodName, info.AnchorCount), ...
+                'Numbers = pairs; red square = pair 1; blue x = automatic origin'});
+        end
+
         function [yLS, zLS, yRS, zRS] = applyProfileSyncStrategy(app, yL, zL, yR, zR, stage)
             % Central dispatcher for initial profile resampling and final path sync.
 
@@ -2201,6 +2333,20 @@ classdef CNCHotWire_GCodeGenerator < handle
                                 app.ProfileTolerance, strategy);
 
                             app.FeatureSyncInfo = info;
+
+                            % Report a successful positional fallback explicitly.
+                            % WHY: The compact status area may hide longer text.
+                            % Only report during initial processing, not every
+                            % downstream request for the existing paired paths.
+                            if info.Valid && ...
+                                    isfield(info, 'UsedPositionalFallback') && ...
+                                    info.UsedPositionalFallback
+
+                                warning('CNCHotWire:PositionalAnchorFallback', ...
+                                    ['Ambiguous corner angles: minimum-Y ' ...
+                                    'fallback used. Inspect numbered pairs ' ...
+                                    'with app.showProfileSyncDebug().']);
+                            end
 
                             if ~info.Valid
                                 yLS = [];
@@ -2427,6 +2573,7 @@ classdef CNCHotWire_GCodeGenerator < handle
                 app.TxtProfileStatus.Value = {msg; 'Profiles Valid.'; 'Click Continue.'};
                 app.TxtProfileStatus.FontColor = t.statPassTxt;
             end
+            app.showProfileSyncFallbackStatus();
         end
 
         %%                    - KERF MATH HELPERS -
@@ -7865,7 +8012,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.GLLeft.BackgroundColor = panelBg; % Distinct sidebar shade
 
             % Rows: 1:View, 2:Import, 3:Taper, 4:Orientation, 5:Planes, 6:Guidance(1x), 7:Status(70px), 8:Buttons
-            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            app.GLLeft.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 120, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.GLLeft.Padding =[5 5 5 5];
             app.GLLeft.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
 
@@ -8096,8 +8243,9 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.profilesLeft = uigridlayout(app.GLProfiles,[6 1]);
             app.profilesLeft.Layout.Column = 1;
 
-            % Rows: 1:View, 2:Sampling, 3:Kerf, 4:Guidance(1x), 5:Status(70px), 6:Continue
-            app.profilesLeft.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            % Rows: 1:View, 2:Sampling, 3:Kerf, 4:Guidance(1x), 5:Status(120px), 6:Continue
+            % WHY: Show longer synchronisation messages using spare guidance space.
+            app.profilesLeft.RowHeight = {'fit','fit','fit','1x',120, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.profilesLeft.Padding = [5 5 5 5];
             app.profilesLeft.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.profilesLeft.BackgroundColor = panelBg;
@@ -8339,7 +8487,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.BilletLeftPanel.Layout.Column = 1;
 
             % Rows: 1:View, 2:Auto, 3:Size, 4:Position, 5:Guidance(1x), 6:Status(70px), 7:Continue
-            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            app.BilletLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',120, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.BilletLeftPanel.Padding =[5 5 5 5];
             app.BilletLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.BilletLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
@@ -8450,7 +8598,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             lblNegHeader = uilabel(gridPos, 'Text', '-ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblNegHeader.Layout.Column = 2;
 
-            lblShiftHeader = uilabel(gridPos, 'Text', 'Shift[mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
+            lblShiftHeader = uilabel(gridPos, 'Text', 'Shift [mm]', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');
             lblShiftHeader.Layout.Column =[3 5]; % Spans -, Edit, +
 
             lblPosHeader = uilabel(gridPos, 'Text', '+ive Gap', 'FontWeight', 'bold', 'FontColor', labelCol, 'FontSize', CNCHotWire_GCodeGenerator.FontSizeNormal, 'HorizontalAlignment', 'center');

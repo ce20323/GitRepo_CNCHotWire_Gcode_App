@@ -357,6 +357,30 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                 zRWork = flipud(zRWork);
             end
 
+            % Purpose: Establish reproducible origins for positional fallback.
+            %
+            % WHY: Input arrays may start at arbitrary vertices, especially
+            % after reversing the right loop to match traversal direction.
+            %
+            % HOW: Apply the existing minimum-Y origin rule to both profiles
+            % before detecting corners. Work with unique vertices afterwards.
+            % This does not change the later operator-selected cutting start.
+            if detectionMode == "Matched Corners"
+                [ yLWork, zLWork ] = ...
+                    CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY( ...
+                    yLWork, zLWork);
+
+                [ yRWork, zRWork ] = ...
+                    CNCHotWire_GCodeGenerator_Helpers.reorderLoopByMinY( ...
+                    yRWork, zRWork);
+
+                [ yLWork, zLWork ] = cleanOpenLoop(yLWork, zLWork);
+                [ yRWork, zRWork ] = cleanOpenLoop(yRWork, zRWork);
+
+                info.AutomaticOriginL = [ yLWork(1), zLWork(1) ];
+                info.AutomaticOriginR = [ yRWork(1), zRWork(1) ];
+            end
+
             % Retain the complete candidate sequences as well as the notch
             % result so both modes use identical corner-detection rules.
             [ idxL, candidateCountL, patternCountL, cornersL, turnsL ] = ...
@@ -428,18 +452,38 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                     return;
                 end
 
-                % Reject repeated or nearly repeated signatures rather than
-                % using array order or minimum-Y position as a tie-breaker.
-                if isfinite(sortedScores(2)) && ...
-                        sortedScores(2) - sortedScores(1) < ...
-                        minScoreSeparationDeg
-
-                    info.Message = ...
-                        "The detected corners have an ambiguous cyclic match.";
-                    return;
-                end
-
+                % Purpose: Resolve ambiguous angle signatures using position.
+                %
+                % WHY: Several near-identical corner angles may leave more
+                % than one plausible cyclic pairing.
+                %
+                % HOW: Prefer the angle match when clearly distinguished.
+                % Otherwise pair the first corner at or after each automatic
+                % origin, followed by the remaining corners in path order.
+                % Corner indices are sorted, so this is cyclic shift zero.
+                %
+                % The fallback must still pass the existing turn-sense and
+                % per-corner angle checks. It is an assumption for inspection,
+                % not a claim that equivalent physical features were recognised.
                 bestShift = rankedMatches(1) - 1;
+                info.UsedPositionalFallback = false;
+                info.PairingMethod = "Corner angles";
+
+                ambiguousMatch = isfinite(sortedScores(2)) && ...
+                    sortedScores(2) - sortedScores(1) < ...
+                    minScoreSeparationDeg;
+
+                if ambiguousMatch
+                    if ~isfinite(matchScores(1))
+                        info.Message = ...
+                            "Origin-based pairing fails the corner checks.";
+                        return;
+                    end
+
+                    bestShift = 0;
+                    info.UsedPositionalFallback = true;
+                    info.PairingMethod = "Minimum-Y fallback";
+                end
                 pairedCornersR = circshift(cornersR(:), -bestShift);
 
                 anchorL = [ yLWork(cornersL), zLWork(cornersL) ];
@@ -450,6 +494,10 @@ classdef CNCHotWire_GCodeGenerator_Helpers
                 info.AnchorCount = cornerCount;
                 info.MatchRmsDeg = sortedScores(1);
                 info.NextMatchRmsDeg = sortedScores(2);
+                % Keep the selected score separate from the best angle score:
+                % the positional fallback need not be the lowest-scoring shift.
+                info.SelectedMatchRmsDeg = matchScores(bestShift + 1);
+                info.SelectedCyclicShift = bestShift;
                 info.Message = string(sprintf( ...
                     'Matched %d ordered corner pairs.', cornerCount));
                 return;
