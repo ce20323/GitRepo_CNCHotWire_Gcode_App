@@ -1196,7 +1196,9 @@ classdef CNCHotWire_GCodeGenerator < handle
                     app.ChkDynamicFeed.Value = true; % Default to true
                 end
             end
-
+            
+            app.syncProfileKerfControls();
+            
             if isempty(app.ModelPatch) || ~isgraphics(app.ModelPatch)
                 return;
             end
@@ -2027,6 +2029,49 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
         end
 
+        function tf = isAnchorSyncStrategy(app)
+            % Include the current name and the names used by the next checkpoint.
+            tf = any(string(app.ProfileSyncStrategy) == ...
+                ["Feature Anchors", "Notch Anchors", "Matched Corners"]);
+        end
+
+        function syncProfileKerfControls(app)
+            % Set permitted kerf values and controls without applying kerf.
+            anchorMode = app.isAnchorSyncStrategy();
+            isTaper = strcmp(app.TaperToggle.Value, 'Tapered');
+
+            if anchorMode
+                app.KerfLeftValue = 0;
+                app.KerfRightValue = 0;
+                app.KerfValue = 0;
+
+                app.KerfLeftSpinner.Value = 0;
+                app.KerfRightSpinner.Value = 0;
+                app.KerfModeSwitch.Value = 'Coupled';
+
+                app.KerfLeftSpinner.Enable = 'off';
+                app.KerfRightSpinner.Enable = 'off';
+                app.KerfModeSwitch.Enable = 'off';
+            else
+                app.KerfLeftSpinner.Enable = 'on';
+
+                if isTaper
+                    app.KerfModeSwitch.Enable = 'on';
+                else
+                    app.KerfModeSwitch.Value = 'Coupled';
+                    app.KerfModeSwitch.Enable = 'off';
+                end
+
+                if strcmp(app.KerfModeSwitch.Value, 'Coupled')
+                    app.KerfRightValue = app.KerfLeftValue;
+                    app.KerfRightSpinner.Value = app.KerfLeftValue;
+                    app.KerfRightSpinner.Enable = 'off';
+                else
+                    app.KerfRightSpinner.Enable = 'on';
+                end
+            end
+        end
+
         function onProfileSyncStrategyChanged(app, src, varargin)
             newStrategy = string(src.Value);
 
@@ -2035,6 +2080,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             end
 
             app.ProfileSyncStrategy = newStrategy;
+            app.syncProfileKerfControls();
 
             % Everything downstream depends on the point correspondence.
             app.IsMachineInit = false;
@@ -2166,6 +2212,12 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function onKerfModeChanged(app, src)
             % Purpose: Toggles between Coupled (identical) and Independent kerf values.
+            
+            if app.isAnchorSyncStrategy()
+                app.syncProfileKerfControls();
+                return;
+            end
+
             mode = src.Value;
             isCoupled = strcmp(mode, 'Coupled');
 
@@ -2184,6 +2236,12 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function onKerfLeftChanged(app, src)
             % Purpose: Updates Left Kerf value. If coupled, mirrors to Right Kerf.
+            
+            if app.isAnchorSyncStrategy()
+                app.syncProfileKerfControls();
+                return;
+            end
+            
             app.KerfLeftValue = src.Value;
 
             if strcmp(app.KerfModeSwitch.Value, 'Coupled')
@@ -2202,6 +2260,12 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function onKerfRightChanged(app, src)
             % Purpose: Updates Right Kerf value. If coupled, mirrors to Left Kerf.
+            
+            if app.isAnchorSyncStrategy()
+                app.syncProfileKerfControls();
+                return;
+            end
+            
             app.KerfRightValue = src.Value;
 
             if strcmp(app.KerfModeSwitch.Value, 'Coupled')
@@ -2218,6 +2282,12 @@ classdef CNCHotWire_GCodeGenerator < handle
 
         function onResetKerf(app)
             % Purpose: Resets kerf values to default and re-applies.
+            
+            if app.isAnchorSyncStrategy()
+                app.syncProfileKerfControls();
+                return;
+            end
+
             defaultK = CNCHotWire_GCodeGenerator.DefaultKerf;
 
             app.KerfLeftValue = defaultK;
@@ -2248,7 +2318,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             % Prototype safety guard: the feature anchors currently belong to the
             % extracted profiles. Non-zero offsets can move or round those corners,
             % so kerf-aware anchor remapping is handled in a later checkpoint.
-            if app.ProfileSyncStrategy == "Feature Anchors" && ...
+            if app.isAnchorSyncStrategy() && ...
                     (abs(app.KerfLeftValue) > 1e-12 || ...
                     abs(app.KerfRightValue) > 1e-12)
 
@@ -2257,7 +2327,7 @@ classdef CNCHotWire_GCodeGenerator < handle
 
                 if isprop(app, 'TxtProfileStatus') && isgraphics(app.TxtProfileStatus)
                     app.TxtProfileStatus.Value = {
-                        'Feature Anchors currently requires zero kerf.';
+                        'Anchor synchronisation currently requires zero kerf.';
                         'Set both kerf values to 0.00 mm,';
                         'or select Proportional Perimeter.'
                         };
