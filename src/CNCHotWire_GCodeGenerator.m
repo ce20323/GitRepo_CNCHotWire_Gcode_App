@@ -7907,7 +7907,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             leftPnl = uigridlayout(app.GLGuide,[7 1]);
             leftPnl.Layout.Column = 1;
             % 1x spacer pushes Guidance and Status to the bottom!
-            leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            leftPnl.RowHeight = {'fit', 'fit', 'fit', '1x', 'fit', 120, CNCHotWire_GCodeGenerator.ButtonHeight};
             leftPnl.Padding = [5 5 5 5];
             leftPnl.BackgroundColor = panelBg; % Distinct sidebar shade
 
@@ -8755,7 +8755,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.MachineLeftPanel = uigridlayout(app.GLMachine,[6 1]);
 
             % Rows: 1:View, 2:Auto, 3:Placement, 4:Guidance(1x), 5:Status(70px), 6:Continue
-            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            app.MachineLeftPanel.RowHeight = {'fit','fit','fit','1x',120, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.MachineLeftPanel.Padding =[5 5 5 5];
             app.MachineLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.MachineLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
@@ -8905,7 +8905,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.CuttingLeftPanel.Layout.Column  = 1;
 
             % Rows: 1:View, 2:Auto, 3:Modes, 4:Interaction, 5:Guidance(1x), 6:Status(70px), 7:Continue
-            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',70, CNCHotWire_GCodeGenerator.ButtonHeight};
+            app.CuttingLeftPanel.RowHeight = {'fit','fit','fit','fit','1x',100, CNCHotWire_GCodeGenerator.ButtonHeight};
             app.CuttingLeftPanel.Padding   = [5 5 5 5];
             app.CuttingLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.CuttingLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
@@ -9352,7 +9352,7 @@ classdef CNCHotWire_GCodeGenerator < handle
             app.PostLeftPanel = uigridlayout(app.GLPostProcess,[7 1]);
 
             % Rows: 1:View, 2:Settings, 3:Export, 4:GCode(1x), 5:Save, 6:Guidance(1x), 7:Status(70px)
-            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator.ButtonHeight, '1x', 70};
+            app.PostLeftPanel.RowHeight = {'fit', 'fit', 'fit', '1x', CNCHotWire_GCodeGenerator.ButtonHeight, '1x', 120};
             app.PostLeftPanel.Padding =[5 5 5 5];
             app.PostLeftPanel.RowSpacing = CNCHotWire_GCodeGenerator.BlockSpacing;
             app.PostLeftPanel.BackgroundColor = panelBg; % Distinct sidebar shade
