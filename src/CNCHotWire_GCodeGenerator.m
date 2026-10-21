@@ -33,9 +33,9 @@ classdef CNCHotWire_GCodeGenerator < handle
         MachineSpanX   (1,1) double = 1180;            % [mm] Fixed distance between left and right towers
         MachineLimitY  (1,1) double = 750;             % [mm] Total Y-axis travel (0 to 750)
         MachineLimitZ  (1,1) double = 500;             % [mm] Total Z-axis travel (0 to 500)
-        MachineBedPos  (1,3) double = [44, 50, -24];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
-        MachineBedSize (1,3) double = [1088, 700, 24]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
-        BrassJointOffsetRight (1,1) double = -50.0;    % [mm] Neutral position of brass joint relative to right bed edge (negative = inward/over bed)
+        MachineBedPos  (1,3) double = [95, 50, -22];   % [mm] Physical bed origin [X, Y, Z] relative to machine zero (front bottom left)
+        MachineBedSize (1,3) double = [900, 700, 22]; % [mm] Physical 'sacrificail' bed dimensions [X, Y, Z]
+        BrassJointOffsetRight (1,1) double = 85.0;    % [mm] Neutral position of brass joint relative to right bed edge (negative = inward/over bed)
 
         %% --- SAFETY THRESHOLDS ---
         SafetyBuffer_BedEdge   (1,1) double = 10.0;   % [mm] Distance billet is from bed edge to trigger Amber warning
